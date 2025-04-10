@@ -1,0 +1,17 @@
+whoi-uwapm
+geopy
+numpy
+python-dateutil
+pytz
+rospkg
+six
+crccheck
+bitstring
+msgpack
+ltcodecs>=3.0.0
+whoi-gitver
+acomms>=2.5.0
+importlib-metadata
+pyyaml
+rospy-yaml-include>=2.0.0
+croniter

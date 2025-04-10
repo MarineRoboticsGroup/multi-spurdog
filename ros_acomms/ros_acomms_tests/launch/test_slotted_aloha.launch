@@ -1,0 +1,82 @@
+<launch>
+    <arg name="num_slots" default="8" doc="" />
+    <arg name="slot_duration_seconds" default="15" doc="" />
+    <arg name="aloha_slot_priority" default="75" doc="" />
+
+    <arg name="active_slots_high_pass" default="0,1" doc="" />
+    <arg name="aloha_slots_high_pass" default="0,1,5" doc="" />
+    <arg name="active_slots_low_pass" default="4,5" doc="" />
+    <arg name="aloha_slots_low_pass" default="3" doc="" />
+
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time:%Y-%m-%dT%H:%M:%S}] [${node}]: ${message}"/>
+
+    <param name="use_sim_time" value="true"/>
+
+    <group ns="modem0">
+        <param name="random_seed" value="4" />
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="0" type="int" />
+        </node>
+
+        <node name="tdma_slotted_aloha" pkg="ros_acomms" type="tdma_slotted_aloha_node.py" output="screen" required="true" respawn="false">
+            <param name="num_slots" value="$(arg num_slots)"/>
+            <param name="slot_duration_seconds" value="$(arg slot_duration_seconds)" />
+            <param name="aloha_slot_priority" value="$(arg aloha_slot_priority)"/>
+            <param name="active_slots" value="$(arg active_slots_high_pass)"/>
+            <param name="aloha_slots" value="$(arg aloha_slots_high_pass)"/>
+            <param name="allow_aloha_slots_only" value="True"/>
+            <param name="nav_slots" value=""/>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config_slotted_aloha.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config_slotted_aloha.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <group ns="modem1">
+        <param name="random_seed" value="4" />
+
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="1" type="int" />
+        </node>
+
+        <node name="tdma_slotted_aloha" pkg="ros_acomms" type="tdma_slotted_aloha_node.py" output="screen" required="true" respawn="false">
+            <param name="num_slots" value="$(arg num_slots)"/>
+            <param name="slot_duration_seconds" value="$(arg slot_duration_seconds)" />
+            <param name="aloha_slot_priority" value="$(arg aloha_slot_priority)"/>
+            <param name="active_slots" value="$(arg active_slots_low_pass)"/>
+            <param name="aloha_slots" value="$(arg aloha_slots_low_pass)"/>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+                <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config_slotted_aloha.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config_slotted_aloha.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <param name="random_seed" value="4" />
+    <node name="sim_packet_performance_node" pkg="ros_acomms_modeling" type="sim_packet_performance_node.py" />
+
+    <node name="sim_transmission_loss_node" pkg="ros_acomms_modeling" type="sim_transmission_loss_node.py"  >
+        <param name="water_depth" value="20" type="int" />
+        <param name="bellhop_arrivals" value="false" type="bool" />
+    </node>
+
+    <node name="clock_generator" pkg="ros_acomms_modeling" type="clock_generator.py" />
+
+</launch>

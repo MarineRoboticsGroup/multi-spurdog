@@ -1,0 +1,8 @@
+Pose relative_pose1
+Pose relative_pose2
+Pose relative_pose3
+Pose relative_pose4
+NoiseModelPose noise1
+NoiseModelPose noise2
+NoiseModelPose noise3
+NoiseModelPose noise4

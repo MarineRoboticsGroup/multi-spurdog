@@ -1,0 +1,50 @@
+# Source Info Requested
+########################
+
+# Source Latitude [decimal degrees]. Positive is north of equator; negative is south
+# (-90 <= latitude <= +90).
+float32 src_latitude
+
+# Source Longitude [decimal degrees]. Positive is east of prime meridian; negative is west
+# (-180 <= longitude <= +180)
+float32 src_longitude
+
+# Source Depth [m]. Positive is below the WGS 84 ellipsoid.
+float32 src_depth
+
+# Source transmit level [dB]
+float32 src_tx_level_db
+
+# Center frequency [hz]
+float32 center_frequency_hz
+
+# Bandwidth [hz]
+float32 bandwidth_hz
+
+
+# Receiver Info Requested
+##########################
+
+# Receiver Latitude [decimal degrees]. Positive is north of equator; negative is south
+# (-90 <= latitude <= +90).
+float32 rcv_latitude
+
+# Receiver Longitude [decimal degrees]. Positive is east of prime meridian; negative is west
+# (-180 <= longitude <= +180)
+float32 rcv_longitude
+
+# Receiver Depth [m]. Positive is below the WGS 84 ellipsoid.
+float32 rcv_depth
+
+---
+
+# Receiver Info Reponse
+########################
+
+# Receive level [dB]
+float32 rcv_rx_level_db
+
+# Transmission delay [duration].
+# Seconds and nanoseconds. See rospy.duration
+duration transmission_delay
+

@@ -1,0 +1,3 @@
+int16 priority
+int16 dest_address
+int32 message_count

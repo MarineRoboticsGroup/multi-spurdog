@@ -1,0 +1,140 @@
+<launch>
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <arg name="sim" default="true" doc="Sim or Hardware modems, default: sim" />
+    <arg name="tdma_type" default="tdma_advanced" doc="type of TDMA node to use: tdma_advanced, or tdma_scripted or tdma_slotted_aloha" />
+
+    <!-- <node pkg="rostopic" type="rostopic" name="modem0_talker" args="pub /modem0/test_msg std_msgs/UInt8 1 -r 1" output="screen"/>
+    <node pkg="rostopic" type="rostopic" name="modem1_talker" args="pub /modem1/test_msg std_msgs/UInt8 1 -r 1" output="screen"/> -->
+
+    <group ns="modem0">
+        <node name="acoustic_range_node" pkg="ros_acomms" type="acoustic_range_node.py" output="screen" />
+
+        <node unless="$(arg sim)" name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyUSB1" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <param name="use_ping_payload" value="false" type="bool" />
+            <rosparam param="modem_config">
+                SRC: 0
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                pwramp.txlevel: 2
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node if="$(arg sim)" name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="25000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="0" type="int" />
+            <param name="use_ping_payload" value="false" type="bool" />
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false">
+            <rosparam>
+                active_slots: 0
+                num_slots: 2
+                slot_duration_seconds: 10
+                comms_slots: ''
+                guard_time_seconds: 4
+                packet_length_seconds: 5
+                ping_modem: True
+                ping_modem_src: 1
+                pings_per_slot: 1
+            </rosparam>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <group ns="modem1">
+        <node name="acoustic_range_node" pkg="ros_acomms" type="acoustic_range_node.py" output="screen" />
+
+        <node unless="$(arg sim)" name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyUSB2" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <param name="use_ping_payload" value="true" type="bool" />
+            <rosparam param="modem_config">
+                SRC: 1
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node if="$(arg sim)" name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="25000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="1" type="int" />
+            <param name="use_ping_payload" value="true" type="bool" />
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false">
+            <rosparam>
+                active_slots: 1
+                num_slots: 2
+                slot_duration_seconds: 10
+                comms_slots: ''
+                guard_time_seconds: 4
+                packet_length_seconds: 5
+                ping_modem: True
+                ping_modem_src: 0
+                pings_per_slot: 1
+            </rosparam>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <group ns="modem2">
+        <node unless="$(arg sim)" name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyUSB2" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <param name="use_ping_payload" value="true" type="bool" />
+            <rosparam param="modem_config">
+                SRC: 2
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node if="$(arg sim)" name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="25000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="2" type="int" />
+            <param name="use_ping_payload" value="true" type="bool" />
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <node name="sim_packet_performance_node" pkg="ros_acomms_modeling" type="sim_packet_performance_node.py" />
+
+    <node name="sim_transmission_loss_node" pkg="ros_acomms_modeling" type="sim_transmission_loss_node.py"  >
+        <param name="water_depth" value="20" type="int" />
+        <param name="bellhop_arrivals" value="false" type="bool" />
+    </node>
+</launch>

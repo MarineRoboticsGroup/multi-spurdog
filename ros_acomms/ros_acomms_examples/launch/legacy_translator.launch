@@ -1,0 +1,28 @@
+<launch>
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+        <param name="modem_serial_port" value="/dev/ttyUSB0" />
+    </node>
+
+    <!-- node name="tdma" pkg="ros_acomms" type="tdma_node.py" output="screen">
+        <param name="num_slots" value="2"/>
+        <param name="active_slots" value="1"/>
+        <param name="slot_duration_seconds" value="30" />
+    </node>
+    -->
+
+    <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+        <rosparam param="packet_codecs" command="load" file="message_codec_config.yaml" />
+    </node>
+
+    <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+        <rosparam param="packet_codecs" command="load" file="message_codec_config.yaml" />
+        <rosparam param="message_codecs" command="load" file="message_codec_config.yaml" />
+    </node>
+
+    <node name="legacy_translator" pkg="ros_acomms" type="legacy_translator_node.py" output="screen" />
+
+
+
+</launch>

@@ -1,0 +1,76 @@
+- codec_name: default
+  match_src: []
+  match_dest: []
+  except_src: []
+  except_dest: []
+  packet_codec: ros
+  miniframe_header: [0xac]
+  dataframe_header: []
+  remove_headers: true
+  message_codecs:
+    - id: 101
+      message_codec: default
+      subscribe_topic: "test_fragmentation_msg"
+      publish_topic: "from_acomms/test_fragmentation_msg"
+      ros_type: "ros_acomms_tests/FragmentationTestMsg"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      is_active: true
+      priority: 30
+      fields:
+        data:
+          codec: bytes
+          max_length: 2000
+        hashstr:
+          codec: string
+          max_length: 64
+    - id: 102
+      message_codec: default
+      subscribe_topic: "test_msg"
+      publish_topic: "from_acomms/test_msg"
+      ros_type: "std_msgs/UInt8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 50
+      fields:
+        data:
+          codec: uint8
+    - id: 103
+      message_codec: default
+      subscribe_topic: "command"
+      publish_topic: "from_acomms/command"
+      ros_type: "ros_acomms_msgs/PingTranspondersRequest"
+      default_dest: 221
+      queue_order: fifo
+      queue_maxsize: 1
+      priority: 100
+      fields:
+        transponder_dest_mask:
+          codec: fixed_len_array
+          element_type: bool
+          length: 4
+        timeout_sec:
+          codec: float
+          min_value: -1.0
+          max_value: 100.0
+          precision: 1
+    - id: 104
+      message_codec: default
+      subscribe_topic: "response"
+      publish_topic: "from_acomms/response"
+      ros_type: "ros_acomms_msgs/PingTranspondersResponse"
+      default_dest: 221
+      queue_order: fifo
+      queue_maxsize: 1
+      priority: 100
+      fields:
+        travel_times:
+          codec: fixed_len_array
+          length: 4
+          element_type: float
+          element_params:
+            min_value: -1.0
+            max_value: 10.0
+            precision: 1

@@ -1,0 +1,17 @@
+slot_tags:
+  - slots: 0-2
+    require_tags:
+      - 'extra_special'
+  - slots: 0-11
+    exclude_tags:
+      - 'always_exclude'
+  - slots: 2
+    minimum_priority: 50
+    exclude_tags:
+      - 'low_priority'
+  - slots: 4-11
+    require_tags:
+      - 'chat'
+  - slots: 4-6
+    require_tags:
+      - 'some_aloha'

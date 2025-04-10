@@ -1,0 +1,107 @@
+- codec_name: default
+  match_src: []
+  match_dest: []
+  except_src: []
+  except_dest: []
+  packet_codec: ros
+  miniframe_header: [0xac]
+  dataframe_header: []
+  remove_headers: true
+  message_codecs:
+    #
+    #   Static Queue Definitions:
+    #
+    - id: 100
+      message_codec: default
+      subscribe_topic: "chat_msgs"
+      publish_topic: "from_acomms"
+      ros_type: "std_msgs/Int8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 55
+      tags:
+        - 'chat'
+      fields:
+        data:
+          codec: int8
+    - id: 101
+      message_codec: default
+      subscribe_topic: "low_priority"
+      publish_topic: "from_acomms"
+      ros_type: "std_msgs/Int8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 50
+      tags:
+        - 'low_priority'
+        - 'always_exclude'
+      fields:
+        data:
+          codec: int8
+    - id: 102
+      message_codec: default
+      subscribe_topic: "some_aloha_msgs"
+      publish_topic: "from_acomms"
+      ros_type: "std_msgs/Int8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 50
+      tags:
+        - 'some_aloha'
+      fields:
+        data:
+          codec: int8
+    - id: 103
+      message_codec: default
+      subscribe_topic: "high_priority_chat_msgs"
+      publish_topic: "from_acomms/high_priority_chat_msgs"
+      ros_type: "std_msgs/Int8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 20
+      priority: 99
+      tags:
+        - 'extra_special'
+        - 'chat'
+        - 'some_aloha'
+      fields:
+        data:
+          codec: int8
+    #
+    #   Dynamic Queue Definitions:
+    #
+    - id: 110
+      message_codec: default
+      dynamic_queue_service: "get_next"
+      dynamic_update_topic: "update_queue"
+      publish_topic: "from_acomms/test_dynamic_msg"
+      ros_type: "std_msgs/UInt8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 100
+      tags:
+        - 'extra_special'
+        - 'chat'
+        - 'some_aloha'
+      fields:
+        data:
+          codec: uint8
+    - id: 111
+      message_codec: default
+      dynamic_queue_service: "get_next_exclude"
+      dynamic_update_topic: "update_queue_exclude"
+      publish_topic: "from_acomms/test_dynamic_msg_exclude"
+      ros_type: "std_msgs/UInt8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 100
+      tags:
+        - 'always_exclude'
+      fields:
+        data:
+          codec: uint8

@@ -1,0 +1,37 @@
+# Queue type constants:
+#################
+
+int8 QUEUE_IMMEDIATE=1
+int8 QUEUE_PPS=2
+int8 QUEUE_TXTRIG=3
+
+# Request
+#################
+
+# Modem queue type
+int8 queue
+
+# True if insert packet at head
+bool insert_at_head
+
+# Source transmit level requested [dB]
+float32 requested_src_level_db
+
+# Packet
+# ros_acomms Packet.msg
+##########
+Packet packet
+
+---
+
+# Response
+###########
+
+# True if packet successfully added to queue
+bool success
+
+# Position in queue
+int32 position_in_queue
+
+# Actual SRC level the modem will transmit at [dB]
+float32 actual_src_level_db

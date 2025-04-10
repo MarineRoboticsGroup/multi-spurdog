@@ -1,0 +1,28 @@
+- codec_name: default
+  match_src: []
+  match_dest: []
+  except_src: []
+  except_dest: []
+  packet_codec: ros
+  miniframe_header: [0xac]
+  dataframe_header: []
+  remove_headers: true
+  message_codecs:
+    - id: 102
+      subscribe_topic: "test_msg"
+      publish_topic: "from_acomms/test_msg"
+      ros_type: "std_msgs/UInt8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 50
+      fields:
+        data:
+          codec: uint8
+    - id: 103
+      dynamic_queue_service: "get_next_link_feedback_message"
+      dynamic_update_topic: "update_link_feedback_queue"
+      publish_topic: "link_layer_feedback"
+      ros_type: "ros_acomms_msgs/LinkStatsFeedback"
+      priority: 10
+      fields: !ros_include { package: ros_acomms_msgs, extension: codecs/LinkStatsFeedback.yaml }

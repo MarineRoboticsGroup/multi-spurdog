@@ -1,0 +1,890 @@
+- codec_name: default
+  match_src: []
+  match_dest: []
+  except_src: []
+  except_dest: []
+  packet_codec: ros
+  miniframe_header: [0xac]
+  dataframe_header: []
+  remove_headers: true
+  message_codecs:
+    - id: 1
+      message_codec: default
+      subscribe_topic: "init_prior_0"
+      publish_topic: "from_acomms/init_prior_0"
+      ros_type: "spurdog_acomms/PosePriorFactor"
+      default_dest: 0
+      queue_order: lifo
+      queue_maxsize: 1
+      is_active: true
+      allow fragmentation: false
+      priority: 40
+      fields:
+        key:
+          fields:
+            letter:
+              codec: integer
+              min_value: 0
+              max_value: 25
+            index:
+              codec: integer
+              min_value: 0
+              max_value: 65535
+        pose:
+          fields:
+            translation:
+              fields:
+                x:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                y:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                z:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+            quaternion:
+              fields:
+                x:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                y:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                z:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                w:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+        noise:
+          fields:
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_z:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_roll:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_pitch:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+    - id: 2
+      message_codec: default
+      subscribe_topic: "init_prior_1"
+      publish_topic: "from_acomms/init_prior_1"
+      ros_type: "spurdog_acomms/PosePriorFactor"
+      default_dest: 1
+      queue_order: lifo
+      queue_maxsize: 1
+      is_active: true
+      allow fragmentation: false
+      priority: 40
+      fields:
+        key:
+          fields:
+            letter:
+              codec: integer
+              min_value: 0
+              max_value: 25
+            index:
+              codec: integer
+              min_value: 0
+              max_value: 65535
+        pose:
+          fields:
+            translation:
+              fields:
+                x:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                y:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                z:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+            quaternion:
+              fields:
+                x:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                y:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                z:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+                w:
+                  codec: integer
+                  min_value: -32768
+                  max_value: 32767
+        noise:
+          fields:
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_z:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_roll:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_pitch:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+    - id: 3
+      message_codec: default
+      subscribe_topic: "partial_graph_0"
+      publish_topic: "from_acomms/partial_graph_0"
+      ros_type: "spurdog_acomms/PartialGraph"
+      default_dest: 0 # 0 = diver, 1 = REMUS
+      queue_order: lifo
+      queue_maxsize: 1
+      is_active: true
+      allow fragmentation: false
+      priority: 40
+      fields:
+        local_addr:
+          codec: integer
+          min_value: 0
+          max_value: 25
+        full_index:
+          codec: integer
+          min_value: 0
+          max_value: 65535
+        num_poses:
+          codec: integer
+          min_value: 0
+          max_value: 6
+        rel_pose_0:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_1:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_2:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_3:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_4:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_5:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        init_range_0:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        init_range_1:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        init_range_2:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        init_range_3:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        rcvd_range_0:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          remote_index:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        rcvd_range_1:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          remote_index:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        sigma_range:
+          codec: integer
+          min_value: 0
+          max_value: 255
+    - id: 4
+      message_codec: default
+      subscribe_topic: "partial_graph_1"
+      publish_topic: "from_acomms/partial_graph_1"
+      ros_type: "spurdog_acomms/PartialGraph"
+      default_dest: 1 # 0 = diver, 1 = REMUS
+      queue_order: lifo
+      queue_maxsize: 1
+      is_active: true
+      allow fragmentation: false
+      priority: 40
+      fields:
+        local_addr:
+          codec: integer
+          min_value: 0
+          max_value: 25
+        full_index:
+          codec: integer
+          min_value: 0
+          max_value: 65535
+        num_poses:
+          codec: integer
+          min_value: 0
+          max_value: 6
+        rel_pose_0:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_1:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_2:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_3:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_4:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        rel_pose_5:
+          fields:
+            x:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            y:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            z:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qx:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qy:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qz:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            qw:
+              codec: integer
+              min_value: -128
+              max_value: 127
+            sigma_x:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_y:
+              codec: integer
+              min_value: 0
+              max_value: 255
+            sigma_yaw:
+              codec: integer
+              min_value: 0
+              max_value: 255
+        init_range_0:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        init_range_1:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        init_range_2:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        init_range_3:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          measured_range:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        rcvd_range_0:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          remote_index:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        rcvd_range_1:
+          local_index:
+            codec: integer
+            min_value: 0
+            max_value: 6
+          remote_addr:
+            codec: integer
+            min_value: 0
+            max_value: 25
+          remote_index:
+            codec: integer
+            min_value: 0
+            max_value: 65535
+        sigma_range:
+          codec: integer
+          min_value: 0
+          max_value: 255

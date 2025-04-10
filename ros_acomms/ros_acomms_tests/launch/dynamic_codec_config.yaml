@@ -1,0 +1,23 @@
+- codec_name: default
+  match_src: []
+  match_dest: []
+  except_src: []
+  except_dest: []
+  packet_codec: ros
+  miniframe_header: [0xac]
+  dataframe_header: []
+  remove_headers: true
+  message_codecs:
+    - id: 103
+      message_codec: default
+      dynamic_queue_service: "get_next"
+      dynamic_update_topic: "update_queue"
+      publish_topic: "from_acomms/test_dynamic_msg"
+      ros_type: "std_msgs/UInt8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      priority: 10
+      fields:
+        data:
+          codec: uint8

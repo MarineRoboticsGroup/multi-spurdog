@@ -1,0 +1,61 @@
+header:
+  codec: msg
+  ros_type: "std_msgs/Header"
+  fields:
+    stamp:
+      codec: rostime
+      epoch_end: 1735722000
+
+median_noise_dB:
+  codec: linspace
+  min_value: 80
+  max_value: 130
+  num_bits: 4
+
+csts:
+  codec: variable_len_array
+  max_length: 7
+  nullable: true
+  element_type: msg
+  element_params:
+    ros_type: "ros_acomms_msgs/CST"
+    fields:
+      src:
+        codec: uint8
+      mode:
+        codec: varint
+        min_value: 0
+        max_value: 1
+      agn:
+        codec: varint
+        min_value: 0
+        max_value: 250
+        num_bits: 3
+      snr_in:
+        codec: linspace
+        min_value: -3
+        max_value: 10
+        num_bits: 4
+      snr_out:
+        codec: linspace
+        min_value: -3
+        max_value: 10
+        num_bits: 4
+      data_rate:
+        codec: varint
+        min_value: 1
+        max_value: 5
+        resolution: 2
+
+noise_for_csts:
+  codec: variable_len_array
+  max_length: 7
+  nullable: true
+  element_type: linspace
+  element_params:
+    min_value: 80
+    max_value: 130
+    num_bits: 4
+
+
+

@@ -1,0 +1,504 @@
+build_test_image:
+  tags:
+    - privileged
+  image: docker:stable
+  stage: build
+  services:
+    - name: docker:dind
+  script:
+    - docker build --rm -t ros_acomms-tests:pipeline_$CI_PIPELINE_ID -f ros_acomms_tests/tests.Dockerfile .
+  except:
+    - dev/autodocs
+
+build_auto-doc_image:
+  image: docker:stable
+  stage: build
+  tags:
+    - privileged
+  services:
+    - name: docker:dind
+  script:
+    - docker build --rm -t ros_acomms-docs:pipeline_$CI_PIPELINE_ID -f docs/auto-docs.Dockerfile .
+  only:
+    - master
+    - tags
+    - dev/autodocs
+
+trigger-ros_acomms_net-pipeline:
+  trigger:
+    project: acomms/ros_acomms_net
+    branch: $NET_DEVEL_BRANCH
+    strategy: depend
+  except:
+    - dev/autodocs
+
+trigger-ros_acomms_net_tools-pipeline:
+  trigger:
+    project: acomms/ros_acomms_net_tools
+    branch: $TOOLS_DEVEL_BRANCH
+    strategy: depend
+  except:
+    - dev/autodocs
+
+.run_tests_base: &run_tests_base
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - if [[ $TEST_LIBRARIES_FROM_GIT ]]; then git clone -b $PYACOMMS_BRANCH https://gitlab-ci-token:$CI_JOB_TOKEN@git.whoi.edu/acomms/pyacomms.git ~/pyacomms; fi
+    - if [[ $TEST_LIBRARIES_FROM_GIT ]]; then git clone -b $LTCODEC_BRANCH https://gitlab-ci-token:$CI_JOB_TOKEN@git.whoi.edu/acomms/ltcodec.git ~/ltcodec; fi
+    - if [[ $TEST_LIBRARIES_FROM_GIT ]]; then cd ~/ltcodec && pip install .; fi
+    - if [[ $TEST_LIBRARIES_FROM_GIT ]]; then cd ~/pyacomms && pip install .; fi
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - rosparam set /tdma_type $TDMA_TYPE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_ros_acomms.results.xml --cov=$ROS_ACOMMS_PATH --cov=$ROS_ACOMMS_MODELING_PATH --cov-report=  $TESTS_PATH/test_ros_acomms.py
+    - mv .coverage test_ros_acomms.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - if [[ $TEST_DYNAMIC_QUEUES ]]; then pytest --capture=no --junitxml=test_dynamic_queue.results.xml --cov=$ROS_ACOMMS_PATH --cov=$ROS_ACOMMS_MODELING_PATH --cov-report= $TESTS_PATH/test_dynamic_queue.py; fi
+    - mv .coverage test_dynamic_queue.coverage
+    - pytest --capture=no --junitxml=test_link_layer_feedback.results.xml --cov=$ROS_ACOMMS_PATH --cov=$ROS_ACOMMS_MODELING_PATH --cov-report=  $TESTS_PATH/test_link_layer_feedback.py
+    - mv .coverage test_link_layer_feedback.coverage
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+.run_tests_tdma_extended: &run_tests_tdma_extended
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - rosparam set /tdma_type $TDMA_TYPE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_tdma_extended.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_tdma_extended.py
+    - mv .coverage test_tdma_extended.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+.run_tests_tdma_extreme_configs: &run_tests_tdma_extreme_configs
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - rosparam set /tdma_type $TDMA_TYPE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_tdma_extreme_configs.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_tdma_extreme_configs.py
+    - mv .coverage test_tdma_extreme_configs.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+.run_tests_link_layer_tags: &run_tests_link_layer_tags
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - rosparam set /tdma_type $TDMA_TYPE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_link_layer_tags.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_link_layer_tags.py
+    - mv .coverage test_link_layer_tags.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+gitlab run_tests:
+  <<: *run_tests_base
+  variables:
+    TEST_LIBRARIES_FROM_GIT: "true"
+    TEST_DYNAMIC_QUEUES: "true"
+    TDMA_TYPE: "tdma"
+
+pypi-basic-tdma run_tests:
+  <<: *run_tests_base
+  variables:
+    TEST_LIBRARIES_FROM_GIT: ""
+    TEST_DYNAMIC_QUEUES: "true"
+    TDMA_TYPE: "tdma"
+
+pypi-advanced-tdma run_tests:
+  <<: *run_tests_base
+  variables:
+    TEST_LIBRARIES_FROM_GIT: ""
+    TEST_DYNAMIC_QUEUES: "true"
+    TDMA_TYPE: "tdma_advanced"
+
+pypi-scripted-tdma run_tests:
+  <<: *run_tests_base
+  variables:
+    TEST_LIBRARIES_FROM_GIT: ""
+    TEST_DYNAMIC_QUEUES: "true"
+    TDMA_TYPE: "tdma_scripted"
+
+pypi-slotted-aloha-tdma run_tests:
+  <<: *run_tests_base
+  variables:
+    TEST_LIBRARIES_FROM_GIT: ""
+    TEST_DYNAMIC_QUEUES: "true"
+    TDMA_TYPE: "tdma_slotted_aloha"
+
+pypi-extended-tdma-advanced run_tests:
+  <<: *run_tests_tdma_extended
+  variables:
+    TDMA_TYPE: "tdma_advanced"
+
+pypi-extended-tdma-scripted run_tests:
+  <<: *run_tests_tdma_extended
+  variables:
+    TDMA_TYPE: "tdma_scripted"
+
+pypi-extended-tdma-slotted-aloha run_tests:
+  <<: *run_tests_tdma_extended
+  variables:
+    TDMA_TYPE: "tdma_slotted_aloha"
+
+pypi-extreme-tdma-advanced run_tests:
+  <<: *run_tests_tdma_extreme_configs
+  variables:
+    TDMA_TYPE: "tdma_advanced"
+
+pypi-extreme-tdma-scripted run_tests:
+  <<: *run_tests_tdma_extreme_configs
+  variables:
+    TDMA_TYPE: "tdma_scripted"
+
+pypi-extreme-tdma-slotted-aloha run_tests:
+  <<: *run_tests_tdma_extreme_configs
+  variables:
+    TDMA_TYPE: "tdma_slotted_aloha"
+
+pypi-tags-tdma-basic run_tests:
+  <<: *run_tests_link_layer_tags
+  variables:
+    TDMA_TYPE: "tdma"
+
+pypi-tags-tdma-advanced run_tests:
+  <<: *run_tests_link_layer_tags
+  variables:
+    TDMA_TYPE: "tdma_advanced"
+
+pypi-tags-tdma-scripted run_tests:
+  <<: *run_tests_link_layer_tags
+  variables:
+    TDMA_TYPE: "tdma_scripted"
+
+pypi-tags-tdma-slotted-aloha run_tests:
+  <<: *run_tests_link_layer_tags
+  variables:
+    TDMA_TYPE: "tdma_slotted_aloha"
+
+test-with-hardware:
+  stage: test
+  tags:
+    - modembox
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - socat /dev/ttyUSB1,b19200,raw,echo=0 udp-listen:4002,fork | socat - udp:localhost:4001 &
+    - pytest --capture=no --junitxml=test_with_hardware.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_with_hardware.py
+    - mv .coverage test_with_hardware.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+test-tdma-scripted:
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_tdma_scripted.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_tdma_scripted.py
+    - mv .coverage test_tdma_scripted.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+test-tdma-slotted-aloha:
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_tdma_slotted_aloha.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_tdma_slotted_aloha.py
+    - mv .coverage test_tdma_slotted_aloha.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+test-mac_switcher:
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_mac_switcher.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_mac_switcher.py
+    - mv .coverage test_mac_switcher.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+test-use_ping_payload:
+  stage: test
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && cp -r $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - rosparam set /clock_generator/multiplier $CLOCK_MULTIPLIER
+    - rosparam set /clock_generator/publish_rate $CLOCK_PUBLISH_RATE
+    - source devel/setup.bash
+    - TESTS_PATH=$(rospack find ros_acomms_tests)/src
+    - ROS_ACOMMS_PATH=$(rospack find ros_acomms)/src
+    - ROS_ACOMMS_MODELING_PATH=$(rospack find ros_acomms_modeling)/src
+    - cd ${CI_PROJECT_DIR}
+    - pytest --capture=no --junitxml=test_use_ping_payload.results.xml --cov=$ROS_ACOMMS_PATH --cov-report=  $TESTS_PATH/test_use_ping_payload.py
+    - mv .coverage test_use_ping_payload.coverage  # Note that the next call to pytest will delete anything that starts with .coverage*
+    - coverage combine --keep *.coverage
+    - coverage report
+    - mv .coverage "$CI_JOB_NAME_SLUG.job.coverage"
+  except:
+    - dev/autodocs
+  artifacts:
+    paths:
+      - '*.coverage'
+    reports:
+      junit: '*.results.xml'
+
+test-coverage:
+  image: ros_acomms-tests:pipeline_$CI_PIPELINE_ID
+  except:
+    - dev/autodocs
+  needs:
+    - "gitlab run_tests"
+    - "pypi-basic-tdma run_tests"
+    - "pypi-advanced-tdma run_tests"
+    - "pypi-scripted-tdma run_tests"
+    - "pypi-slotted-aloha-tdma run_tests"
+    - "pypi-extended-tdma-advanced run_tests"
+    - "pypi-extended-tdma-scripted run_tests"
+    - "pypi-extended-tdma-slotted-aloha run_tests"
+    - "pypi-extreme-tdma-advanced run_tests"
+    - "pypi-extreme-tdma-scripted run_tests"
+    - "pypi-extreme-tdma-slotted-aloha run_tests"
+    - "pypi-tags-tdma-basic run_tests"
+    - "pypi-tags-tdma-advanced run_tests"
+    - "pypi-tags-tdma-scripted run_tests"
+    - "pypi-tags-tdma-slotted-aloha run_tests"
+    - "test-with-hardware"
+    - "test-tdma-slotted-aloha"
+    - "test-tdma-scripted"
+    - "test-mac_switcher"
+    - "test-use_ping_payload"
+  script:
+    - mkdir -p ~/catkin_ws/src
+    - cp -r ../$CI_PROJECT_NAME ~/catkin_ws/src/
+    - ls *.coverage
+    - coverage combine --keep *.job.coverage
+    - coverage xml
+    - coverage html
+    - coverage report --omit=*__init__.py,*ros_acomms/src/check_codec_config.py,*ssp_utils.py
+  coverage: '/TOTAL\s+\d+\s+\d+\s+(\d+)%/'
+  artifacts:
+    paths:
+      - '*.coverage'
+      - '.coverage'
+      - 'htmlcov/'
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+auto-docs-pdf:
+  image: ros_acomms-docs:pipeline_$CI_PIPELINE_ID
+  stage: deploy
+  script:
+    - pip install -r requirements.txt
+    - pip install .
+    - cd docs
+    - make latexpdf
+    - mv _build/latex/ros_acomms.pdf ../ros_acomms-${CI_COMMIT_REF_SLUG}.pdf
+  artifacts:
+    paths:
+      - ros_acomms-${CI_COMMIT_REF_SLUG}.pdf
+  only:
+    - master
+    - tags
+    - dev/autodocs
+
+pages:
+  image: ros_acomms-docs:pipeline_$CI_PIPELINE_ID
+  stage: deploy
+  script:
+    - source /ros_entrypoint.sh
+    - mkdir -p ~/catkin_ws/src
+    - cd ../ && mv $CI_PROJECT_NAME ~/catkin_ws/src/
+    - cd ~/catkin_ws/src/ros_acomms && pip install -U -r requirements.txt
+    - cd ~/catkin_ws && catkin_make
+    - roscore &
+    - sleep 5
+    - source devel/setup.bash
+    - cd ~/catkin_ws/src/ros_acomms/docs
+    - sphinx-build -b html . ../public
+    - cd /builds/acomms
+    - mv -f ~/catkin_ws/src/$CI_PROJECT_NAME .
+
+  artifacts:
+    paths:
+      - public
+  only:
+    - master
+    - tags
+    - dev/autodocs

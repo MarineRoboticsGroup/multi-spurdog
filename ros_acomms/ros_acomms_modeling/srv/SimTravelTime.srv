@@ -1,0 +1,38 @@
+### Request
+
+# Source Info
+# Source Latitude [decimal degrees]. Positive is north of equator; negative is south
+# (-90 <= latitude <= +90).
+float32 src_latitude
+
+# Source Longitude [decimal degrees]. Positive is east of prime meridian; negative is west
+# (-180 <= longitude <= +180)
+float32 src_longitude
+
+# Source Depth [m]. Positive is below the WGS 84 ellipsoid.
+float32 src_depth
+
+# Receiver Info
+# Receiver Latitude [decimal degrees]. Positive is north of equator; negative is south
+# (-90 <= latitude <= +90).
+float32 rcv_latitude
+
+# Receiver Longitude [decimal degrees]. Positive is east of prime meridian; negative is west
+# (-180 <= longitude <= +180)
+float32 rcv_longitude
+
+# Receiver Depth [m]. Positive is below the WGS 84 ellipsoid.
+float32 rcv_depth
+
+# Center frequency [hz]
+float32 center_frequency_hz
+
+---
+
+### Response
+
+# Acoustic travel time between source and receiver
+duration travel_time
+
+# Name of model used to calculate travel time
+string model

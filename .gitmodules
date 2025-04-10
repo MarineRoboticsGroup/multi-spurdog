@@ -1,0 +1,3 @@
+[submodule "spurdog_moos_bridge"]
+	path = spurdog_moos_bridge
+	url = git@github.com:MarineRoboticsGroup/spurdog_moos_bridge.git

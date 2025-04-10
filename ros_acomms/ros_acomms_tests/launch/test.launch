@@ -1,0 +1,72 @@
+<launch>
+    <arg name="tdma_type" default="tdma" doc="type of TDMA node to use: tdma, tdma_advanced, or tdma_scripted" />
+
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time:%Y-%m-%dT%H:%M:%S}] [${node}]: ${message}"/>
+
+    <param name="use_sim_time" value="true"/>
+
+    <group ns="modem0">
+        <param name="random_seed" value="4" />
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="0" type="int" />
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false">
+            <param name="tdma_scripted_test_plan_file" value="$(dirname)/tdma_scripted_test_plan.yaml" />
+            <param name="num_slots" value="3"/>
+            <param name="active_slots" value="0"/>
+            <param name="slot_duration_seconds" value="30" />
+        </node>
+
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <group ns="modem1">
+        <param name="random_seed" value="4" />
+
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="1" type="int" />
+        </node>
+
+        <node name="tdma_advanced" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false">
+            <param name="tdma_scripted_test_plan_file" value="$(dirname)/tdma_scripted_test_plan.yaml" />
+            <param name="num_slots" value="3"/>
+            <param name="active_slots" value="1"/>
+            <param name="slot_duration_seconds" value="30" />
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+                <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <param name="random_seed" value="4" />
+    <node name="sim_packet_performance_node" pkg="ros_acomms_modeling" type="sim_packet_performance_node.py" />
+
+    <node name="sim_transmission_loss_node" pkg="ros_acomms_modeling" type="sim_transmission_loss_node.py"  >
+        <param name="water_depth" value="20" type="int" />
+        <param name="bellhop_arrivals" value="false" type="bool" />
+    </node>
+
+    <node name="clock_generator" pkg="ros_acomms_modeling" type="clock_generator.py" />
+
+</launch>

@@ -1,0 +1,99 @@
+<launch>
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <group ns="modem0">
+        <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyUSB1" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <rosparam param="modem_config">
+                SRC: 0
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                pwramp.txlevel: 3
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <!-- <node name="sensor_data" pkg="ros_acomms" type="modem_sensor_data_node.py" respawn="true" respawn_delay="10">
+            <rosparam>
+                query_interval_seconds: 15
+                enable_battery_query: True
+            </rosparam>
+        </node> -->
+
+        <node name="tdma_scripted" pkg="ros_acomms" type="tdma_scripted_node.py" output="screen" required="true" respawn="false">
+            <rosparam param="tdma_scripted_test_plan" command="load" file="$(dirname)/tdma_scripted_test_plan.yaml" />
+            <rosparam>
+                active_slots: 0
+                num_slots: 2
+                slot_duration_seconds: 30
+                guard_time_seconds: 5
+                packet_length_seconds: 5
+                ping_modem: False
+                ping_modem_src: 1
+                pings_per_slot: 1
+                ping_cdr: 4
+                ping_transponders: False
+            </rosparam>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <group ns="modem1">
+        <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyUSB2" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <rosparam param="modem_config">
+                SRC: 1
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                pwramp.txlevel: 3
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node name="tdma_advanced" pkg="ros_acomms" type="tdma_advanced_node.py" output="screen" required="true" respawn="false">
+            <rosparam>
+                active_slots: 1
+                num_slots: 2
+                slot_duration_seconds: 30
+                guard_time_seconds: 5
+                packet_length_seconds: 5
+                ping_modem: False
+                ping_modem_src: 0
+                pings_per_slot: 1
+                ping_cdr: 8
+            </rosparam>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+                <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <node name="sim_packet_performance_node" pkg="ros_acomms_modeling" type="sim_packet_performance_node.py" />
+
+    <node name="sim_transmission_loss_node" pkg="ros_acomms_modeling" type="sim_transmission_loss_node.py"  >
+        <param name="water_depth" value="20" type="int" />
+        <param name="bellhop_arrivals" value="false" type="bool" />
+    </node>
+</launch>

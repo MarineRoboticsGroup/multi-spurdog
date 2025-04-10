@@ -1,0 +1,66 @@
+# GetNextQueuedMessage: Service to get messages from dynamic queues
+
+# Request
+#########
+
+# Only return encoded messages smaller that this size in bits
+int32 max_size_in_bits
+
+# Only return messages with link-layer priority equal to or greater than this value.  Error checking of responses will
+# log an error and drop the message if a message with lower priority is returned.
+int8 minimum_priority
+
+# If using a packet codec that requires a single link-layer destination, only return messages that match this address.
+# With most packet codecs, you can ignore this (if you aren't sure about it, ignore it).
+int16 dest_address
+
+# If this is a non-empty string, only return messages that are compatible with the specified packet codec.
+# As with dest_address, you can ignore it if you are only using standard ROS packet codecs.
+string packet_codec
+
+# Do not return message IDs that are in this list.  This list is automatically populated with the message IDs of
+# each message that is placed in the outgoing packet.  These message IDs are "local" to the dynamic queue service
+# handler (i.e. "your" dynamic queue handler) and can be used to avoid including more than one copy of a message in
+# a single packet.
+int32[] exclude_message_ids
+
+# If there are (QoS) tags in this list, only include messages that match the specified tags.
+# The criteria for matching are up to the servicer, but it should do something reasonable.
+string[] require_tags
+
+# If there are (QoS) tags in this list, only include messages that do NOT match the specified tags.
+# The criteria for exclusion are up to the servicer, but it should do something reasonable.
+string[] exclude_tags
+
+---
+# Response
+##########
+
+# True if this dynamic queue has a message to send that meets the criteria in the request, False otherwise.
+# Other fields are ignored (left at defaults) if this is False.
+bool has_message
+
+# An identifier for this message.  This identifier is unique only for this dynamic queue, and is used to avoid repeating
+# the same message multiple times in a packet.  The service can implement this as a counter or any other scheme.
+int32 message_id
+
+# The link-layer destination address for this message.  This is only used by packet codecs that call for a fixed
+# link-layer destination, and is ignored by most ROS message codecs.
+int16 dest_address
+
+# Link-layer priority of this message.  This will be compared with the link-layer priority of messages supplied by
+# other static and dynamic queues to determine the ordering of outgoing messages.  Higher numbers have higher priority.
+# In the event that two responses or queues have the same priority, ordering is not guaranteed, but it typially follows
+# the order of static and dynamic queues in the codec configuration file.
+int8 priority
+
+# Byte array containing encoded message data.  Note that data does not need to be byte-aligned; it will be trimmed to
+# data_size_in_bits when it is appended to the packet.
+uint8[] data
+
+# Length of the encoded message data in the data array.  data_size_in_bits must be less than 8 * len(data).
+int32 data_size_in_bits
+
+# (QoS) tags associated with this message.  These may be used by the link layer, if using a MAC that understands them.
+# Leave this empty otherwise.
+string[] msg_tags

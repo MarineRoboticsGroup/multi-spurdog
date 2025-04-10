@@ -1,0 +1,10 @@
+int8 x
+int8 y
+int8 z
+int8 qx
+int8 qy
+int8 qz
+int8 qw
+uint8 sigma_x
+uint8 sigma_y
+uint8 sigma_yaw

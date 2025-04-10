@@ -1,0 +1,93 @@
+<!-- Launch Script for testing comms dockside with WHOI Modem
+    John P Morrison
+    MIT/WHOI Joint Program
+    14 Mar 2025
+    Modify the args only for agent-to-agent level changes
+        Args:
+            agent_name: format: actor_0 or beacon_0
+            source_addr: int
+            sound_speed: double
+-->
+
+<launch>
+    <!-- Args that we would change at agent-to-agent level-->
+    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
+    <arg name="source_addr" default="0" doc="int"/>
+    <arg name="sound_speed" default="1500" doc="double"/>
+    <!-- Set the ROSCONSOLE_FORMAT -->
+    <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <!-- Start the agent node -->
+    <group ns="$(arg agent_name)">
+        <!-- Common params to all nodes for a scenario -->
+        <param name="source_addr" value="$(arg source_addr)" />
+        <param name="sound_speed" value="$(arg sound_speed)" />
+        <!--Automatically start a rosbag-->
+        <!-- the rosbag should be named according to the agent name and launch time-->
+        <!-- <node name="rosbag" pkg="rosbag" type="record" args="-a -o /home/morrisjp/bags/lbltest.bag" output="screen" /> -->
+
+         <!-- Launch the modem_sim_node in lieu of acomms driver-->
+        <group ns="modem">
+            <!-- Launch acomms driver node-->
+            <node name="acomms_driver" pkg="ros_acomms" type="acomms_driver_node.py" respawn="true" respawn_delay="10" output="log">
+                <param name="modem_connection_type" value="serial" />
+                <param name="modem_serial_port" value="/dev/ttyUSB0" type="str" />
+                <param name="modem_baud_rate" value="19200" />
+                <param name="set_modem_time" value="true"/>
+                <!-- Additional Settings (untested)-->
+                <!-- See Software Guide p.66 for options-->
+                <rosparam param="modem_config">
+                    ALL: 0
+                    BND: 0
+                    MOD: 5
+                    CST: 1
+                    FC0: 25000
+                    BW0: 5000
+                    SRC: $(arg source_addr)
+                    XST: 1
+                    TAT: 50
+                    pwramp.txlevel: 3
+                    psk.packet.mod_hdr_version: 1
+                    nav.soundspeed_mps: $(arg sound_speed)
+                </rosparam>
+            </node>
+
+            <!-- Launch the TDMA node -->
+            <node name="tdma_node" pkg="ros_acomms" type="tdma_node.py" output="log" required="true" respawn="false">
+                <param name="num_slots" value="2"/>
+                <param name="active_slots" value="0,1"/> <!-- Comma-separated list of active TDMA slots -->
+                <param name="slot_duration_seconds" value="15" />
+            </node>
+
+            <!-- Launch the message_queue_node -->
+            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="log" >
+                <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/spurdog_message_codec_config_v3.yaml"/>
+            </node>
+            <!-- Launch the packet_dispatch node -->
+            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="log" >
+                <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/spurdog_message_codec_config_v3.yaml"/>
+            </node>
+        
+        </group>
+        <!-- Launch the comms_cycle_test node -->
+        <node name="comms_cycle_mgr" pkg="spurdog_acomms" type="comms_cycle_mgr.py" output="screen">
+            <param name="modem_address" value="$(arg source_addr)" />
+            <param name="num_agents" value="1" />
+            <param name="num_landmarks" value="2" />
+            <param name="landmarks" value="{L0: [0, 0, 1], L1: [1, 1, 1]}" type="yaml"/> <!-- Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...} -->
+            <param name="sound_speed" value="$(arg sound_speed)" />
+            <param name="sigma_range" value="1.0" />
+            <!-- <param name="sigma_depth" value="1.0" />
+            <param name="sigma_roll" value="0.1" />
+            <param name="sigma_pitch" value="0.1" /> -->
+        </node>
+        <!-- Launch the imu sensor handler node -->
+        <node name="imu_sensor_handler" pkg="spurdog_acomms" type="imu_sensor_handler.py" output="screen">
+            <param name="buffer_size" value="1000" />
+            <param name="imu_type" value="navigator_ahrs" />
+        </node>
+        <!-- Launch the moos-ros interface node-->
+        <node pkg="spurdog_moos_bridge" type="udp2ros" name="udp2ros_node" output="screen"/>
+    </group>
+
+</launch>

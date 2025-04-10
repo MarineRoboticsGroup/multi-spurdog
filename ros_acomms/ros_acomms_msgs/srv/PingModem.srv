@@ -1,0 +1,23 @@
+# This message is likely to change in future revisions
+
+# Request
+uint8 dest
+uint8 rate
+uint8 cdr
+
+uint8[] hexdata #Hex data to send via the ping minipacket, maximum 32 bytes
+float32 timeout_sec
+
+---
+# Response
+bool timed_out
+float32 one_way_travel_time
+float32 tat
+
+int8 txlevel
+int8 timestamp_resolution
+int8 toa_mode
+int8 snv_on
+uint32 timestamp
+
+CST cst

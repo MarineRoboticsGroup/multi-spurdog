@@ -1,0 +1,31 @@
+# Request
+#################
+
+# Packet Receive Level [dB]
+float32 rx_level_db
+
+# Receiver noise level [dB]
+float32 noise_level_db
+
+# Packet Rate. See Micromodem packet rates, 1-5
+int8 packet_rate
+
+---
+
+# Response
+###########
+
+# Packet success [bool]
+# Bool that describes success of entire packet.
+# If any minipacket or packet frame fails, false. Else true.
+bool packet_success
+float32 frame_error_probability
+
+# Miniframe success [bool]. Array of booleans for the success of each
+# individual miniframe in packet. See micromodem packet rates descr
+bool[] miniframe_success
+
+# Frame success [bool]. Array of bools for the success of each individual
+# frame in packet. See micromodem packet rates description for number of
+# frames in any given packet rate. 
+bool[] frame_success

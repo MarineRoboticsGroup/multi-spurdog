@@ -1,0 +1,9 @@
+<launch>
+	<node name="sim_transmission_loss_node" pkg="ros_acomms" type="sim_transmission_loss_node.py" output="screen" >
+	    <param name="~water_depth" value="20" type="int" />
+	    <param name="~bellhop_arrivals" value="false" type="bool" />
+	</node>
+
+	<node name="test_sim_transmission_loss_node" pkg="ros_acomms"
+	type="test_sim_transmission_loss_node.py" output="screen" />
+</launch>

@@ -1,0 +1,7 @@
+Header header
+
+float32 pwramp_temperature
+float32 pwramp_vbat
+float32 pwramp_vtransmit
+float32 modem_batt_v
+float32 modem_temp

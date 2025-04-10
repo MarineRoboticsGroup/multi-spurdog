@@ -1,0 +1,138 @@
+<launch>
+    <arg name="num_slots" default="2" doc="" />
+    <arg name="slot_duration_seconds" default="6" doc="" />
+    <arg name="tdma_type" default="tdma_advanced" doc="type of TDMA node to use: tdma_advanced, or tdma_scripted or tdma_slotted_aloha" />
+
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time:%Y-%m-%dT%H:%M:%S}] [${node}]: ${message}"/>
+
+    <param name="use_sim_time" value="true"/>
+
+    <group ns="modem0">
+        <param name="random_seed" value="1" />
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="0" type="int" />
+        </node>
+
+        <node name="acoustic_range_node" pkg="ros_acomms" type="acoustic_range_node.py" output="screen" >
+            <param name="sound_speed_max_age_sec" value="30" type="int" />
+        </node>
+
+        <node name="mac_switcher" pkg="ros_acomms" type="mac_switcher_node.py" output="screen" required="true" respawn="false" clear_params="true" >
+            <rosparam subst_value="True">
+                default_mac_namespace: 'tdma'
+                managed_mac_namespaces:
+                    - 'tdma_A'
+                    - 'tdma_B'
+                    - 'tdma_C'
+
+                # TODO: require managed mac nodes to continually publish the select message at minimum every managed_mac_heartbeat_timeout_sec
+                # .. of the mac manager will revert to the default (or prior mac if configured that way)
+                # .. mac manager select topic name: mac_switcher/MANAGED_MAC_NAMESPACE/select
+                # ..              select topic type: std_msgs/Bool (True for select, False for deselect)
+                managed_mac_heartbeat_timeout_sec: 30 # if set to -1, it will not timeout
+            </rosparam>
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="tdma_advanced_node.py" output="screen" required="true" respawn="false" clear_params="true" >
+            <param name="num_slots" value="$(arg num_slots)"/>
+            <param name="slot_duration_seconds" value="$(arg slot_duration_seconds)" />
+            <param name="active_slots" value="0,1"/>
+            <param name="pings_per_slot" value="2"/>
+            <param name="ping_modem_src" value="1"/>
+            <param name="always_send_test_data" value="True"/>
+            <param name="packet_length_seconds" value="2.5"/>
+            <param name="guard_time_seconds" value="2.5"/>
+        </node>
+
+        <node name="tdma_A" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" >
+        </node>
+
+        <node name="tdma_B" pkg="ros_acomms" type="tdma_scripted_node.py" output="screen" required="true" respawn="false" clear_params="true" >
+        </node>
+
+        <node name="tdma_C" pkg="ros_acomms" type="tdma_slotted_aloha_node.py" output="screen" required="true" respawn="false" clear_params="true" >
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" >
+            <param name="simple_path" value="true" />
+        </node>
+    </group>
+
+    <group ns="modem1">
+        <param name="random_seed" value="2" />
+
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="1" type="int" />
+        </node>
+
+        <node name="mac_switcher" pkg="ros_acomms" type="mac_switcher_node.py" output="screen" required="true" respawn="false" clear_params="true" >
+            <rosparam subst_value="True">
+                default_mac_namespace: 'tdma'
+                managed_mac_namespaces:
+                    - 'tdma_A'
+                    - 'tdma_B'
+                    - 'tdma_C'
+                    - 'tdma_D'
+                    - 'tdma_E'
+                    - 'tdma_F'
+                    - 'tdma_G'
+                    - 'tdma_H'
+
+                # TODO: require managed mac nodes to continually publish the select message at minimum every managed_mac_heartbeat_timeout_sec
+                # .. of the mac manager will revert to the default (or prior mac if configured that way)
+                # .. mac manager select topic name: mac_switcher/MANAGED_MAC_NAMESPACE/select
+                # ..              select topic type: std_msgs/Bool (True for select, False for deselect)
+                # managed_mac_heartbeat_timeout_sec: 30 # if set to -1, it will not timeout in the managed_tdma macs
+            </rosparam>
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" >
+            <param name="software_mute" value="True"/>
+        </node>
+
+        <node name="tdma_A" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+        <node name="tdma_B" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+        <node name="tdma_C" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+        <node name="tdma_D" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+        <node name="tdma_E" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+        <node name="tdma_F" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+        <node name="tdma_G" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+        <node name="tdma_H" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true" />
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" >
+            <param name="simple_path" value="true" />
+        </node>
+    </group>
+
+    <param name="random_seed" value="4" />
+    <param name="multiplier" value="1" />
+    <node name="sim_packet_performance_node" pkg="ros_acomms_modeling" type="sim_packet_performance_node.py" />
+
+    <node name="sim_transmission_loss_node" pkg="ros_acomms_modeling" type="sim_transmission_loss_node.py"  >
+        <param name="water_depth" value="20" type="int" />
+        <param name="bellhop_arrivals" value="false" type="bool" />
+    </node>
+
+    <node name="clock_generator" pkg="ros_acomms_modeling" type="clock_generator.py"/>
+
+</launch>

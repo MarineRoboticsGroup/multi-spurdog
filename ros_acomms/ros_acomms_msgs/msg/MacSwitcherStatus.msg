@@ -1,0 +1,11 @@
+Header header
+
+string active_mac_namespace
+bool active_mac_software_mute
+
+float32 managed_mac_heartbeat_age
+float32 managed_mac_heartbeat_timeout_sec
+string mac_namespace_on_timeout
+string default_mac_namespace
+
+ManagedMacState[] managed_mac_namespaces

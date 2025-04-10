@@ -1,0 +1,19 @@
+test_cycle:
+  - miniframe_rate: 1
+    dataframe_rate: 1
+    maximum_miniframe_bytes: 72
+    maximum_dataframe_bytes: 192
+    packet_tx_count: 1
+    packet_duration_sec: 5.0
+
+  - miniframe_rate: 1
+    dataframe_rate: 3
+    maximum_miniframe_bytes: 72
+    maximum_dataframe_bytes: 512
+    packet_duration_sec: 5.0
+
+  - miniframe_rate: 1
+    dataframe_rate: 5
+    maximum_miniframe_bytes: 72
+    maximum_dataframe_bytes: 2048
+    packet_duration_sec: 5.0

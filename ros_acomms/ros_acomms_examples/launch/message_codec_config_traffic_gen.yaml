@@ -1,0 +1,130 @@
+- codec_name: default
+  match_src: []
+  match_dest: []
+  except_src: []
+  except_dest: []
+  packet_codec: ros
+  miniframe_header: [0xac]
+  dataframe_header: []
+  remove_headers: true
+  message_codecs:
+    - id: 1
+      message_codec: default
+      subscribe_topic: "/status"
+      publish_topic: "/from_acomms/status"
+      ros_type: "ros_remus/Status"
+      default_dest: 121
+      queue_order: lifo
+      queue_maxsize: 1
+      is_active: true
+      allow_fragmentation: false
+      priority: 30
+      fields:
+        latitude:
+          codec: float
+          min_value: -90
+          max_value: 90
+          precision: 5
+        longitude:
+          codec: float
+          min_value: -180
+          max_value: 180
+          precision: 5
+        depth:
+          codec: float
+          min_value: 0
+          max_value: 6000
+          precision: 1
+        depth_goal:
+          codec: integer
+          min_value: 0
+          max_value: 6000
+        altitude:
+          codec: float
+          min_value: 0
+          max_value: 1000
+          precision: 1
+        pitch:
+          codec: float
+          min_value: -90
+          max_value: 90
+          precision: 1
+        roll:
+          codec: float
+          min_value: -90
+          max_value: 90
+          precision: 1
+        thruster_rpm:
+          codec: integer
+          min_value: -1500
+          max_value: 1500
+        thruster_rpm_goal:
+          codec: integer
+          min_value: -1500
+          max_value: 1500
+        velocity:
+          codec: float
+          min_value: -5
+          max_value: 5
+          precision: 2
+        heading:
+          codec: integer
+          min_value: 0
+          max_value: 360
+        leg_num:
+          codec: integer
+          min_value: 0
+          max_value: 510
+        override_enabled:
+          codec: bool
+        override_active:
+          codec: bool
+        override_allowed:
+          codec: bool
+        major_fault:
+          codec: bool
+    - id: 5
+      message_codec: default
+      subscribe_topic: "sst"
+      publish_topic: "from_acomms/sst"
+      ros_type: "ros_acomms/SST"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 5
+      allow_fragmentation: false
+      priority: 20
+      fields:
+        in_water_spl_dB:
+          codec: float
+          min_value: 0
+          max_value: 255
+          precision: 1
+        summary_min:
+          codec: float
+          min_value: 0
+          max_value: 255
+          precision: 1
+        summary_max:
+          codec: float
+          min_value: 0
+          max_value: 255
+          precision: 1
+        summary_median:
+          codec: float
+          min_value: 0
+          max_value: 255
+          precision: 1
+    - id: 6
+      message_codec: default
+      subscribe_topic: "nmea_from_modem"
+      publish_topic: "from_acomms/nmea_from_modem"
+      ros_type: "std_msgs/String"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 10
+      allow_fragmentation: false
+      priority: 1
+      fields:
+        data:
+          codec: string
+

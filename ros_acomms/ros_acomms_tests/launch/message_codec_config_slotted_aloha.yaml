@@ -1,0 +1,34 @@
+- codec_name: default
+  match_src: []
+  match_dest: []
+  except_src: []
+  except_dest: []
+  packet_codec: ros
+  miniframe_header: [0xac]
+  dataframe_header: []
+  remove_headers: true
+  message_codecs:
+    - id: 101
+      message_codec: default
+      subscribe_topic: "test_msg"
+      publish_topic: "from_acomms/test_msg"
+      ros_type: "std_msgs/UInt8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 5
+      priority: 50
+      fields:
+        data:
+          codec: uint8
+    - id: 102
+      message_codec: default
+      subscribe_topic: "test_msg_aloha"
+      publish_topic: "from_acomms/test_msg_aloha"
+      ros_type: "std_msgs/UInt8"
+      default_dest: 121
+      queue_order: fifo
+      queue_maxsize: 5
+      priority: 80
+      fields:
+        data:
+          codec: uint8

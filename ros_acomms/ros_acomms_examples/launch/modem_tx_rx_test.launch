@@ -1,0 +1,54 @@
+<launch>
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <group ns="modem0">
+        <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyUSB0" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <rosparam param="modem_config">
+                SRC: 0
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                pwramp.txlevel: 3
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="tdma_node.py" respawn="true" respawn_delay="10">
+            <rosparam>
+                active_slots: 0
+                num_slots: 2
+                slot_duration_seconds: 30
+                guard_time_seconds: 2
+            </rosparam>
+        </node>
+    </group>
+
+	<group ns="modem1">
+        <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyUSB1" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <rosparam param="modem_config">
+                SRC: 1
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                pwramp.txlevel: 3
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="tdma_node.py" respawn="true" respawn_delay="10">
+            <rosparam>
+                active_slots: 1
+                num_slots: 2
+                slot_duration_seconds: 30
+                guard_time_seconds: 2
+            </rosparam>
+        </node>
+    </group>
+</launch>

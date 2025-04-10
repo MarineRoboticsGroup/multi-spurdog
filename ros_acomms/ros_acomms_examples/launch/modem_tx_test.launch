@@ -1,0 +1,13 @@
+<launch>
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <group ns="modem0">
+        <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_serial_port" value="/dev/ttyS5" type="str" />
+            <param name="use_legacy_packets" value="True" type="bool" />
+        </node>
+    </group>
+
+	<node name="test_modem_sim_node" pkg="ros_acomms" type="test_modem_sim_node.py" output="screen" />
+
+</launch>

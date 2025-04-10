@@ -1,0 +1,76 @@
+<launch>
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <group ns="modem0">
+        <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_connection_type" value="serial" />
+            <param name="modem_serial_port" value="/dev/ttyUSB0" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <rosparam param="modem_config">
+                ALL: 0
+                SRC: 0
+                BND: 0
+                FC0: 10000
+                BW0: 5000
+                pwramp.txlevel: 3
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="tdma_node.py" output="screen" required="true" respawn="false">
+            <param name="num_slots" value="2"/>
+            <param name="active_slots" value="0"/>
+            <param name="slot_duration_seconds" value="10" />
+            <param name="guard_time_seconds" value="3" />
+        </node>
+
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_sensor_data" pkg="ros_acomms" type="modem_sensor_data_node.py" output="screen">
+            <param name="query_interval_seconds" value="10"/>
+        </node>
+    </group>
+
+    <group ns="modem1">
+        <node name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" >
+            <param name="modem_connection_type" value="udp" />
+            <param name="modem_local_port" value="4001" />
+            <param name="modem_remote_port" value="4002" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <rosparam param="modem_config">
+                ALL: 0
+                SRC: 1
+                BND: 0
+                FC0: 10000
+                BW0: 5000
+                pwramp.txlevel: 3
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node name="tdma_advanced" pkg="ros_acomms" type="tdma_node.py" output="screen" required="true" respawn="false">
+            <param name="num_slots" value="2"/>
+            <param name="active_slots" value="1"/>
+            <param name="slot_duration_seconds" value="10" />
+            <param name="guard_time_seconds" value="3" />
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+    </group>
+
+</launch>

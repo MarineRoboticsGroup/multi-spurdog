@@ -1,0 +1,136 @@
+<launch>
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <arg name="sim" default="true" doc="Sim or Hardware modems, default: sim" />
+    <arg name="tdma_type" default="tdma_slotted_aloha" doc="type of TDMA node to use: tdma_advanced, or tdma_scripted or tdma_slotted_aloha" />
+
+    <node pkg="rostopic" type="rostopic" name="modem1_chat" args="pub /modem1/chat_msgs std_msgs/Int8 0 -r 0.5" output="screen"/>
+    <node pkg="rostopic" type="rostopic" name="modem1_some_aloha" args="pub /modem1/some_aloha_msgs std_msgs/Int8 1 -r 0.5" output="screen"/>
+    <node pkg="rostopic" type="rostopic" name="modem1_low_priority" args="pub /modem1/low_priority std_msgs/Int8 2 -r 0.5" output="screen"/>
+
+    <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config_tags.yaml"/>
+
+    <group ns="modem0">
+        <node name="acoustic_range_node" pkg="ros_acomms" type="acoustic_range_node.py" output="screen" />
+
+        <node unless="$(arg sim)" name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" clear_params="true" >
+            <param name="modem_serial_port" value="/dev/ttyUSB1" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <param name="use_ping_payload" value="false" type="bool" />
+            <rosparam param="modem_config">
+                SRC: 0
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                pwramp.txlevel: 2
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node if="$(arg sim)" name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" clear_params="true" >
+            <param name="center_frequency_hz" value="25000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="0" type="int" />
+            <param name="use_ping_payload" value="false" type="bool" />
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true">
+            <param name="active_slots" value="0,1" type="str" if="$(eval arg('tdma_type') == 'tdma_slotted_aloha')" />
+            <param name="active_slots" value="0-11" type="str" if="$(eval arg('tdma_type') != 'tdma_slotted_aloha')" />
+            <rosparam>
+                num_slots: 12
+                slot_duration_seconds: 10
+                guard_time_seconds: 4
+                packet_length_seconds: 5
+                ping_modem: False
+                ping_modem_src: 1
+                pings_per_slot: 1
+                always_send_test_data: True
+                aloha_slot_priority: 0
+                aloha_slots: 4-11
+            </rosparam>
+
+            <rosparam>
+                slot_tags:
+                  - slots: 0-11
+                    exclude_tags:
+                      - 'always_exclude'
+                  - slots: 0-2
+                    require_tags:
+                      - 'extra_special'
+                  - slots: 0
+                    minimum_priority: 50
+                    exclude_tags:
+                      - 'low_priority'
+                  - slots: 6-11
+                    require_tags:
+                      - 'chat'
+                  - slots: 3,4,5
+                    require_tags:
+                      - 'some_aloha'
+            </rosparam>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" />
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="log" />
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <group ns="modem1">
+        <node name="acoustic_range_node" pkg="ros_acomms" type="acoustic_range_node.py" output="screen" />
+
+        <node unless="$(arg sim)" name="acomms_driver_node" pkg="ros_acomms" type="acomms_driver_node.py" output="screen" clear_params="true" >
+            <param name="modem_serial_port" value="/dev/ttyUSB2" type="str" />
+            <param name="modem_baud_rate" value="19200" type="int" />
+            <param name="pwramp_txlevel" value="3" type="int" />
+            <param name="use_ping_payload" value="true" type="bool" />
+            <rosparam param="modem_config">
+                SRC: 1
+                BND: 0
+                FC0: 25000
+                BW0: 5000
+                psk.packet.mod_hdr_version: 1
+            </rosparam>
+        </node>
+
+        <node if="$(arg sim)" name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" clear_params="true" >
+            <param name="center_frequency_hz" value="25000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="1" type="int" />
+            <param name="use_ping_payload" value="true" type="bool" />
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false" clear_params="true">
+            <param name="active_slots" value="2,3" type="str" if="$(eval arg('tdma_type') == 'tdma_slotted_aloha')" />
+            <param name="active_slots" value="0-11" type="str" if="$(eval arg('tdma_type') != 'tdma_slotted_aloha')" />
+            <rosparam>
+                num_slots: 12
+                slot_duration_seconds: 10
+                guard_time_seconds: 4
+                packet_length_seconds: 5
+                ping_modem: False
+                ping_modem_src: 0
+                pings_per_slot: 1
+                always_send_test_data: True
+                aloha_slot_priority: 0
+                aloha_slots: 4-11
+            </rosparam>
+
+            <param name="slot_tags" value="$(dirname)/test_slot_tags.yaml" />
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" />
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="log" />
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <node name="sim_packet_performance_node" pkg="ros_acomms_modeling" type="sim_packet_performance_node.py" />
+
+    <node name="sim_transmission_loss_node" pkg="ros_acomms_modeling" type="sim_transmission_loss_node.py"  >
+        <param name="water_depth" value="20" type="int" />
+        <param name="bellhop_arrivals" value="false" type="bool" />
+    </node>
+</launch>

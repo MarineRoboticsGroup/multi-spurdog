@@ -1,0 +1,20 @@
+# Request
+int32 num_miniframe_bytes
+int32 num_dataframe_bytes
+
+bool match_dest
+int16 dest
+
+int8 minimum_priority
+string[] require_tags
+string[] exclude_tags
+
+---
+# Response
+int16 dest  # Only 0-255 used by the modem, but allow negative values here
+uint8[] miniframe_bytes
+uint8[] dataframe_bytes
+int32[] queued_message_ids #TODO
+int32 num_miniframe_bytes
+int32 num_dataframe_bytes
+int32 num_messages

@@ -1,0 +1,115 @@
+<launch>
+    <arg name="num_slots" default="300" doc="" />
+    <arg name="slot_duration_seconds" default="30" doc="" />
+    <arg name="secondary_modem_guard_time" default="24" doc="" />
+    <arg name="active_slots" default="0:150:2" doc="" />
+    <arg name="comms_slots" default="::2" doc="" />
+    <arg name="nav_slots" default="::4" doc="" />
+    <arg name="aloha_slots" default="100:152:2,200::5,280:10" doc="" />
+    <arg name="tdma_type" default="tdma_slotted_aloha" doc="" />
+
+    <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time:%Y-%m-%dT%H:%M:%S}] [${node}]: ${message}"/>
+
+    <param name="use_sim_time" value="true"/>
+
+    <group ns="modem0">
+        <param name="random_seed" value="4" />
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="0" type="int" />
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false">
+            <param name="tdma_scripted_test_plan_file" value="$(dirname)/tdma_scripted_test_plan.yaml" />
+            <param name="num_slots" value="$(arg num_slots)"/>
+            <param name="slot_duration_seconds" value="$(arg slot_duration_seconds)" />
+            <param name="active_slots" value="$(arg active_slots)"/>
+            <param name="comms_slots" value="$(arg comms_slots)"/>
+            <param name="nav_slots" value="$(arg nav_slots)"/>
+            <param name="aloha_slots" value="$(arg aloha_slots)"/>
+            <param name="aloha_slot_priority" value="100"/>
+            <param name="always_send_test_data" value="true"/>
+            <param name="guard_time_seconds" value="4"/>
+        </node>
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <group ns="modem1">
+        <param name="random_seed" value="4" />
+        <node name="modem_sim_node" pkg="ros_acomms_modeling" type="modem_sim_node.py" output="screen" >
+            <param name="center_frequency_hz" value="10000" type="int" />
+            <param name="bandwidth_hz" value="5000" type="int" />
+            <param name="SRC" value="1" type="int" />
+        </node>
+
+        <node name="noise_model" pkg="ros_acomms_modeling" type="simple_noise_model_node.py" output="screen">
+            <rosparam>
+                mean_noise_db: 60.0
+                noise_stddev_db: 3.0
+                update_every_seconds: 10
+            </rosparam>
+        </node>
+
+        <node name="tdma_extreme_manager" pkg="ros_acomms" type="tdma_multi_mac_node.py" output="screen" required="true" clear_params="true" >
+            <rosparam subst_value="True">
+                default_tdma_namespace: 'tdma'
+                managed_tdma_namespaces:
+                    - 'tdma_A'
+                    - 'tdma_B'
+                    - 'tdma_C'
+                    - 'tdma_D'
+                    - 'tdma_E'
+                    - 'tdma_F'
+                    - 'tdma_G'
+                    - 'tdma_H'
+                managed_tdma_heartbeat_timeout_sec: 30 # if set to -1, it will not timeout in the managed_tdma macs
+            </rosparam>
+        </node>
+
+        <node name="tdma" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" required="true" respawn="false">
+            <param name="num_slots" value="$(arg num_slots)"/>
+            <param name="slot_duration_seconds" value="$(arg slot_duration_seconds)" />
+            <param name="guard_time_seconds" value="$(arg secondary_modem_guard_time)"/>
+        </node>
+
+        <node name="tdma_A" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+        <node name="tdma_B" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+        <node name="tdma_C" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+        <node name="tdma_D" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+        <node name="tdma_E" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+        <node name="tdma_F" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+        <node name="tdma_G" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+        <node name="tdma_H" pkg="ros_acomms" type="$(arg tdma_type)_node.py" output="screen" clear_params="true" />
+
+        <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen" >
+            <param name="packet_codec_file" value="$(find ros_acomms_tests)/launch/message_codec_config.yaml"/>
+        </node>
+
+        <node name="modem_location_sim" pkg="ros_acomms_modeling" type="modem_location_sim_node.py" />
+    </group>
+
+    <param name="random_seed" value="4" />
+    <node name="sim_packet_performance_node" pkg="ros_acomms_modeling" type="sim_packet_performance_node.py" />
+
+    <node name="sim_transmission_loss_node" pkg="ros_acomms_modeling" type="sim_transmission_loss_node.py"  >
+        <param name="water_depth" value="20" type="int" />
+        <param name="bellhop_arrivals" value="false" type="bool" />
+    </node>
+
+    <node name="clock_generator" pkg="ros_acomms_modeling" type="clock_generator.py" />
+
+</launch>
