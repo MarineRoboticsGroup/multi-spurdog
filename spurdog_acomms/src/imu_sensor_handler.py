@@ -40,7 +40,7 @@ class IMUSensorHandler:
         else:
             rospy.logerr("Unsupported IMU type specified. Please check the parameter.")
             return
-        
+
         # IMU Preintegration Service
         self.service = rospy.Service("preintegrate_imu", PreintegrateIMU, self.handle_preintegration_request)
 
@@ -82,7 +82,7 @@ class IMUSensorHandler:
         accel_scaled = accel_rh * -9.81  # Scale to m/s²
 
         return orientation, accel_scaled, omega_rh
-    
+
     def handle_preintegration_request(self, req):
         """
         Process an IMU preintegration request between t1 and t2.
@@ -108,7 +108,7 @@ class IMUSensorHandler:
         else:
             dX, dR, cov = self.preintegrate_imu_basic(selected_msgs)
         # Placeholder: Compute relative pose delta and covariance here
-        
+
         preintegrated_meas = PoseWithCovariance()
         preintegrated_meas.pose.position.x = dX[0]
         preintegrated_meas.pose.position.y = dX[1]
@@ -119,11 +119,11 @@ class IMUSensorHandler:
         rospy.loginfo(f"Processing IMU preintegration from {t1} to {t2}.")
 
         return PreintegrateIMUResponse(preintegrated_meas)
-        
+
     def preintegrate_imu_basic(self, imu_msgs):
         """
         Preintegrate IMU measurements to compute relative pose, rotation, and covariance.
-        
+
         Args:
             imu_msgs (list of sensor_msgs/Imu): List of IMU messages, sorted by time.
             accel_sigma (float): Standard deviation of linear acceleration noise.
@@ -191,7 +191,7 @@ class IMUSensorHandler:
             prev_timestamp = t
 
         return delta_p, delta_R, covariance
-    
+
     def run(self):
         rospy.spin()
 

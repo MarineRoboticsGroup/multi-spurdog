@@ -156,11 +156,11 @@ class CycleManager:
                 }
         rospy.loginfo("[%s] Modem Addresses: %s" % (rospy.Time.now(), self.modem_addresses))
         return
-    
+
     def setup_cycle_targets(self):
         """This function sets up the cycle targets for the agents and landmarks
         so that we can use the tdma slot to select the target agent and landmark for that slot in the cycle"""
-        
+
         # Set up the expected number of slots and the active slots:
         if self.num_agents == 1:
             expected_slots = 2
@@ -216,9 +216,9 @@ class CycleManager:
         rospy.loginfo("[%s] Active Slots: %s" % (rospy.Time.now(), active_slots))
         rospy.loginfo("[%s] Cycle Target Mapping: %s" % (rospy.Time.now(), self.cycle_target_mapping))
         return
-    
+
         #TDMA Cycle Tracking:
-    
+
     def on_tdma_status(self, msg):
         """This function updates the modem TDMA status
         Args:
@@ -239,7 +239,7 @@ class CycleManager:
         if current_slot == 0 and current_slot != self.tdma_status.current_slot:
             self.tdma_cycle_sequence += 1
             self.on_tdma_cycle_reset()
-        
+
         # If we need to send messages to other modems:
         if self.num_agents > 1 or self.num_landmarks > 0:
         # Load the cycle message into the queue so its ready to go when we are active
@@ -277,7 +277,7 @@ class CycleManager:
         self.tdma_status.time_to_next_active = time_to_next_active
         self.tdma_status.slot_duration_seconds = slot_duration
         return
-    
+
     def on_tdma_cycle_reset(self):
         """This function is called when the TDMA slot returns to 0
         """
@@ -335,7 +335,7 @@ class CycleManager:
         else:
             self.tdma_cycle_sequence += 1
         return
-    
+
     def execute_ping_cycle(self, current_slot, elapsed_time_in_slot):
         """This function executes the cycle for the current TDMA slot
         - Assumes nothing about the tdma structure other than duration >10sec (limited by ros_acomms/tdma)
@@ -355,7 +355,7 @@ class CycleManager:
                 self.ping_slot_open = False
             else:
                 return
-        
+
         # Execute the second of two ping slots
         if second_tgt == []:
             rospy.logwarn("[%s] No second target to ping in this slot" % rospy.Time.now())
@@ -369,7 +369,7 @@ class CycleManager:
             else:
                 return
         return
-    
+
     # Ping Handling:
     def on_nmea_from_modem(self, msg: String):
         """This function receives NMEA messages from the modem
@@ -399,7 +399,7 @@ class CycleManager:
                 rospy.loginfo("[%s] Overheard Ping from %s to %s" % (acomms_event_time, data[2], data[3]))
             else:
                 rospy.logerr("[%s] Received $CACMA with unexpected data: %s" % (rospy.Time.now(), data))
-        
+
         # TODO: Fix this once you observe one (publishing the time actually happens in the ping service)
         elif nmea_type == "$CACMR": # Modem-to-host acknowledgement of a ping response $CACMR,PNR,SRC,DEST,????
             acomms_event_time = rospy.Time.from_sec(datetime.strptime(data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
@@ -411,7 +411,7 @@ class CycleManager:
                 rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (acomms_event_time, data[2], data[3]))
             else:
                 rospy.logerr("[%s] Received $CACMR with unexpected data: %s" % (rospy.Time.now(), data))
-            
+
         elif nmea_type == "$CARFP" and data[5] == "-1": # Modem-to-host acknowledgement of a minipacket ping payload
             time, src, dest, payload = self.extract_ping_data_from_carfp(data)
             if not time or not src or not dest or not payload:
@@ -435,7 +435,7 @@ class CycleManager:
         else:
             return
         return
-    
+
     def extract_ping_data_from_carfp(self, data):
         """This function extracts the ping payload data from a ping-related $CARFP NMEA message
         Args:
@@ -450,7 +450,7 @@ class CycleManager:
         hex_payload = bytearray.fromhex(hex_data)
         payload = hex_payload.decode("utf-8") if hex_payload else ""
         return time, src, dest, payload
-    
+
     def send_ping(self, target_addr):
         """This function sends a ping to the modem
         Args:
@@ -508,7 +508,7 @@ class CycleManager:
         except rospy.ServiceException as e:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
         return
-    
+
     # Sensor data handling
     def request_preintegration(self, tj):
         # Attempt to get a relative pose between the time provided and the last time we tried this
@@ -615,7 +615,7 @@ class CycleManager:
     #     self.imu_relative_poses = {time: data for time, data in self.imu_relative_poses.items() if time >= (pose_time - rospy.Duration(180))}
     #     return
 
-    #TODO: Review the math for these two functions: 
+    #TODO: Review the math for these two functions:
     def integrate_across_poses(self, first_key, second_key):
         """This function integrates the relative poses across the imu_relative_poses dict
         Args:
@@ -636,7 +636,7 @@ class CycleManager:
         # Iterate through the sorted times and accumulate the relative poses
         for time in sorted_times:
             data = self.imu_relative_poses[time]
-            
+
             # Extract relative motion components
             rel_position = np.array(data["position"])  # Relative translation
             rel_orientation = spt.Rotation.from_quat(data["orientation"])  # Relative quaternion
@@ -698,7 +698,7 @@ class CycleManager:
         # Log the reciept
         rospy.loginfo("[%s] Received GPS data" % pose_time)
         return
-    
+
     # Pre-encoding and decoding functions:
     def encode_init_prior_data_as_int(self, initial_position, initial_orientation, initial_sigmas):
         """This function encodes the initial prior factor data into a message
@@ -746,7 +746,7 @@ class CycleManager:
         else:
             initial_sigmas = np.array([sx, sy, sz, sroll, spitch, syaw], dtype=np.int16)
         return initial_position, initial_orientation, initial_sigmas
-    
+
     def decode_init_prior_data_from_int(self, initial_position, initial_orientation, initial_sigmas):
         # Apply the reverse of the encoding process to decode the data
         # Position is a int16[3], divide by scale to get original value
@@ -772,7 +772,7 @@ class CycleManager:
             initial_sigmas[5] / self.codec_scale_factors["init_prior"]["sigma_yaw"]
         ])
         return initial_position, initial_orientation, initial_sigmas
-    
+
     def encode_partial_graph_data_as_int(self, id, position, orientation, sigmas):
         """This function encodes the partial graph data into a message
         Args:
@@ -819,7 +819,7 @@ class CycleManager:
         else:
             sigmas = list([sx, sy, sz, sroll, spitch, syaw])
         return position, orientation, sigmas
-    
+
     def decode_partial_graph_data_from_int(self, position, orientation, sigmas):
         """This function decodes the partial graph data from a message
         Args:
@@ -836,7 +836,7 @@ class CycleManager:
             position[1] / self.codec_scale_factors["partial_graph"]["y"],
             position[2] / self.codec_scale_factors["partial_graph"]["z"]
         ])
-        
+
         # Orientation is a int8[4], divide by scale to get original value
         orientation = np.array([
             orientation[0] / self.codec_scale_factors["partial_graph"]["qx"],
@@ -844,7 +844,7 @@ class CycleManager:
             orientation[2] / self.codec_scale_factors["partial_graph"]["qz"],
             orientation[3] / self.codec_scale_factors["partial_graph"]["qw"]
         ])
-        
+
         # Sigmas is a int8[6], divide by scale to get original value
         sigmas = np.array([
             sigmas[0] / self.codec_scale_factors["partial_graph"]["sigma_x"],
@@ -854,9 +854,9 @@ class CycleManager:
             sigmas[4] / self.codec_scale_factors["partial_graph"]["sigma_pitch"],
             sigmas[5] / self.codec_scale_factors["partial_graph"]["sigma_yaw"]
         ])
-        
+
         return position, orientation, sigmas
-    
+
     # Message Processing Functions
     def check_partial_graph_data_for_completeness(self):
         """ This checks the graph data to ensure that we recorded the expected number of events
@@ -925,9 +925,9 @@ class CycleManager:
                         # remove the offending range (this is a soft patch to allow it to go forward)
                         del self.partial_graph_data[key]
                     else:
-                        pass           
+                        pass
             return True
-        
+
     def check_partial_graph_data_for_comms(self):
         """This function checks the partial graph data for completeness and
         whether is fits within the PartialGraph.msg
@@ -939,7 +939,7 @@ class CycleManager:
         num_btwn = len([key for key in self.partial_graph_data.keys() if key.startswith("BTWN")])
         num_rng_from_us = len([key for key in self.partial_graph_data.keys() if key.startswith("RNG") and self.partial_graph_data[key].get("range") is not None])
         num_rng_to_us = len([key for key in self.partial_graph_data.keys() if key.startswith("RNG") and self.partial_graph_data[key].get("range") is None])
-        
+
         # Perform supportability check
         if num_btwn < 0 or num_btwn > 6:
             rospy.logerr("[%s] Unsupported number of BTWN entries: %d" % (rospy.Time.now(), num_btwn))
@@ -1006,7 +1006,7 @@ class CycleManager:
                 rospy.logerr("[%s] Invalid range measurement index: %d" % (rospy.Time.now(), i))
                 continue
         return
-    
+
     def synchronize_partial_graphs(self):
         """This function synchronizes the partial graphs once all expected agents have reported
         - It assumes that process_partial_graph has been called for each agent's partial graph
@@ -1083,9 +1083,9 @@ class CycleManager:
                     del self.cycle_graph_data[key]
                 else:
                     rospy.logerr("[%s] Range entry %s is incomplete!" % (rospy.Time.now(), key))
-        
+
         return
-    
+
     # Message Handling Functions
     def build_init_prior(self):
         """This function sends an initial prior factor to the estimator
@@ -1119,7 +1119,7 @@ class CycleManager:
         # Log that we've sent the message
         rospy.loginfo("[%s] Published Initial Prior Factor" % (rospy.Time.now()))
         return
-        
+
     def build_partial_graph_from_local_data(self):
         """This function builds the partial graph from the cycle graph data
         - It checks that the graph is connected and notes any discrepancies
@@ -1147,7 +1147,7 @@ class CycleManager:
                 rospy.loginfo("[%s] Partial graph data fits within the PartialGraph.msg" % rospy.Time.now())
                 # Create the partial graph message
                 # Initialize the partial graph message
-                
+
                 # Set the local address and full index
                 partial_graph.local_addr = int(self.local_address)
                 partial_graph.full_index = self.modem_addresses[chr(ord("A") + self.local_address)][1]
@@ -1208,7 +1208,7 @@ class CycleManager:
         msg = CycleGraph()
         msg.header = Header()
         msg.header.stamp = rospy.Time.now()
-        
+
         # Load all the relative poses from the self.cycle_graph_data dict
         for key, data in self.cycle_graph_data.items():
             if key.startswith("BTWN"):
@@ -1228,7 +1228,7 @@ class CycleManager:
                 range_measurments.meas_range = data["range"]
                 range_measurments.range_sigma = self.sigma_range
                 msg.range_measurements.append(range_measurments)
-            
+
             else:
                 rospy.logerr("[%s] Invalid graph ID: %s" % (rospy.Time.now(), key))
                 continue
@@ -1280,7 +1280,7 @@ class CycleManager:
         else:
             rospy.loginfo("[%s] Waiting for all Initial Prior Factors from agents" % rospy.Time.now())
         return
-    
+
     def on_partial_graph(self, msg):
         """This function processes partial graph messages
         Args:
@@ -1305,8 +1305,8 @@ class CycleManager:
                 rospy.loginfo("[%s] Received Partial Graph from %s" % (rospy.Time.now(), local_addr))
         else:
             rospy.logerr("[%s] Received duplicate Partial Graph from %s" % (rospy.Time.now(), local_addr))
-        return 
-    
+        return
+
 if __name__ == "__main__":
 
     try:

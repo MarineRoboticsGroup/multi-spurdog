@@ -86,6 +86,7 @@ class CycleTest:
         self.nmea_to_modem = rospy.Publisher("modem/nmea_to_modem", String, queue_size=10)
         # Initialize the pubs/subs for create relative pose measurements from the estimator
         self.acomms_event = rospy.Publisher("acomms_event", Time, queue_size=1)
+
     # Setup Functions:
     def setup_addresses(self):
         """This function sets up the number of agents and landmarks
@@ -112,12 +113,12 @@ class CycleTest:
 
     def setup_cycle_targets(self):
         """This function sets up the cycle targets for the agents and landmarks."""
-        
+
         # Validate num_agents range
         if not (1 <= self.num_agents <= 3):
             rospy.logerr("[%s] Invalid number of agents: %d" % (rospy.Time.now(), self.num_agents))
             return
-        
+
         # Validate num_landmarks range
         if not (0 <= self.num_landmarks <= 2):
             rospy.logerr("[%s] Invalid number of landmarks: %d" % (rospy.Time.now(), self.num_landmarks))
@@ -140,12 +141,12 @@ class CycleTest:
             return
         # Log the active slots
         rospy.loginfo("[%s] Active Slots: %s" % (rospy.Time.now(), active_slots))
-        
+
         # Build a list of the target agents addresses from modem_addresses
         # Exclude the local address from the target agents
         tgt_agents = [self.modem_addresses[chr(ord('A') + i)][0] for i in range(self.num_agents) if i != self.local_address]
         rospy.loginfo("[%s] Target Agents: %s" % (rospy.Time.now(), tgt_agents))
-        # Build a list of target landmark 
+        # Build a list of target landmark
         tgt_ldmks = [self.modem_addresses["L%d" % i][0] for i in range(self.num_landmarks)]
         rospy.loginfo("[%s] Target Landmarks: %s" % (rospy.Time.now(), tgt_ldmks))
         # Generate cycle target mapping
@@ -190,7 +191,7 @@ class CycleTest:
                 rospy.loginfo("[%s] Skipping %s, it's our own address" % (rospy.Time.now(), key))
                 continue
         return
-    
+
     #TDMA Cycle Tracking:
     def on_tdma_status(self, msg):
         """This function updates the modem TDMA status
@@ -204,7 +205,7 @@ class CycleTest:
         remaining_active_sec = msg.remaining_active_seconds
         time_to_next_active = msg.time_to_next_active
         slot_duration = msg.slot_duration_seconds
-        
+
         # Check if the TDMA slot has changed:
         if current_slot != self.tdma_status.current_slot:
             if current_slot == 0:
@@ -223,7 +224,7 @@ class CycleTest:
         self.tdma_status.time_to_next_active = time_to_next_active
         self.tdma_status.slot_duration_seconds = slot_duration
         return
-    
+
     # Ping Handling:
     def on_nmea_from_modem(self, msg: String):
         """This function receives NMEA messages from the modem
@@ -266,8 +267,8 @@ class CycleTest:
                 rospy.loginfo("[%s] Received Ping from %s to %s with payload %s" % (time, src, dest, payload))
         else:
             return
-        return    
-    
+        return
+
     def send_ping(self, target_addr):
         """This function sends a ping to the modem
         Args:
@@ -309,7 +310,7 @@ class CycleTest:
                 src_key = src_symbol + str(self.modem_addresses[src_symbol][1]+1)
         except rospy.ServiceException as e:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
-        return    
+        return
 
     def on_ping_ack(self, nmea_type, data):
         """This function processes ping ack NMEA messages ($CAMUA or $CAMPA)
@@ -335,7 +336,7 @@ class CycleTest:
 
         return
         # Packing/Unpacking Functions:
-    
+
     def extract_ping_data_from_carfp(self, data):
         """This function extracts the ping data from a CARFP NMEA message
         Args:
@@ -351,7 +352,7 @@ class CycleTest:
         # Convert hex payload to string if needed
         payload = hex_payload.decode("utf-8") if hex_payload else ""
         return time, src, dest, payload
-    
+
     # Generate Test Messages:
     def generate_random_quaternion(self, ):
         """This function generates a random quaternion
@@ -373,7 +374,7 @@ class CycleTest:
         else:
             rospy.logerr("[%s] Generated quaternion has zero norm!" % rospy.Time.now())
         return np.array([qx, qy, qz, qw])
-    
+
     def generate_test_init_prior_data(self, method: str):
         """This function generates a test initial prior factor message
         Returns:
@@ -480,12 +481,12 @@ class CycleTest:
             msg.meas_range_1 = np.random.rand(0, 2000)
             msg.meas_range_2 = np.random.rand(0, 2000)
             msg.meas_range_3 = np.random.rand(0, 2000)
-        
+
         else:
             rospy.logerr("[%s] Unknown method for generating partial graph!" % rospy.Time.now())
             return None
         return msg
-    
+
     # Pre-encoding and decoding functions:
     def encode_init_prior_data_as_int(self, initial_position, initial_orientation, initial_sigmas):
         """This function encodes the initial prior factor data into a message
@@ -533,7 +534,7 @@ class CycleTest:
         else:
             initial_sigmas = np.array([sx, sy, sz, sroll, spitch, syaw], dtype=np.int16)
         return initial_position, initial_orientation, initial_sigmas
-    
+
     def decode_init_prior_data_from_int(self, initial_position, initial_orientation, initial_sigmas):
         # Apply the reverse of the encoding process to decode the data
         # Position is a int16[3], divide by scale to get original value
@@ -559,7 +560,7 @@ class CycleTest:
             initial_sigmas[5] / self.codec_scale_factors["init_prior"]["sigma_yaw"]
         ])
         return initial_position, initial_orientation, initial_sigmas
-    
+
     def encode_partial_graph_data_as_int(self, partial_graph: PartialGraph):
         """This function encodes the partial graph data into a message
         Args:
@@ -744,7 +745,7 @@ class CycleTest:
             return None
         # Return the encoded message
         return encoded_msg
-    
+
     def decode_partial_graph_data_from_int(self, partial_graph: PartialGraph):
         """This function decodes the partial graph data from a message
         Args:
@@ -766,7 +767,7 @@ class CycleTest:
                 getattr(partial_graph, f'relative_pos_{i}')[1] / self.codec_scale_factors["partial_graph"]["y"],
                 getattr(partial_graph, f'relative_pos_{i}')[2] / self.codec_scale_factors["partial_graph"]["z"]
             ]))
-        
+
         # Quaternion is a int8[4], divide by scale to get original value
         for i in range(0, 6):
             partial_graph.__setattr__(f'relative_rot_{i}', np.array([
@@ -775,7 +776,7 @@ class CycleTest:
                 getattr(partial_graph, f'relative_rot_{i}')[2] / self.codec_scale_factors["partial_graph"]["qz"],
                 getattr(partial_graph, f'relative_rot_{i}')[3] / self.codec_scale_factors["partial_graph"]["qw"]
             ]))
-        
+
         # Sigmas is a uint8[6], divide by scale to get original value
         for i in range(0, 6):
             partial_graph.__setattr__(f'unique_sigmas_{i}', np.array([
@@ -790,7 +791,7 @@ class CycleTest:
         partial_graph.meas_range_3 = int(partial_graph.meas_range_3 / self.codec_scale_factors["partial_graph"]["range"])
         # Return the decoded message
         return partial_graph
-    
+
     # Message Handling Functions
     def send_test_init_prior(self, target_addr):
         """This function sends an initial prior factor to the estimator
@@ -824,7 +825,7 @@ class CycleTest:
         # Log that we've sent the message
         rospy.loginfo("[%s] Published Initial Prior Factor to %s" % (rospy.Time.now(), target_addr))
         return
-    
+
     def on_init_prior(self, msg):
         """This function processes initial prior factor messages
         Args:
@@ -841,7 +842,7 @@ class CycleTest:
         # Log the initial prior factor
         rospy.loginfo("[%s] Received Initial Prior Factor from %s" % (rospy.Time.now(),local_addr))
         return
-    
+
     def send_test_partial_graph(self, target_addr):
         """This function sends a partial graph to the estimator
         Args:
@@ -867,7 +868,7 @@ class CycleTest:
         # Log that we've sent the message
         rospy.loginfo("[%s] Published Partial Graph to %s" % (rospy.Time.now(), target_addr))
         return
-        
+
     def on_partial_graph(self, msg):
         """This function processes partial graph messages
         Args:
@@ -915,7 +916,7 @@ class CycleTest:
         else:
             pass
         return
-    
+
     def run(self):
         """This function runs the comms cycle test
         """
@@ -929,7 +930,7 @@ class CycleTest:
             rospy.sleep(0.1)
         rospy.loginfo("[%s] Comms Cycle Test Stopped" % rospy.Time.now())
         return
-    
+
 if __name__ == "__main__":
     try:
         cycle_test = CycleTest()

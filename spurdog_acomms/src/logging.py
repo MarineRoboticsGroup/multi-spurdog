@@ -18,7 +18,7 @@
         # Append the XST message to the log list
         self.xst_logs.append(xst_str)
         return
-    
+
     def on_cst(self, msg: CST):
         """This function receives CST messages from the modem
         """
@@ -33,4 +33,3 @@
         # Append the CST message to the log list
         self.cst_logs.append(cst_str)
         return
-    
