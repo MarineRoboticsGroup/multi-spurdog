@@ -18,6 +18,13 @@ from spurdog_acomms.srv import(
 from std_msgs.msg import Header, String, Time, Float32
 from geometry_msgs.msg import Point, Quaternion, PoseWithCovarianceStamped
 
+from spurdog_acomms_utils.coding_utils import (
+    encode_init_prior_data_as_int,
+    decode_init_prior_data_from_int,
+    encode_partial_graph_data_as_int,
+    decode_partial_graph_data_from_int
+)
+
 class CycleManager:
     """This is a node to run the comms cycle for the vehicle."""
     def __init__(self):
@@ -641,162 +648,162 @@ class CycleManager:
         return
 
     # Pre-encoding and decoding functions:
-    def encode_init_prior_data_as_int(self, initial_position, initial_orientation, initial_sigmas):
-        """This function encodes the initial prior factor data into a message
-        Args:
-            initial_position (np.array): The initial position
-            initial_orientation (np.array): The initial orientation
-            initial_sigmas (np.array): The initial sigmas
-        Returns:
-            PosePriorFactor: The encoded initial prior factor message
-        """
-        # Position is a int16[3], multiply by scale, then convert to int16
-        x = int(initial_position[0] * self.codec_scale_factors["init_prior"]["x"])
-        y = int(initial_position[1] * self.codec_scale_factors["init_prior"]["y"])
-        z = int(initial_position[2] * self.codec_scale_factors["init_prior"]["z"])
-        # verify all fields are within int16 range
-        if not (np.all(np.abs([x, y, z]) <= 32767)):
-            rospy.logerr("[%s] Initial position values out of range!" % rospy.Time.now())
-            return None
-        else:
-            initial_position = np.array([x, y, z], dtype=np.int16)
+    # def encode_init_prior_data_as_int(self, initial_position, initial_orientation, initial_sigmas):
+    #     """This function encodes the initial prior factor data into a message
+    #     Args:
+    #         initial_position (np.array): The initial position
+    #         initial_orientation (np.array): The initial orientation
+    #         initial_sigmas (np.array): The initial sigmas
+    #     Returns:
+    #         PosePriorFactor: The encoded initial prior factor message
+    #     """
+    #     # Position is a int16[3], multiply by scale, then convert to int16
+    #     x = int(initial_position[0] * self.codec_scale_factors["init_prior"]["x"])
+    #     y = int(initial_position[1] * self.codec_scale_factors["init_prior"]["y"])
+    #     z = int(initial_position[2] * self.codec_scale_factors["init_prior"]["z"])
+    #     # verify all fields are within int16 range
+    #     if not (np.all(np.abs([x, y, z]) <= 32767)):
+    #         rospy.logerr("[%s] Initial position values out of range!" % rospy.Time.now())
+    #         return None
+    #     else:
+    #         initial_position = np.array([x, y, z], dtype=np.int16)
 
-        # Orientation is a int16[4] (quaternion)
-        qx = int(initial_orientation[0] * self.codec_scale_factors["init_prior"]["qx"])
-        qy = int(initial_orientation[1] * self.codec_scale_factors["init_prior"]["qy"])
-        qz = int(initial_orientation[2] * self.codec_scale_factors["init_prior"]["qz"])
-        qw = int(initial_orientation[3] * self.codec_scale_factors["init_prior"]["qw"])
-        # verify all fields are within int16 range
-        if not (np.all(np.abs([qx, qy, qz, qw]) <= 32767)):
-            rospy.logerr("[%s] Initial orientation values out of range!" % rospy.Time.now())
-            return None
-        else:
-            initial_orientation = np.array([qx, qy, qz, qw], dtype=np.int16)
+    #     # Orientation is a int16[4] (quaternion)
+    #     qx = int(initial_orientation[0] * self.codec_scale_factors["init_prior"]["qx"])
+    #     qy = int(initial_orientation[1] * self.codec_scale_factors["init_prior"]["qy"])
+    #     qz = int(initial_orientation[2] * self.codec_scale_factors["init_prior"]["qz"])
+    #     qw = int(initial_orientation[3] * self.codec_scale_factors["init_prior"]["qw"])
+    #     # verify all fields are within int16 range
+    #     if not (np.all(np.abs([qx, qy, qz, qw]) <= 32767)):
+    #         rospy.logerr("[%s] Initial orientation values out of range!" % rospy.Time.now())
+    #         return None
+    #     else:
+    #         initial_orientation = np.array([qx, qy, qz, qw], dtype=np.int16)
 
-        # Sigmas is a int16[6], multiply by scale, then convert to int16
-        sx = int(initial_sigmas[0] * self.codec_scale_factors["init_prior"]["sigma_x"])
-        sy = int(initial_sigmas[1] * self.codec_scale_factors["init_prior"]["sigma_y"])
-        sz = int(initial_sigmas[2] * self.codec_scale_factors["init_prior"]["sigma_z"])
-        sroll = int(initial_sigmas[3] * self.codec_scale_factors["init_prior"]["sigma_roll"])
-        spitch = int(initial_sigmas[4] * self.codec_scale_factors["init_prior"]["sigma_pitch"])
-        syaw = int(initial_sigmas[5] * self.codec_scale_factors["init_prior"]["sigma_yaw"])
-        # verify all fields are within int16 range
-        if not (np.all(np.abs([sx, sy, sz, sroll, spitch, syaw]) <= 32767)):
-            rospy.logerr("[%s] Initial sigmas values out of range!" % rospy.Time.now())
-            return None
-        else:
-            initial_sigmas = np.array([sx, sy, sz, sroll, spitch, syaw], dtype=np.int16)
-        return initial_position, initial_orientation, initial_sigmas
+    #     # Sigmas is a int16[6], multiply by scale, then convert to int16
+    #     sx = int(initial_sigmas[0] * self.codec_scale_factors["init_prior"]["sigma_x"])
+    #     sy = int(initial_sigmas[1] * self.codec_scale_factors["init_prior"]["sigma_y"])
+    #     sz = int(initial_sigmas[2] * self.codec_scale_factors["init_prior"]["sigma_z"])
+    #     sroll = int(initial_sigmas[3] * self.codec_scale_factors["init_prior"]["sigma_roll"])
+    #     spitch = int(initial_sigmas[4] * self.codec_scale_factors["init_prior"]["sigma_pitch"])
+    #     syaw = int(initial_sigmas[5] * self.codec_scale_factors["init_prior"]["sigma_yaw"])
+    #     # verify all fields are within int16 range
+    #     if not (np.all(np.abs([sx, sy, sz, sroll, spitch, syaw]) <= 32767)):
+    #         rospy.logerr("[%s] Initial sigmas values out of range!" % rospy.Time.now())
+    #         return None
+    #     else:
+    #         initial_sigmas = np.array([sx, sy, sz, sroll, spitch, syaw], dtype=np.int16)
+    #     return initial_position, initial_orientation, initial_sigmas
 
-    def decode_init_prior_data_from_int(self, initial_position, initial_orientation, initial_sigmas):
-        # Apply the reverse of the encoding process to decode the data
-        # Position is a int16[3], divide by scale to get original value
-        initial_position = np.array([
-            initial_position[0] / self.codec_scale_factors["init_prior"]["x"],
-            initial_position[1] / self.codec_scale_factors["init_prior"]["y"],
-            initial_position[2] / self.codec_scale_factors["init_prior"]["z"]
-        ])
-        # Orientation is a int16[4] (quaternion), divide by scale to get original value
-        initial_orientation = np.array([
-            initial_orientation[0] / self.codec_scale_factors["init_prior"]["qx"],
-            initial_orientation[1] / self.codec_scale_factors["init_prior"]["qy"],
-            initial_orientation[2] / self.codec_scale_factors["init_prior"]["qz"],
-            initial_orientation[3] / self.codec_scale_factors["init_prior"]["qw"]
-        ])
-        # Sigmas is a int16[6], divide by scale to get original value
-        initial_sigmas = np.array([
-            initial_sigmas[0] / self.codec_scale_factors["init_prior"]["sigma_x"],
-            initial_sigmas[1] / self.codec_scale_factors["init_prior"]["sigma_y"],
-            initial_sigmas[2] / self.codec_scale_factors["init_prior"]["sigma_z"],
-            initial_sigmas[3] / self.codec_scale_factors["init_prior"]["sigma_roll"],
-            initial_sigmas[4] / self.codec_scale_factors["init_prior"]["sigma_pitch"],
-            initial_sigmas[5] / self.codec_scale_factors["init_prior"]["sigma_yaw"]
-        ])
-        return initial_position, initial_orientation, initial_sigmas
+    # def decode_init_prior_data_from_int(self, initial_position, initial_orientation, initial_sigmas):
+    #     # Apply the reverse of the encoding process to decode the data
+    #     # Position is a int16[3], divide by scale to get original value
+    #     initial_position = np.array([
+    #         initial_position[0] / self.codec_scale_factors["init_prior"]["x"],
+    #         initial_position[1] / self.codec_scale_factors["init_prior"]["y"],
+    #         initial_position[2] / self.codec_scale_factors["init_prior"]["z"]
+    #     ])
+    #     # Orientation is a int16[4] (quaternion), divide by scale to get original value
+    #     initial_orientation = np.array([
+    #         initial_orientation[0] / self.codec_scale_factors["init_prior"]["qx"],
+    #         initial_orientation[1] / self.codec_scale_factors["init_prior"]["qy"],
+    #         initial_orientation[2] / self.codec_scale_factors["init_prior"]["qz"],
+    #         initial_orientation[3] / self.codec_scale_factors["init_prior"]["qw"]
+    #     ])
+    #     # Sigmas is a int16[6], divide by scale to get original value
+    #     initial_sigmas = np.array([
+    #         initial_sigmas[0] / self.codec_scale_factors["init_prior"]["sigma_x"],
+    #         initial_sigmas[1] / self.codec_scale_factors["init_prior"]["sigma_y"],
+    #         initial_sigmas[2] / self.codec_scale_factors["init_prior"]["sigma_z"],
+    #         initial_sigmas[3] / self.codec_scale_factors["init_prior"]["sigma_roll"],
+    #         initial_sigmas[4] / self.codec_scale_factors["init_prior"]["sigma_pitch"],
+    #         initial_sigmas[5] / self.codec_scale_factors["init_prior"]["sigma_yaw"]
+    #     ])
+    #     return initial_position, initial_orientation, initial_sigmas
 
-    def encode_partial_graph_data_as_int(self, id, position, orientation, sigmas):
-        """This function encodes the partial graph data into a message
-        Args:
-            position (np.array): The relative position
-            orientation (np.array): The relative orientation
-            sigmas (np.array): The relative sigmas
-        Returns:
-            PartialGraph: The encoded partial graph message
-        """
-        # Position is a int8[3], multiply by scale, then convert to int8
-        x = int(position[0] * self.codec_scale_factors["partial_graph"]["x"])
-        y = int(position[1] * self.codec_scale_factors["partial_graph"]["y"])
-        z = int(position[2] * self.codec_scale_factors["partial_graph"]["z"])
-        # verify all fields are within int8 range
-        if not (np.all(np.abs([x, y, z]) <= 32767)):
-            rospy.logerr("[%s] Relative position values out of range!" % rospy.Time.now())
-            return None
-        else:
-            position = list([x, y, z])
+    # def encode_partial_graph_data_as_int(self, id, position, orientation, sigmas):
+    #     """This function encodes the partial graph data into a message
+    #     Args:
+    #         position (np.array): The relative position
+    #         orientation (np.array): The relative orientation
+    #         sigmas (np.array): The relative sigmas
+    #     Returns:
+    #         PartialGraph: The encoded partial graph message
+    #     """
+    #     # Position is a int8[3], multiply by scale, then convert to int8
+    #     x = int(position[0] * self.codec_scale_factors["partial_graph"]["x"])
+    #     y = int(position[1] * self.codec_scale_factors["partial_graph"]["y"])
+    #     z = int(position[2] * self.codec_scale_factors["partial_graph"]["z"])
+    #     # verify all fields are within int8 range
+    #     if not (np.all(np.abs([x, y, z]) <= 32767)):
+    #         rospy.logerr("[%s] Relative position values out of range!" % rospy.Time.now())
+    #         return None
+    #     else:
+    #         position = list([x, y, z])
 
-        # Orientation is a int8[4] (quaternion), multiply by scale, then convert to int8
-        qx = int(orientation[0] * self.codec_scale_factors["partial_graph"]["qx"])
-        qy = int(orientation[1] * self.codec_scale_factors["partial_graph"]["qy"])
-        qz = int(orientation[2] * self.codec_scale_factors["partial_graph"]["qz"])
-        qw = int(orientation[3] * self.codec_scale_factors["partial_graph"]["qw"])
-        # verify all fields are within int8 range
-        if not (np.all(np.abs([qx, qy, qz, qw]) <= 127)):
-            rospy.logerr("[%s] Relative orientation values out of range!" % rospy.Time.now())
-            return None
-        else:
-            orientation = list([qx, qy, qz, qw])
+    #     # Orientation is a int8[4] (quaternion), multiply by scale, then convert to int8
+    #     qx = int(orientation[0] * self.codec_scale_factors["partial_graph"]["qx"])
+    #     qy = int(orientation[1] * self.codec_scale_factors["partial_graph"]["qy"])
+    #     qz = int(orientation[2] * self.codec_scale_factors["partial_graph"]["qz"])
+    #     qw = int(orientation[3] * self.codec_scale_factors["partial_graph"]["qw"])
+    #     # verify all fields are within int8 range
+    #     if not (np.all(np.abs([qx, qy, qz, qw]) <= 127)):
+    #         rospy.logerr("[%s] Relative orientation values out of range!" % rospy.Time.now())
+    #         return None
+    #     else:
+    #         orientation = list([qx, qy, qz, qw])
 
-        # Sigmas is a int8[6], multiply by scale, then convert to int8
-        sx = int(sigmas[0] * self.codec_scale_factors["partial_graph"]["sigma_x"])
-        sy = int(sigmas[1] * self.codec_scale_factors["partial_graph"]["sigma_y"])
-        sz = int(sigmas[2] * self.codec_scale_factors["partial_graph"]["sigma_z"])
-        sroll = int(sigmas[3] * self.codec_scale_factors["partial_graph"]["sigma_roll"])
-        spitch = int(sigmas[4] * self.codec_scale_factors["partial_graph"]["sigma_pitch"])
-        syaw = int(sigmas[5] * self.codec_scale_factors["partial_graph"]["sigma_yaw"])
-        # verify all fields are within int8 range
-        if not (np.all(np.abs([sx, sy, sz, sroll, spitch, syaw]) <= 255)):
-            rospy.logerr("[%s] Relative sigmas values out of range!" % rospy.Time.now())
-            return None
-        else:
-            sigmas = list([sx, sy, sz, sroll, spitch, syaw])
-        return position, orientation, sigmas
+    #     # Sigmas is a int8[6], multiply by scale, then convert to int8
+    #     sx = int(sigmas[0] * self.codec_scale_factors["partial_graph"]["sigma_x"])
+    #     sy = int(sigmas[1] * self.codec_scale_factors["partial_graph"]["sigma_y"])
+    #     sz = int(sigmas[2] * self.codec_scale_factors["partial_graph"]["sigma_z"])
+    #     sroll = int(sigmas[3] * self.codec_scale_factors["partial_graph"]["sigma_roll"])
+    #     spitch = int(sigmas[4] * self.codec_scale_factors["partial_graph"]["sigma_pitch"])
+    #     syaw = int(sigmas[5] * self.codec_scale_factors["partial_graph"]["sigma_yaw"])
+    #     # verify all fields are within int8 range
+    #     if not (np.all(np.abs([sx, sy, sz, sroll, spitch, syaw]) <= 255)):
+    #         rospy.logerr("[%s] Relative sigmas values out of range!" % rospy.Time.now())
+    #         return None
+    #     else:
+    #         sigmas = list([sx, sy, sz, sroll, spitch, syaw])
+    #     return position, orientation, sigmas
 
-    def decode_partial_graph_data_from_int(self, position, orientation, sigmas):
-        """This function decodes the partial graph data from a message
-        Args:
-            position (list): The relative position
-            orientation (list): The relative orientation
-            sigmas (list): The relative sigmas
-        Returns:
-            tuple: (position, orientation, sigmas)
-        """
-        # Decode the data by applying the reverse of the encoding process
-        # Position is a int16[3], divide by scale to get original value
-        position = np.array([
-            position[0] / self.codec_scale_factors["partial_graph"]["x"],
-            position[1] / self.codec_scale_factors["partial_graph"]["y"],
-            position[2] / self.codec_scale_factors["partial_graph"]["z"]
-        ])
+    # def decode_partial_graph_data_from_int(self, position, orientation, sigmas):
+    #     """This function decodes the partial graph data from a message
+    #     Args:
+    #         position (list): The relative position
+    #         orientation (list): The relative orientation
+    #         sigmas (list): The relative sigmas
+    #     Returns:
+    #         tuple: (position, orientation, sigmas)
+    #     """
+    #     # Decode the data by applying the reverse of the encoding process
+    #     # Position is a int16[3], divide by scale to get original value
+    #     position = np.array([
+    #         position[0] / self.codec_scale_factors["partial_graph"]["x"],
+    #         position[1] / self.codec_scale_factors["partial_graph"]["y"],
+    #         position[2] / self.codec_scale_factors["partial_graph"]["z"]
+    #     ])
 
-        # Orientation is a int8[4], divide by scale to get original value
-        orientation = np.array([
-            orientation[0] / self.codec_scale_factors["partial_graph"]["qx"],
-            orientation[1] / self.codec_scale_factors["partial_graph"]["qy"],
-            orientation[2] / self.codec_scale_factors["partial_graph"]["qz"],
-            orientation[3] / self.codec_scale_factors["partial_graph"]["qw"]
-        ])
+    #     # Orientation is a int8[4], divide by scale to get original value
+    #     orientation = np.array([
+    #         orientation[0] / self.codec_scale_factors["partial_graph"]["qx"],
+    #         orientation[1] / self.codec_scale_factors["partial_graph"]["qy"],
+    #         orientation[2] / self.codec_scale_factors["partial_graph"]["qz"],
+    #         orientation[3] / self.codec_scale_factors["partial_graph"]["qw"]
+    #     ])
 
-        # Sigmas is a int8[6], divide by scale to get original value
-        sigmas = np.array([
-            sigmas[0] / self.codec_scale_factors["partial_graph"]["sigma_x"],
-            sigmas[1] / self.codec_scale_factors["partial_graph"]["sigma_y"],
-            sigmas[2] / self.codec_scale_factors["partial_graph"]["sigma_z"],
-            sigmas[3] / self.codec_scale_factors["partial_graph"]["sigma_roll"],
-            sigmas[4] / self.codec_scale_factors["partial_graph"]["sigma_pitch"],
-            sigmas[5] / self.codec_scale_factors["partial_graph"]["sigma_yaw"]
-        ])
+    #     # Sigmas is a int8[6], divide by scale to get original value
+    #     sigmas = np.array([
+    #         sigmas[0] / self.codec_scale_factors["partial_graph"]["sigma_x"],
+    #         sigmas[1] / self.codec_scale_factors["partial_graph"]["sigma_y"],
+    #         sigmas[2] / self.codec_scale_factors["partial_graph"]["sigma_z"],
+    #         sigmas[3] / self.codec_scale_factors["partial_graph"]["sigma_roll"],
+    #         sigmas[4] / self.codec_scale_factors["partial_graph"]["sigma_pitch"],
+    #         sigmas[5] / self.codec_scale_factors["partial_graph"]["sigma_yaw"]
+    #     ])
 
-        return position, orientation, sigmas
+    #     return position, orientation, sigmas
 
     # Message Processing Functions
     def check_partial_graph_data_for_completeness(self):
@@ -1037,8 +1044,8 @@ class CycleManager:
         local_chr = chr(ord("A") + self.local_address)
         local_symbol = local_chr + str(self.modem_addresses[local_chr][1])
         # Encode the initial prior factor data into a message
-        initial_position, initial_orientation, initial_sigmas = self.encode_init_prior_data_as_int([0,0,0], [0,0,0,1], [1.7, 1.7, 0.1, 0.5, 0.5, 0.5])
-        #initial_position, initial_orientation, initial_sigmas = self.encode_init_prior_data_as_int(self.gps_fix[0], self.gps_fix[1], self.gps_fix[2])
+        initial_position, initial_orientation, initial_sigmas = encode_init_prior_data_as_int([0,0,0], [0,0,0,1], [1.7, 1.7, 0.1, 0.5, 0.5, 0.5])
+        #initial_position, initial_orientation, initial_sigmas = encode_init_prior_data_as_int(self.gps_fix[0], self.gps_fix[1], self.gps_fix[2])
         if initial_position is None or initial_orientation is None or initial_sigmas is None:
             rospy.logerr("[%s] Failed to encode initial prior factor data!" % rospy.Time.now())
             return
@@ -1106,10 +1113,10 @@ class CycleManager:
                         if num_btwn == 0:
                             # Compose the relative pose with the failed cycle relative pose
                             relative_position, relative_orientation, relative_sigmas = self.compose_relative_pose_with_failed_cycle(data["position"], data["orientation"], data["sigmas"])
-                            position, orientation, sigmas = self.encode_partial_graph_data_as_int(0, relative_position, relative_orientation, relative_sigmas)
+                            position, orientation, sigmas = encode_partial_graph_data_as_int(0, relative_position, relative_orientation, relative_sigmas)
                         else:
                             # Extract the relative position and orientation data
-                            position, orientation, sigmas = self.encode_partial_graph_data_as_int(num_btwn, data["position"], data["orientation"], data["sigmas"])
+                            position, orientation, sigmas = encode_partial_graph_data_as_int(num_btwn, data["position"], data["orientation"], data["sigmas"])
                         setattr(partial_graph, f'relative_pos_{num_btwn}', position)
                         setattr(partial_graph, f'relative_rot_{num_btwn}', orientation)
                         setattr(partial_graph, f'unique_sigmas_{num_btwn}', sigmas)
@@ -1153,7 +1160,7 @@ class CycleManager:
         # Load all the relative poses from the self.cycle_graph_data dict
         for key, data in self.cycle_graph_data.items():
             if key.startswith("BTWN"):
-                position, orientation, sigmas = self.encode_partial_graph_data_as_int(0, data["position"], data["orientation"], data["sigmas"])
+                position, orientation, sigmas = encode_partial_graph_data_as_int(0, data["position"], data["orientation"], data["sigmas"])
                 relative_pose = PoseWithAssoc()
                 relative_pose.key1 = data["key1"]
                 relative_pose.key2 = data["key2"]
