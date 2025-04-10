@@ -556,65 +556,6 @@ class CycleManager:
             rospy.logerr(f"Service call failed: {e}")
         return
 
-    # def on_preintegrated_imu(self, msg: PoseWithCovarianceStamped):
-    #     """This function receives the preintegrated IMU data from the estimator
-    #     Args:
-    #         msg (PoseWithCovarianceStamped): The preintegrated IMU data
-    #     """
-    #     # Get the current time
-    #     pose_time = msg.header.stamp
-    #     # Get the pose index for the local agent by calulating the letter from the index
-    #     local_chr = chr(ord("A") + self.local_address)
-    #     key1_index = self.modem_addresses[local_chr][1]
-    #     key1 = local_chr + str(key1_index)
-    #     key2 = local_chr + str(key1_index+1)
-    #     # Update index (only place where this is done)
-    #     self.modem_addresses[local_chr][1] = key1_index + 1
-    #     self.pose_time_lookup[key2] = pose_time
-    #     # Get the relative pose data
-    #     pose = msg.pose.pose
-    #     position = pose.position
-    #     orientation = pose.orientation
-    #     covariance = msg.pose.covariance
-    #     sigmas = np.sqrt(np.diag(covariance))
-    #     # Store the relative pose data in the imu_relative_poses dict
-    #     self.imu_relative_poses[pose_time] = {
-    #         "key1": key1,
-    #         "key2": key2,
-    #         "position": np.array([position.x, position.y, position.z]),
-    #         "orientation": np.array([orientation.x, orientation.y, orientation.z, orientation.w]),
-    #         "sigmas": sigmas
-    #     }
-    #     if self.failed_cycle_relative_pose["key1"] is not None and self.failed_cycle_relative_pose["key2"] is not None:
-    #         # If we have a failed cycle relative pose compose the existing pose with the new relative pose
-    #         existing_orientation = spt.Rotation.from_quat(self.failed_cycle_relative_pose["orientation"])
-    #         existing_covariance = np.diag(self.failed_cycle_relative_pose["sigmas"]**2)
-    #         new_position = self.failed_cycle_relative_pose["position"] + existing_orientation.apply(np.array([position.x, position.y, position.z]))
-    #         new_orientation = existing_orientation * spt.Rotation.from_quat(np.array([orientation.x, orientation.y, orientation.z, orientation.w]))
-    #         new_covariance = existing_covariance + (covariance @ covariance.T)  # Propagate covariance
-    #         new_sigmas = np.sqrt(np.diag(new_covariance))
-    #         # add to the cycle graph data
-    #         self.partial_graph_data["BTWN_%s_%s" % (self.failed_cycle_relative_pose["key1"], key2)] = {
-    #             "key1": self.failed_cycle_relative_pose["key1"],
-    #             "key2": key2,
-    #             "position": new_position,
-    #             "orientation": new_orientation.as_quat(),
-    #             "sigmas": new_sigmas
-    #         }
-    #     else:
-    #         # Add to the cycle graph data
-    #         graph_id = "BTWN_%s_%s" % (key1, key2)
-    #         self.partial_graph_data[graph_id] = {
-    #             "key1": key1,
-    #             "key2": key2,
-    #             "position": np.array([position.x, position.y, position.z]),
-    #             "orientation": np.array([orientation.x, orientation.y, orientation.z, orientation.w]),
-    #             "sigmas": sigmas
-    #         }
-    #     # Remove any imu relative poses that are older than the current pose time -180sec
-    #     self.imu_relative_poses = {time: data for time, data in self.imu_relative_poses.items() if time >= (pose_time - rospy.Duration(180))}
-    #     return
-
     #TODO: Review the math for these two functions:
     def integrate_across_poses(self, first_key, second_key):
         """This function integrates the relative poses across the imu_relative_poses dict
