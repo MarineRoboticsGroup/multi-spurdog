@@ -18,11 +18,19 @@ from spurdog_acomms.srv import(
 from std_msgs.msg import Header, String, Time, Float32
 from geometry_msgs.msg import Point, Quaternion, PoseWithCovarianceStamped
 
-from spurdog_acomms_utils.coding_utils import (
+from spurdog_acomms_utils.codec_utils import (
     encode_init_prior_data_as_int,
     decode_init_prior_data_from_int,
     encode_partial_graph_data_as_int,
     decode_partial_graph_data_from_int
+)
+from spurdog_acomms_utils.nmea_utils import (
+    parse_nmea_sentence,
+    parse_nmea_cacmd,
+    parse_nmea_cacma,
+    parse_nmea_carev,
+    parse_nmea_carfp,
+    parse_nmea_carmr
 )
 
 class CycleManager:

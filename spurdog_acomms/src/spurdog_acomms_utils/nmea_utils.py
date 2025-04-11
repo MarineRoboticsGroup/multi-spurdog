@@ -2,41 +2,6 @@ import numpy as np
 import rospy
 from datetime import datetime
 
-# fill out codec scale factors
-CODEC_SCALE_FACTORS = {
-    "init_prior": {
-        "x": 10.0,
-        "y": 10.0,
-        "z": 100.0,
-        "qx": 32767,
-        "qy": 32767,
-        "qz": 32767,
-        "qw": 32767,
-        "sigma_x": 300,
-        "sigma_y": 300,
-        "sigma_z": 300,
-        "sigma_roll": 5000,
-        "sigma_pitch": 5000,
-        "sigma_yaw": 5000,
-    },
-    "partial_graph": {
-        "x": 100.0,
-        "y": 100.0,
-        "z": 100.0,
-        "qx": 127,
-        "qy": 127,
-        "qz": 127,
-        "qw": 127,
-        "sigma_x": 10,
-        "sigma_y": 10,
-        "sigma_z": 10,
-        "sigma_roll": 10,
-        "sigma_pitch": 10,
-        "sigma_yaw": 10,
-        "range": 100,
-    }
-}
-
 def parse_nmea_sentence(nmea_sentence):
     # Get the NMEA data type and the data
     nmea_msg = nmea_sentence.split('*')[0]#remove checksum
@@ -55,8 +20,8 @@ def parse_nmea_cacmd(nmea_data: list):
         rospy.logerr("[%s] CACMD data length is not 6, instead %s!" % (rospy.Time.now(), len(nmea_data)))
         return None
     else:
-        src = nmea_data[1]
-        dest = nmea_data[2]
+        src = int(nmea_data[1])
+        dest = int(nmea_data[2])
         return src, dest
 
 def parse_nmea_cacma(nmea_data: list):
@@ -70,9 +35,9 @@ def parse_nmea_cacma(nmea_data: list):
         return None
     else:
         recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
-        src = nmea_data[2]
-        dest = nmea_data[3]
-        return recieved_ping_time, src, dest
+        src = int(nmea_data[2])
+        dest = int(nmea_data[3])
+        return src, dest, recieved_ping_time
 
 def parse_nmea_cacmr(nmea_data: list):
     """ Modem-to-host acknowledgement of a completed ping command, via the PingRequest service
@@ -85,9 +50,9 @@ def parse_nmea_cacmr(nmea_data: list):
         return None
     else:
         recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
-        src = nmea_data[2]
-        dest = nmea_data[3]
-        return recieved_ping_time, src, dest
+        src = int(nmea_data[2])
+        dest = int(nmea_data[3])
+        return src, dest, recieved_ping_time
 
 def parse_nmea_carfp(nmea_data: list):
     """ Modem-to-host acknowledgement that a minipacket has been recieved
@@ -102,8 +67,8 @@ def parse_nmea_carfp(nmea_data: list):
     else:
         # Get the time, src and dest
         recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
-        src = nmea_data[2]
-        dest = nmea_data[3]
+        src = int(nmea_data[2])
+        dest = int(nmea_data[3])
         if nmea_data[5] != "-1": # $CARFP data[5]=-1 indicates a ping minipacket
             num_frames = (len(nmea_data[9].split(";"))/3)-1
             hex_data = nmea_data[9].split(";")[-1] # Splits the data into frames, then takes the last frame (avoiding header data)
@@ -115,7 +80,7 @@ def parse_nmea_carfp(nmea_data: list):
         else:
             rospy.logerr("[%s] Unexpected CARFP data: %s!" % (rospy.Time.now(), nmea_data))
             return None
-        return recieved_ping_time, src, dest, num_frames, data_payload
+        return src, dest, recieved_ping_time, num_frames, data_payload
 
 def parse_nmea_carev(nmea_data: list):
     "Modem to host software version message"

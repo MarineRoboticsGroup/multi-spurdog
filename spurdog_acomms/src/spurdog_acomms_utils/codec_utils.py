@@ -193,3 +193,5 @@ def decode_partial_graph_data_from_int(position, orientation, sigmas):
     ])
 
     return position, orientation, sigmas
+
+# Message checking functions:
