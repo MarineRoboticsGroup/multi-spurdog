@@ -195,3 +195,101 @@ def decode_partial_graph_data_from_int(position, orientation, sigmas):
     return position, orientation, sigmas
 
 # Message checking functions:
+def check_partial_graph_for_msg_size(num_btwn, num_rng_from_us, num_rng_to_us):
+    """This function checks the partial graph data, validating that the data fits within the defined
+    message structure. This function is used to check the data before it is sent to the modem.
+    Args:
+        partial_graph_data (list): The partial graph data
+    Returns:
+        bool: True if the data is valid, False otherwise
+    """
+    # Check for supportability
+    if num_btwn > 6:
+        rospy.logerr("[%s] Too many BTWN messages (%s), max is 6" % rospy.Time.now(), num_btwn)
+        return False
+    elif num_rng_from_us > 4:
+        rospy.logerr("[%s] Too many RNG messages from us (%s), max is 4" % rospy.Time.now(), num_rng_from_us)
+        return False
+    elif num_rng_to_us > 2:
+        rospy.logerr("[%s] Too many RNG messages to us (%s), max is 2" % rospy.Time.now(), num_rng_to_us)
+        return False
+    else:
+        rospy.loginfo("[%s] Partial graph data fits the message structure" % rospy.Time.now())
+        return True
+
+def check_partial_graph_for_feasibility(partial_graph_data, num_btwn, num_rng_from_us, num_rng_to_us):
+    """This function checks the partial graph data, validating that the data fits within the defined
+    message structure. This function is used to check the data before it is sent to the modem.
+    Args:
+        partial_graph_data (list): The partial graph data
+    Returns:
+        bool: True if the data is valid, False otherwise
+    """
+    num_rngs = num_rng_from_us + num_rng_to_us
+    # Check for supportability
+    if num_btwn < 1:
+        rospy.logerr("[%s] No BTWN messages (%s), min is 1" % rospy.Time.now(), num_btwn)
+        return False
+    else:
+        # Verify that the number of between fields is equal to the number of range fields
+        if num_btwn != num_rngs:
+            rospy.logerr("[%s] Number of BTWN messages (%s) does not match number of range messages (%s)" % (rospy.Time.now(), num_btwn, num_rngs))
+            return False
+        else:
+            btwn_keys = [key for key in partial_graph_data.keys() if key.startswith("BTWN")]
+            # Check that the keys are not duplicated
+            if len(btwn_keys) != len(set(btwn_keys)):
+                rospy.logerr("[%s] BTWN keys are duplicated: %s" % (rospy.Time.now(), btwn_keys))
+                return False
+            else:
+                # Check that the keys are sequential
+                btwn_indices = [int(key.split("_")[2]) for key in btwn_keys]
+                btwn_indices.sort()
+                # Check that the keys are sequential
+                for i in range(len(btwn_indices) - 1):
+                    if btwn_indices[i] + 1 != btwn_indices[i + 1]:
+                        rospy.logerr("[%s] BTWN keys are not sequential: %s" % (rospy.Time.now(), btwn_keys))
+                        return False
+
+                # Check that the range key is present in btwn_keys
+                for key in partial_graph_data.keys():
+                    if key.startswith("RNG"):
+                        if partial_graph_data[key]["key1"] not in btwn_keys:
+                            rospy.logerr("[%s] Range key1 (%s) is not present in BTWN keys: %s" % (rospy.Time.now(), partial_graph_data[key]["key1"], btwn_keys))
+                        elif partial_graph_data[key]["key2"] not in btwn_keys:
+                            rospy.logerr("[%s] Range key2 (%s) is not present in BTWN keys: %s" % (rospy.Time.now(), partial_graph_data[key]["key2"], btwn_keys))
+                            # TODO: Consider deleting the range key if it is missing
+                            return False
+                        else:
+                            pass
+    # If all checks pass, return True
+    rospy.loginfo("[%s] Partial graph data is feasible" % rospy.Time.now())
+    return True
+
+def check_partial_graph_msg(partial_graph_data):
+    """This function checks the partial graph data, validating that the data fits within the defined
+    message structure. This function is used to check the data before it is sent to the modem.
+    - It does not check that the message is full, just that the data will fit within the message.
+    Args:
+        partial_graph_data (list): The partial graph data
+    Returns:
+        bool: True if the data is valid, False otherwise
+    """
+    num_btwn = len([key for key in partial_graph_data.keys() if key.startswith("BTWN")])
+    num_rng_from_us = len([key for key in partial_graph_data.keys() if key.startswith("RNG") and partial_graph_data[key].get("range") is not None])
+    num_rng_to_us = len([key for key in partial_graph_data.keys() if key.startswith("RNG") and partial_graph_data[key].get("range") is None])
+    size_check = check_partial_graph_for_msg_size(num_btwn, num_rng_from_us, num_rng_to_us)
+    feasibility_check = check_partial_graph_for_feasibility(partial_graph_data, num_btwn, num_rng_from_us, num_rng_to_us)
+    if size_check and feasibility_check:
+        rospy.loginfo("[%s] Partial graph data is SAT to encode" % rospy.Time.now())
+        return True
+    elif size_check and not feasibility_check:
+        rospy.logerr("[%s] Partial graph data UNSAT- right size, but failed feasibility" % rospy.Time.now())
+        return False
+    elif not size_check and feasibility_check:
+        rospy.logerr("[%s] Partial graph data UNSAT- right feasibility, but failed size" % rospy.Time.now())
+        return False
+    else:
+        rospy.logerr("[%s] Partial graph data UNSAT" % rospy.Time.now())
+        return False
+
