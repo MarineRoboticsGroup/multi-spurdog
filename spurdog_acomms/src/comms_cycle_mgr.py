@@ -3,6 +3,8 @@ import rospy
 import numpy as np
 from datetime import datetime
 import scipy.spatial.transform as spt
+from std_msgs.msg import Header, String, Time, Float32
+from geometry_msgs.msg import Point, Quaternion, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
     TdmaStatus
 )
@@ -10,27 +12,31 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    InitPrior, PartialGraph, PoseWithAssoc, RangeWithAssoc, CycleGraph
+    InitPrior, PartialGraph, CommsCycleStatus
 )
 from spurdog_acomms.srv import(
     PreintegrateIMU, PreintegrateIMUResponse
 )
-from std_msgs.msg import Header, String, Time, Float32
-from geometry_msgs.msg import Point, Quaternion, PoseWithCovarianceStamped
-
+from spurdog_acomms_utils.setup_utils import(
+    configure_modem_addresses,
+    configure_cycle_targets
+)
 from spurdog_acomms_utils.codec_utils import (
     encode_init_prior_data_as_int,
-    decode_init_prior_data_from_int,
-    encode_partial_graph_data_as_int,
-    decode_partial_graph_data_from_int
+    encode_partial_graph_pose_as_int,
+    encode_partial_graph_range_as_int,
+    check_partial_graph_msg,
 )
 from spurdog_acomms_utils.nmea_utils import (
     parse_nmea_sentence,
     parse_nmea_cacmd,
     parse_nmea_cacma,
-    parse_nmea_carev,
+    parse_nmea_cacmr,
     parse_nmea_carfp,
-    parse_nmea_carmr
+    parse_nmea_carev
+)
+from spurdog_acomms_utils.graph_utils import (
+    correct_first_relative_pose_for_failed_cycle,
 )
 
 class CycleManager:
@@ -42,10 +48,6 @@ class CycleManager:
         self.num_landmarks = rospy.get_param("~num_landmarks", 0)
         self.landmarks = rospy.get_param("~landmarks", {}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
         self.sound_speed = rospy.get_param("~sound_speed", 1500)
-        self.sigma_range = rospy.get_param("~sigma_range", 1)
-        # self.sigma_depth = rospy.get_param("~sigma_depth", 1)
-        # self.sigma_roll = rospy.get_param("~sigma_roll", 0.1)
-        # self.sigma_pitch = rospy.get_param("~sigma_pitch", 0.1)
         # Variables for addressing
         self.modem_addresses = {}
         self.cycle_target_mapping = {}
@@ -53,49 +55,13 @@ class CycleManager:
         self.tdma_status = TdmaStatus()
         self.tdma_cycle_sequence = 0
         self.msg_preload = 10 # seconds to allow for encoding the message before the tdma window opens
+        self.skew_buffer = 1 # seconds on either side to account for any skew in the modem clock
         # Variables for acomms event topic
-        self.ping_sent_time = None
         self.ping_method = "ping with payload"
         self.ping_timeout = 5 # seconds
         self.ping_slot_open = False
-        self.last_tj = None # last time we sent a ping
         self.loaded_msg = False # last message we sent to the modem
-        # Variables for compressing data for codec
-        self.codec_scale_factors = {
-            "init_prior": {
-                "x": 10.0,
-                "y": 10.0,
-                "z": 100.0,
-                "qx": 32767,
-                "qy": 32767,
-                "qz": 32767,
-                "qw": 32767,
-                "sigma_x": 300,
-                "sigma_y": 300,
-                "sigma_z": 300,
-                "sigma_roll": 5000,
-                "sigma_pitch": 5000,
-                "sigma_yaw": 5000,
-            },
-            "partial_graph": {
-                "x": 100.0,
-                "y": 100.0,
-                "z": 100.0,
-                "qx": 127,
-                "qy": 127,
-                "qz": 127,
-                "qw": 127,
-                "sigma_x": 10,
-                "sigma_y": 10,
-                "sigma_z": 10,
-                "sigma_roll": 10,
-                "sigma_pitch": 10,
-                "sigma_yaw": 10,
-                "range": 100,
-            }
-        }
         # Variables for external sensors
-        self.imu_relative_poses = {}
         self.gps_fix = [[1,2,3],[0,0,0,1],[np.eye(6)]] # [position, orientation, covariance]
         # Variables for message handling
         self.staged_init_prior = None
@@ -105,6 +71,9 @@ class CycleManager:
         self.inbound_init_priors = {}
         self.inbound_partial_graphs = {}
         self.pose_time_lookup = {}
+        self.in_water = False
+        self.smooth_poses = False
+        self.init_complete = False
         self.failed_cycle_relative_pose = {
             "key1": None,
             "key2": None,
@@ -119,120 +88,60 @@ class CycleManager:
         self.ping_client = rospy.ServiceProxy("modem/ping_modem", PingModem)
         self.preintegrate_imu = rospy.ServiceProxy("preintegrate_imu", PreintegrateIMU)
         rospy.loginfo("[%s] Services ready, initializing topics" % rospy.Time.now())
-
+        # Initialize topics
         self.tdma_from_modem = rospy.Subscriber("modem/tdma_status", TdmaStatus, self.on_tdma_status, queue_size=1)
         # Monitor NMEA messages to track the pings and trigger relative pose measurements
         self.nmea_from_modem = rospy.Subscriber("modem/nmea_from_modem", String, self.on_nmea_from_modem)
         # Establish the message subs and pubs
-        self.init_prior_sub = rospy.Subscriber("modem/from_acomms/init_prior", InitPrior, self.on_init_prior)
-        self.partial_graph_sub = rospy.Subscriber("modem/from_acomms/partial_graph", PartialGraph, self.on_partial_graph)
         self.init_prior_pub = rospy.Publisher("modem/to_acomms/init_prior", InitPrior, queue_size=1)
+        self.init_prior_bypass_pub = rospy.Publisher("modem/from_acomms/init_prior", InitPrior, queue_size=1)
         self.partial_graph_pub = rospy.Publisher("modem/to_acomms/partial_graph", PartialGraph, queue_size=1)
+        self.partial_graph_bypass_pub = rospy.Publisher("modem/from_acomms/partial_graph", PartialGraph, queue_size=1)
         # Initialize Subscribers for handling external sensors
         self.gps = rospy.Subscriber("gps", PoseWithCovarianceStamped, self.on_gps)
-        #self.preintegrated_imu = rospy.Subscriber("preintegrated_imu", PoseWithCovarianceStamped, self.on_preintegrated_imu)
-        # Initialize the pubs/subs for create relative pose measurements from the estimator
-        #self.acomms_event = rospy.Publisher("acomms_event", Time, queue_size=1)
-        self.cycle_graph_pub = rospy.Publisher("cycle_graph", CycleGraph, queue_size=1)
+        self.mission_status = rospy.Subscriber("mission_state", String, self.on_mission_state)
+        self.comms_cycle_status_pub = rospy.Subscriber("comms_cycle_status", CommsCycleStatus, self.on_comms_cycle_status)
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
-        self.setup_addresses()
-        self.setup_cycle_targets()
-        self.build_init_prior()
+        self.configure_comms_cycle()
         # Start the cycle
-        rospy.loginfo("[%s] Comms Cycle Running" % rospy.Time.now())
+        rospy.loginfo("[%s] Comms Cycle Configured" % rospy.Time.now())
 
-    # Setup Functions: #TODO: There's an error in here (str indices not integers)
-    def setup_addresses(self):
-        """This function sets up the number of agents and landmarks
+    def configure_comms_cycle(self):
+        """This function configures the comms cycle for the vehicle.
         """
-        # Build the modem address dict, assigning a unique integer to each agent and landmark
-        if self.num_agents == 1 and self.num_landmarks == 0:
-            rospy.logerr("[%s] No addresses to ping" % rospy.Time.now())
-        else:
-            # Generate the agent addresses
-            for i in range(self.num_agents):
-                letter = chr(ord('A') + i)
-                if i == self.local_address:
-                    # Assigns an additional integer for tracking our current pose index
-                    self.modem_addresses[letter] = [i, 0]
-                else:
-                    self.modem_addresses[letter] = [i]
-            # Generate the landmark addresses
-            for j in range(self.num_landmarks):
-                address = j + i + 1
-                #rospy.loginfo("[%s] Adding Landmark with L%d" % (rospy.Time.now(), j))
-                self.modem_addresses["L%d" % j] = [address,0]
-                # Add priors for the landmarks
-                self.inbound_init_priors["L%d" % j] = {
-                    "key": "L%d" % j,
-                    "position": np.array(self.landmarks["L%d" % j]),
-                    "sigmas": np.array([1.7, 1.7, 0.1])
-                }
-        rospy.loginfo("[%s] Modem Addresses: %s" % (rospy.Time.now(), self.modem_addresses))
+        # Get the modem addresses and cycle targets
+        self.modem_addresses = configure_modem_addresses(self.num_agents, self.num_landmarks, self.local_address)
+        self.cycle_target_mapping = configure_cycle_targets(self.modem_addresses)
         return
 
-    def setup_cycle_targets(self):
-        """This function sets up the cycle targets for the agents and landmarks
-        so that we can use the tdma slot to select the target agent and landmark for that slot in the cycle"""
-
-        # Set up the expected number of slots and the active slots:
-        if self.num_agents == 1:
-            expected_slots = 2
-            active_slots = [0, 1]  # Only one agent, so both slots are active
-            self.cycle_target_mapping = {i: [[], []] for i in range(expected_slots)}
-            if self.num_landmarks == 1:
-                self.cycle_target_mapping[0] = [self.modem_addresses["L0"][0], self.modem_addresses["L0"][0]]
-                self.cycle_target_mapping[1] = [self.modem_addresses["L0"][0], self.modem_addresses["L0"][0]]
-            elif self.num_landmarks == 2:
-                self.cycle_target_mapping[0] = [self.modem_addresses["L0"][0], self.modem_addresses["L1"][0]]
-                self.cycle_target_mapping[1] = [self.modem_addresses["L0"][0], self.modem_addresses["L1"][0]]
-        elif self.num_agents == 2:
-            expected_slots = 4
-            active_slots = [self.local_address, self.local_address + 2]
-            # Find the other agent address
-            other_agent = 1 if self.local_address == 0 else 0
-            # Create a four slot dict of empty entries
-            self.cycle_target_mapping = {i: [[], []] for i in range(expected_slots)}
-            # Assign the active slots to the other agent and the landmarks
-            if self.num_landmarks == 0:
-                self.cycle_target_mapping[active_slots[0]] = [other_agent, []]
-                self.cycle_target_mapping[active_slots[1]] = [other_agent, []]
-            elif self.num_landmarks == 1:
-                self.cycle_target_mapping[active_slots[0]] = [other_agent, self.modem_addresses["L0"][0]]
-                self.cycle_target_mapping[active_slots[1]] = [other_agent, self.modem_addresses["L0"][0]]
-            elif self.num_landmarks == 2:
-                self.cycle_target_mapping[active_slots[0]] = [other_agent, self.modem_addresses["L0"][0]]
-                self.cycle_target_mapping[active_slots[1]] = [other_agent, self.modem_addresses["L1"][0]]
-            else:
-                rospy.logerr("[%s] Invalid number of landmarks: %d" % (rospy.Time.now(), self.num_landmarks))
-        elif self.num_agents == 3:
-            expected_slots = 6
-            active_slots = [self.local_address, self.local_address + 3]
-            # Find the other agent addresses
-            other_agents = [i for i in range(self.num_agents) if i != self.local_address]
-            # Create a six slot dict of empty entries
-            self.cycle_target_mapping = {i: [[], []] for i in range(expected_slots)}
-            # Assign the active slots to the other agents and the landmarks
-            if self.num_landmarks == 0:
-                self.cycle_target_mapping[active_slots[0]] = [other_agents[0], []]
-                self.cycle_target_mapping[active_slots[1]] = [other_agents[1], []]
-            elif self.num_landmarks == 1:
-                self.cycle_target_mapping[active_slots[0]] = [other_agents[0], self.modem_addresses["L0"][0]]
-                self.cycle_target_mapping[active_slots[1]] = [other_agents[1], self.modem_addresses["L0"][0]]
-            elif self.num_landmarks == 2:
-                self.cycle_target_mapping[active_slots[0]] = [other_agents[0], self.modem_addresses["L0"][0]]
-                self.cycle_target_mapping[active_slots[1]] = [other_agents[1], self.modem_addresses["L1"][0]]
-            else:
-                rospy.logerr("[%s] Invalid number of landmarks: %d" % (rospy.Time.now(), self.num_landmarks))
+    def on_comms_cycle_status(self, msg):
+        """This function handles the comms cycle status message
+        Args:
+            msg (CommsCycleStatus): The comms cycle status message
+        """
+        # Get message field:
+        cycle_seq_number = msg.sequence_number
+        self.init_complete = msg.init_complete
+        cycle_complete = msg.cycle_complete
+        self.smooth_poses = msg.should_smooth
+        if msg.should_smooth:
+            self.failed_cycle_relative_pose = {
+                "key1": msg.key,
+                "key2": msg.key,
+                "position": msg.translation,
+                "orientation": msg.quaternion,
+                "sigmas": msg.sigmas
+            }
         else:
-            rospy.logerr("[%s] Invalid number of agents: %d" % (rospy.Time.now(), self.num_agents))
-            return
-        rospy.loginfo("[%s] Active Slots: %s" % (rospy.Time.now(), active_slots))
-        rospy.loginfo("[%s] Cycle Target Mapping: %s" % (rospy.Time.now(), self.cycle_target_mapping))
+            self.failed_cycle_relative_pose = {
+                "key1": None,
+                "key2": None,
+                "position": None,
+                "orientation": None,
+                "sigmas": None
+            }
         return
-
-        #TDMA Cycle Tracking:
 
     def on_tdma_status(self, msg):
         """This function updates the modem TDMA status
@@ -247,8 +156,6 @@ class CycleManager:
         time_to_next_active = msg.time_to_next_active
         slot_duration = msg.slot_duration_seconds
         elapsed_time_in_slot = slot_duration - remaining_sec_in_slot
-        msg_id = msg.header.seq
-        skew_buffer = 1 # seconds on either side to account for any skew in the modem clock
         #rospy.logwarn("[%s] TDMA Msg: Slot: %s, Prev Slot: %s" % (msg_id, current_slot, self.tdma_status.current_slot))
         # Check if the TDMA cycle is restarting:
         if current_slot == 0 and current_slot != self.tdma_status.current_slot:
@@ -261,10 +168,16 @@ class CycleManager:
             if time_to_next_active < self.msg_preload and not self.loaded_msg:
                 if self.tdma_cycle_sequence == 0:
                     rospy.loginfo("[%s] Publishing Init Prior" % rospy.Time.now())
+                    # Publish to the modem:
                     self.init_prior_pub.publish(self.staged_init_prior)
+                    # Bypass the modem and publish directly to the graph manager
+                    self.init_prior_bypass_pub.publish(self.staged_init_prior)
                     self.loaded_msg = True
                 else:
                     rospy.loginfo("[%s] Publishing Partial Graph" % rospy.Time.now())
+                    # Publish to the modem
+                    self.partial_graph_pub.publish(self.staged_partial_graph)
+                    # Bypass the modem and publish directly to the graph manager
                     self.partial_graph_pub.publish(self.staged_partial_graph)
                     self.loaded_msg = True
             # If we are active, we need to execute the ping cycle
@@ -272,7 +185,7 @@ class CycleManager:
                 if elapsed_time_in_slot < 1:
                     rospy.loginfo("[%s] TDMA Active Slot Started, %ssec Remaining" % (rospy.Time.now(), remaining_active_sec))
                     self.loaded_msg = False
-                elif elapsed_time_in_slot > skew_buffer and remaining_sec_in_slot > skew_buffer:
+                elif elapsed_time_in_slot > self.skew_buffer and remaining_sec_in_slot > self.skew_buffer:
                     self.execute_ping_cycle(current_slot, elapsed_time_in_slot)
                 else:
                     pass
@@ -284,71 +197,34 @@ class CycleManager:
             rospy.logwarn("[%s] No other agents or landmarks to ping" % rospy.Time.now())
 
         # Regardless, update TDMA
-        # self.tdma_status = msg
-        self.tdma_status.current_slot = current_slot
-        self.tdma_status.we_are_active = we_are_active
-        self.tdma_status.remaining_slot_seconds = remaining_sec_in_slot
-        self.tdma_status.remaining_active_seconds = remaining_active_sec
-        self.tdma_status.time_to_next_active = time_to_next_active
-        self.tdma_status.slot_duration_seconds = slot_duration
+        self.tdma_status = msg
+        # self.tdma_status.current_slot = current_slot
+        # self.tdma_status.we_are_active = we_are_active
+        # self.tdma_status.remaining_slot_seconds = remaining_sec_in_slot
+        # self.tdma_status.remaining_active_seconds = remaining_active_sec
+        # self.tdma_status.time_to_next_active = time_to_next_active
+        # self.tdma_status.slot_duration_seconds = slot_duration
         return
 
     def on_tdma_cycle_reset(self):
         """This function is called when the TDMA slot returns to 0
         """
-        # Process the partial graphs we've recieved into a cycle graph message to send to the estimator
-        if len(self.inbound_partial_graphs.keys()) >= self.num_agents:
-            # We should have synched this and sent it to the estimator already, clear the cycle data
-            self.cycle_graph_data.clear()
-            # clear the false cycle relative pose data (needs to be reset for the next cycle)
-            self.failed_cycle_relative_pose = {
-                "key1": None,
-                "key2": None,
-                "position": None,
-                "orientation": None,
-                "sigmas": None
-            }
-        elif len(self.inbound_partial_graphs.keys()) == 1:
-            # If we only have one partial graph (ours), we should scrub this cycle and store its pose delta
-            self.integrate_across_poses(chr(ord("A") + self.local_address) + "0", chr(ord("A") + self.local_address) + str(self.modem_addresses[chr(ord("A") + self.local_address)][1]))
-            rospy.logwarn("[%s] Only one partial graph received, scrubbing cycle" % rospy.Time.now())
-            self.cycle_graph_data.clear()
-        else: # if we recieved 2 of 3 expected graphs
-            rospy.loginfo
-            rospy.logwarn("[%s] Not enough partial graphs recieved (%d), attempting sync anyway" % (rospy.Time.now(), len(self.inbound_partial_graphs.keys())))
-            # This tries to synchronize what we have
-            self.synchronize_partial_graphs()
-            self.build_cycle_graph()
-            self.cycle_graph_data.clear()
-
-        # Process the previous cycle's data into a partial graph message and stage it for the next cycle
-        self.staged_partial_graph = self.build_partial_graph_from_local_data()
-        #TODO: This may return an empty message if there are unconnected poses, if there is only one modem in the network, or if the graph can't fit in the message.
-        # Unconnected ranges are removed within the checking function, so they will not affect this.
-        self.partial_graph_data.clear()
-
-        # If we are still trying to initialize, reset the tdma_cycle sequence so we keep trying to initialize
-        if len(self.inbound_init_priors.keys()) < (self.num_agents + self.num_landmarks):
-            self.tdma_cycle_sequence += 1
-            #self.tdma_cycle_sequence = 0
-            # Get the first and last pose keys in the self.staged_partial_graph
-            first_key = chr(ord("A") + self.local_address) + "0"
-            last_key = chr(ord("A") + self.local_address) + str(self.staged_partial_graph.full_index + self.staged_partial_graph.num_poses)
-            # Integrate across the poses to get the relative pose from first_key to last_key
-            # position, orientation, sigmas = self.integrate_across_poses(first_key, last_key)
-            # self.failed_cycle_relative_pose["key1"] = first_key
-            # self.failed_cycle_relative_pose["key2"] = last_key
-            # self.failed_cycle_relative_pose["position"] = position
-            # self.failed_cycle_relative_pose["orientation"] = orientation
-            # self.failed_cycle_relative_pose["sigmas"] = sigmas
-            # Reset the local pose index to 0 for the next cycle (preserves the partial graph format)
-            self.modem_addresses[chr(ord("A") + self.local_address)][1] = 0
-            # Rebuild the initial prior data for the next cycle
-            self.build_init_prior()
-            rospy.logwarn("[%s] TDMA Cycle Reset, waiting for init prior data" % rospy.Time.now())
-            return
+        #TODO: Unclear if a partial graph message with no associated ranges would be sent and
+        # and therefore smoothed and kicked back.
+        if self.init_complete:
+            # NOTE: The smoothed relative pose is incorporated within build_partial_graph
+            self.staged_partial_graph = self.build_partial_graph()
+            self.partial_graph_data.clear()
+            #TODO: This may return an empty message if there are unconnected poses,
+            # if there is only one modem in the network, or if the graph can't fit in the message.
+            # Unconnected ranges are removed within the checking function, so they will not affect this.
+        elif self.staged_init_prior == None:
+            # If we are not initialized, we need to build the init prior
+            self.staged_init_prior = self.build_init_prior()
         else:
-            self.tdma_cycle_sequence += 1
+            self.partial_graph_data.clear()
+            rospy.logwarn("[%s] TDMA Cycle Reset, waiting for init prior data" % rospy.Time.now())
+        self.tdma_cycle_sequence += 1
         return
 
     def execute_ping_cycle(self, current_slot, elapsed_time_in_slot):
@@ -389,58 +265,48 @@ class CycleManager:
     def on_nmea_from_modem(self, msg: String):
         """This function receives NMEA messages from the modem
         """
-        # Get the NMEA data type and the data
-        nmea_msg = msg.data.split('*')[0]#remove checksum
-        #nmea_msg = nmea_msg[0]
-        nmea_string = nmea_msg.split(",") # split into fields
-        nmea_type = nmea_string[0] # Get the NMEA string type
-        data = nmea_string[1:] # Get the NMEA data in list form
-
+        nmea_type, data = parse_nmea_sentence(msg)
         # Process the NMEA data by field
-        if nmea_type == "$CACMD": # Modem-to-host acknowledgement of a ping command $CACMD,PNG,0,1,1,0,3*22
-            if data[0] == "PNG" and data[1] == str(self.local_address):
-                self.ping_sent_time = rospy.Time.now()
-                rospy.loginfo("[%s] Sent Ping to %s" % (self.ping_sent_time, data[2]))
+        if nmea_type == "$CACMD": # Modem-to-host acknowledgement of a ping command
+            src, dest = parse_nmea_cacmd(data)
+            if data[0] == "PNG" and src == self.local_address:
+                rospy.loginfo("[%s] Sent Ping to %s" % (rospy.Time.now(), chr(ord("A") + dest)))
             else:
                 rospy.logerr("[%s] Received $CACMD with unexpected data: %s" % (rospy.Time.now(), data))
 
-        elif nmea_type == "$CACMA": # Modem-to-host acknowledgement of a ping recieved $CACMA,2025-03-17T17:16:29.639994,PNG,0,1,56.7,6.62,3,0,0*74
-            acomms_event_time = rospy.Time.from_sec(datetime.strptime(data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
-            if data[1] == "PNG" and data[3] == str(self.local_address):
-                self.request_preintegration(acomms_event_time) # Request a relative pose measurement
-                self.modem_addresses[chr(ord("A") + self.local_address)][1] += 1
-                rospy.loginfo("[%s] Received Ping from %s" % (acomms_event_time, data[3]))
+        elif nmea_type == "$CACMA": # Modem-to-host acknowledgement of a ping recieved
+            src, dest, recieved_ping_time = parse_nmea_cacma(data)
+            if data[1] == "PNG" and dest == self.local_address:
+                self.request_preintegration(recieved_ping_time, True) # Request a relative pose measurement
+                rospy.loginfo("[%s] Received Ping from %s" % (recieved_ping_time, chr(ord("A") + src)))
             elif data[1] == "PNG":
-                rospy.loginfo("[%s] Overheard Ping from %s to %s" % (acomms_event_time, data[2], data[3]))
+                rospy.loginfo("[%s] Overheard Ping from %s to %s" % (recieved_ping_time, chr(ord("A") + src), chr(ord("A") + dest)))
             else:
                 rospy.logerr("[%s] Received $CACMA with unexpected data: %s" % (rospy.Time.now(), data))
 
-        # TODO: Fix this once you observe one (publishing the time actually happens in the ping service)
-        elif nmea_type == "$CACMR": # Modem-to-host acknowledgement of a ping response $CACMR,PNR,SRC,DEST,????
-            acomms_event_time = rospy.Time.from_sec(datetime.strptime(data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
-            if data[1] == "PNR" and data[3] == str(self.local_address):
-                #self.acomms_event.publish(acomms_event_time)
-                #self.modem_addresses[chr(ord("A") + self.local_address)][1] += 1
-                rospy.loginfo("[%s] Received Ping Response from %s" % (acomms_event_time, data[3]))
+        elif nmea_type == "$CACMR": # Modem-to-host acknowledgement of a ping response
+            src, dest, recieved_ping_time = parse_nmea_cacmr(data)
+            if data[1] == "PNR" and src == self.local_address:
+                rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, chr(ord("A") + dest)))
             elif data[1] == "PNR":
-                rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (acomms_event_time, data[2], data[3]))
+                rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (recieved_ping_time, chr(ord("A") + src), chr(ord("A") + dest)))
             else:
                 rospy.logerr("[%s] Received $CACMR with unexpected data: %s" % (rospy.Time.now(), data))
 
         elif nmea_type == "$CARFP" and data[5] == "-1": # Modem-to-host acknowledgement of a minipacket ping payload
-            time, src, dest, payload = self.extract_ping_data_from_carfp(data)
-            if not time or not src or not dest or not payload:
+            src, dest, recieved_msg_time, num_frames, payload = parse_nmea_carfp(data)
+            if not recieved_msg_time or not src or not dest or not payload:
                 rospy.logerr("[%s] CARFP message is missing required fields" % rospy.Time.now())
                 return
-            elif dest == str(self.local_address):
-                rospy.loginfo("[%s] Received Ping from %s with payload %s" % (time, src, dest, payload))
-            elif dest != str(self.local_address):
-                rospy.logerr("[%s] Overheard Ping-related $CARFP from %s to %s with paylaod %s" % (time, src, dest, payload))
+            elif dest == self.local_address:
+                rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, chr(ord("A") + src), payload))
+            elif dest != self.local_address:
+                rospy.logerr("[%s] Overheard Ping-related $CARFP from %s to %s with paylaod %s" % (recieved_msg_time, chr(ord("A") + src), chr(ord("A") + dest), payload))
             else:
                 rospy.logerr("[%s] Received $CARFP with unexpected data: %s" % (rospy.Time.now(), data))
 
-        elif nmea_type == "$CAREV" and data[1] == "AUV" and self.ping_method == None: # Modem-to-host $CAREV message to determine the firmware version
-            firmware_version = data[2].split(".")
+        elif nmea_type == "$CAREV" and self.ping_method == None: # Modem-to-host $CAREV message to determine the firmware version
+            firmware_version = parse_nmea_carev(data)
             if firmware_version[0] == "3":
                 # New deckbox firmware
                 self.ping_method = "ping with payload"
@@ -450,21 +316,6 @@ class CycleManager:
         else:
             return
         return
-
-    def extract_ping_data_from_carfp(self, data):
-        """This function extracts the ping payload data from a ping-related $CARFP NMEA message
-        Args:
-            data (list): The NMEA data fields [HHHH, SRC, DEST, PAYLOAD]
-        Returns:
-            tuple: (time, src, dest, hex_payload)
-        """
-        time = rospy.Time.from_sec(datetime.strptime(data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
-        src = int(data[2])
-        dest = int(data[3])
-        hex_data = data[9].split(";")[-1]  # Splits the data into frames, then takes the last frame
-        hex_payload = bytearray.fromhex(hex_data)
-        payload = hex_payload.decode("utf-8") if hex_payload else ""
-        return time, src, dest, payload
 
     def send_ping(self, target_addr):
         """This function sends a ping to the modem
@@ -503,11 +354,7 @@ class CycleManager:
                 measured_range = owtt * self.sound_speed
                 timestamp = ping_resp.timestamp
                 # TODO: Verify this is rostime
-                #self.acomms_event.publish(timestamp)
-                self.request_preintegration(timestamp) # Request a relative pose measurement
-                self.modem_addresses[chr(ord("A") + self.local_address)][1] += 1
-                # Get the key association from the src and dest address
-                src_chr = chr(ord("A") + src)
+                self.request_preintegration(timestamp, True) # Request a relative pose measurement
                 # Search the modem_addresses for the dest address to get the dest_chr
                 if dest < self.num_agents:
                     dest_chr = chr(ord("A") + dest)
@@ -525,7 +372,15 @@ class CycleManager:
         return
 
     # Sensor data handling
-    def request_preintegration(self, tj):
+    def request_preintegration(self, tj, adv_pose: bool = True):
+        """This function requests a relative pose measurement from imu sensor handler node
+        - If called with adv_pose = True, it logs the relative pose in partial graph data
+        - If called with adv_pose = False, it clears the preintegration queue setting up
+        a new cycle.
+        Args:
+            tj (rostime): The time of the new pose to mark
+            adv_pose (bool): Whether to advance the pose index or just preintegrate to clear the queue
+        """
         # Attempt to get a relative pose between the time provided and the last time we tried this
         local_chr = chr(ord("A") + self.local_address)
         key1_index = self.modem_addresses[local_chr][1]
@@ -536,109 +391,34 @@ class CycleManager:
                 rospy.logerr(f"Preintegration failed: {response.error_message}")
                 return None
             else:
-                rospy.loginfo(f"Received preintegrated pose betwwene {ti} and {tj}")
-                # Advance the key indices and the time
-                key1 = local_chr + str(key1_index)
-                key2 = local_chr + str(key1_index+1)
-                self.modem_addresses[local_chr][1] = key1_index + 1
-                self.pose_time_lookup[key2] = tj
-                x_ij = response.pose_delta
-                pose = x_ij.pose.pose
-                position = np.array([pose.position.x, pose.position.y, pose.position.z])
-                orientation = np.array([pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
-                covariance = np.array(response.pose_delta.covariance).reshape((6, 6))
-                sigmas = np.sqrt(np.diag(covariance))
-                # Store the relative pose data in the imu_relative_poses dict
-                self.imu_relative_poses[tj] = {
-                    "key1": key1,
-                    "key2": key2,
-                    "position": position,
-                    "orientation": orientation,
-                    "sigmas": sigmas
-                }
-                # Add to the cycle graph data
-                graph_id = "BTWN_%s_%s" % (key1, key2)
-                self.partial_graph_data[graph_id] = {
-                    "key1": key1,
-                    "key2": key2,
-                    "position": np.array([position.x, position.y, position.z]),
-                    "orientation": np.array([orientation.x, orientation.y, orientation.z, orientation.w]),
-                    "sigmas": sigmas
-                }
-                # Remove any imu relative poses that are older than the current pose time -180sec
-                self.imu_relative_poses = {time: data for time, data in self.imu_relative_poses.items() if time >= (tj - rospy.Duration(180))}
+                rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
+                if adv_pose:
+                    # Advance the key indices and the time
+                    key1 = local_chr + str(key1_index)
+                    key2 = local_chr + str(key1_index+1)
+                    self.modem_addresses[local_chr][1] = key1_index + 1
+                    self.pose_time_lookup[key2] = tj
+                    x_ij = response.pose_delta
+                    pose = x_ij.pose.pose
+                    position = np.array([pose.position.x, pose.position.y, pose.position.z])
+                    orientation = np.array([pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
+                    covariance = np.array(response.pose_delta.covariance).reshape((6, 6))
+                    sigmas = np.sqrt(np.diag(covariance))
+                    # Add to the cycle graph data
+                    graph_id = "BTWN_%s_%s" % (key1, key2)
+                    self.partial_graph_data[graph_id] = {
+                        "key1": key1,
+                        "key2": key2,
+                        "position": np.array([position.x, position.y, position.z]),
+                        "orientation": np.array([orientation.x, orientation.y, orientation.z, orientation.w]),
+                        "sigmas": sigmas
+                    }
+                else:
+                    # This allows for calling preintegration to clear the queue without advancing the pose
+                    pass
         except rospy.ServiceException as e:
             rospy.logerr(f"Service call failed: {e}")
         return
-
-    #TODO: Review the math for these two functions:
-    def integrate_across_poses(self, first_key, second_key):
-        """This function integrates the relative poses across the imu_relative_poses dict
-        Args:
-            first_key (str): The key for the first pose ("A0")
-            second_key (str): The key for the second pose ("A5")
-        Returns:
-            The delta pose and covariance from A0 to A5
-        """
-        sorted_times = sorted(self.imu_relative_poses.keys())
-        # Get the pose times
-        time_of_first_key = self.pose_time_lookup[first_key]
-        time_of_second_key = self.pose_time_lookup[second_key]
-        # Integrate all the relative poses between time of first_key and time of second_key
-        sorted_times = [time for time in sorted_times if time_of_first_key <= time <= time_of_second_key]
-        delta_position = np.zeros(3)
-        delta_orientation = spt.Rotation.identity()  # Identity rotation (quaternion)
-        delta_covariance = np.zeros((6, 6))  # Full 6x6 covariance matrix
-        # Iterate through the sorted times and accumulate the relative poses
-        for time in sorted_times:
-            data = self.imu_relative_poses[time]
-
-            # Extract relative motion components
-            rel_position = np.array(data["position"])  # Relative translation
-            rel_orientation = spt.Rotation.from_quat(data["orientation"])  # Relative quaternion
-            rel_covariance = np.diag(data["sigmas"]**2)  # Convert std deviations to diagonal covariance matrix
-
-            # Transform position incrementally using the current rotation
-            delta_position += delta_orientation.apply(rel_position)
-
-            # Apply quaternion multiplication to integrate orientation
-            delta_orientation = delta_orientation * rel_orientation
-
-            # Propagate covariance (assuming independent errors)
-            delta_covariance += rel_covariance @ rel_covariance.T  # Accumulate variances
-
-        # Convert covariance back to standard deviations
-        delta_sigmas = np.sqrt(np.diag(delta_covariance))
-
-        return delta_position, delta_orientation.as_quat(), delta_sigmas
-
-    def compose_relative_pose_with_failed_cycle(self, position, orientation, sigmas):
-        """This function composes a relative pose from the position, orientation and sigmas
-        Args:
-            position (np.array): The position as a 3D vector
-            orientation (np.array): The orientation as a quaternion
-            sigmas (np.array): The sigmas as a 6D vector
-        Returns:
-            A dictionary with the composed relative pose data
-        """
-        # Compose the pose represented by the position, orientation, sigmas with the failed cycle data
-        if self.failed_cycle_relative_pose["key1"] is not None and self.failed_cycle_relative_pose["key2"] is not None:
-            existing_orientation = spt.Rotation.from_quat(self.failed_cycle_relative_pose["orientation"])
-            existing_covariance = np.diag(self.failed_cycle_relative_pose["sigmas"]**2)
-            new_position = self.failed_cycle_relative_pose["position"] + existing_orientation.apply(position)
-            new_orientation = existing_orientation * spt.Rotation.from_quat(orientation)
-            new_covariance = existing_covariance + (np.diag(sigmas)**2)
-            new_sigmas = np.sqrt(np.diag(new_covariance))
-            position = new_position
-            orientation = new_orientation.as_quat()
-            sigmas = new_sigmas
-        else:            # If there is no failed cycle data, just return the original values
-            pass
-        return {
-            "position": position,
-            "orientation": orientation,
-            "sigmas": sigmas
-        }
 
     def on_gps(self, msg: PoseWithCovarianceStamped):
         """This function receives the GPS data from the estimator
@@ -655,233 +435,35 @@ class CycleManager:
         rospy.loginfo("[%s] Received GPS data" % pose_time)
         return
 
-    # Message Processing Functions
-    def check_partial_graph_data_for_completeness(self):
-        """ This checks the graph data to ensure that we recorded the expected number of events
-        - It does not prevent sending the graph if its incomplete
-        Output:
-            bool: True if the graph data is complete and valid, False otherwise
-            - True indicates its connected and can be sent to the estimator.
-            - False indicates its either empty or not connected and should not be sent to the estimator
+    def on_mission_state(self, msg: String):
+        """This function receives the navigation state data from the estimator
+        Args:
+            msg (PoseStamped): The navigation state data
         """
-         # Check that we have data to process
-        if self.num_agents == 1 and self.num_landmarks == 0:
-            return True
-        elif not self.partial_graph_data:
-            rospy.logerr("[%s] Cycle graph data is empty" % rospy.Time.now())
-            return False
-        else:
-            # Using the cycle target mapping, check that we have the expected number of relative_poses, intialted_ranges, and recieved_ranges
-            expected_num_initiated_ranges = sum([1 for pair in self.cycle_target_mapping if pair[0] != []]) + sum([1 for pair in self.cycle_target_mapping if pair[1] != []])
-            expected_num_received_ranges = 2 if self.num_agents > 1 else 0
-            expected_num_relative_poses = expected_num_initiated_ranges + expected_num_received_ranges
-            # Check the number of recorded entries of each type
-            num_btwn = len([key for key in self.partial_graph_data.keys() if key.startswith("BTWN")])
-            num_rng_from_us = len([key for key in self.partial_graph_data.keys() if key.startswith("RNG") and self.partial_graph_data[key].get("range") is not None])
-            num_rng_to_us = len([key for key in self.partial_graph_data.keys() if key.startswith("RNG") and self.partial_graph_data[key].get("range") is None])
-
-            # Check the between factors
-            if num_btwn != expected_num_relative_poses:
-                rospy.logerr("[%s] Relative pose mismatch, recorded: %d, expected: %d" % (rospy.Time.now(), num_btwn, expected_num_relative_poses))
-            # NOTE: This indicates one of the ranging events failed. The relative pose will be stretched to the following ranging event.
-            # So its probably fine to let this go forward
-            else:
-                rospy.loginfo("[%s] Relative poses match expected number: %d" % (rospy.Time.now(), num_btwn))
-            # Check the ranges we initiated
-            if num_rng_from_us != expected_num_initiated_ranges:
-                rospy.logerr("[%s] Initiated range mismatch, recorded: %d, expected: %d" % (rospy.Time.now(), num_rng_from_us, expected_num_initiated_ranges))
-            # NOTE: This indicates one of the ranges we initiated failed. There will be no relative pose created or range entry created unless a reply is recieved.
-            # So this is fine to let go forward
-            else:
-                rospy.loginfo("[%s] Initiated  ranges match expected number: %d" % (rospy.Time.now(), num_rng_from_us))
-            # Check the ranges we received
-            if num_rng_to_us != expected_num_received_ranges:
-                rospy.logerr("[%s] Received range mismatch, recorded: %d, expected: %d" % (rospy.Time.now(), num_rng_to_us, expected_num_received_ranges))
-            # NOTE: This indicates an attempt to range us was not recieved. There will be no relative pose created or range entry unless it was recieved.
-            # So this is fine to let go forward.
-            else:
-                rospy.loginfo("[%s] Received ranges match expected number: %d" % (rospy.Time.now(), num_rng_to_us))
-
-            # Check that the relative pose entries are sequential
-            local_pose_keys = []
-            for i in range(num_btwn - 1):
-                key1 = "BTWN_%s_%s" % (chr(ord("A") + self.local_address), i)
-                key2 = "BTWN_%s_%s" % (chr(ord("A") + self.local_address), i + 1)
-                if key2 not in self.partial_graph_data:
-                    rospy.logerr("[%s] Missing key2: %s" % (rospy.Time.now(), key2))
-                    return False # There is no way to recover from this, but it also should not happen
-                elif self.partial_graph_data[key1]["key2"] != self.partial_graph_data[key2]["key1"]:
-                    rospy.logerr("[%s] Key mismatch between %s and %s" % (rospy.Time.now(), key1, key2))
-                    return False # There is no way to recover from this, but it also should not happen
+        # Replace the initial_position with the GPS data
+        # Split the message into a list
+        # Get the time
+        msg_time = rospy.Time.now()
+        msg = msg.data.split("=")
+        # Check if the message is valid
+        if msg[0] == "IN_WATER":
+            value = msg[1]
+            if value == "true":
+                if self.in_water == False:
+                    # Clear preintegration queue
+                    self.request_preintegration(msg_time, False)
+                    # Build the initial prior factor msg
+                    self.build_init_prior()
+                    self.in_water = True
+                    rospy.loginfo("[%s] In water, building init prior" % (rospy.Time.now()))
                 else:
-                    local_pose_keys.append(key1)
-            # Check that the RNG entries each include a key1 that is in the BTWN entries
-            for key in self.partial_graph_data.keys():
-                if key.startswith("RNG"):
-                    if self.partial_graph_data[key]["key1"] not in local_pose_keys:
-                        rospy.logerr("[%s] RNG entry %s does not match any BTWN entry" % (rospy.Time.now(), key))
-                        # remove the offending range (this is a soft patch to allow it to go forward)
-                        del self.partial_graph_data[key]
-                    else:
-                        pass
-            return True
-
-    def check_partial_graph_data_for_comms(self):
-        """This function checks the partial graph data for completeness and
-        whether is fits within the PartialGraph.msg
-        - It does not assume that the graph is the maximum size, just that its
-        the right size for the number of agents and landmarks
-        Returns:
-            bool: True if the partial graph data fits the restrictions of the PartialGraph.msg
-        """
-        num_btwn = len([key for key in self.partial_graph_data.keys() if key.startswith("BTWN")])
-        num_rng_from_us = len([key for key in self.partial_graph_data.keys() if key.startswith("RNG") and self.partial_graph_data[key].get("range") is not None])
-        num_rng_to_us = len([key for key in self.partial_graph_data.keys() if key.startswith("RNG") and self.partial_graph_data[key].get("range") is None])
-
-        # Perform supportability check
-        if num_btwn < 0 or num_btwn > 6:
-            rospy.logerr("[%s] Unsupported number of BTWN entries: %d" % (rospy.Time.now(), num_btwn))
-            return False
-        elif num_rng_from_us < 0 or num_rng_from_us > 4:
-            rospy.logerr("[%s] Unsupported number of Initiated RNG entries: %d" % (rospy.Time.now(), num_rng_from_us))
-            return False
-        elif num_rng_to_us < 0 or num_rng_to_us > 2:
-            rospy.logerr("[%s] Unsupported number of Received RNG entries: %d" % (rospy.Time.now(), num_rng_to_us))
-            return False
+                    return
+            elif value == "false":
+                self.in_water = False
         else:
-            return True
-
-    def process_inbound_partial_graph(self, msg:PartialGraph):
-        # Unpack the fields
-        local_addr = chr(msg.local_addr + ord("A"))
-        full_index = msg.full_index
-        num_poses = msg.num_poses
-        # Generate a list of the expected poses
-        expected_poses = [local_addr + str(full_index + i) for i in range(num_poses)]
-        # For each relative pose, decode the data:
-        for i in range(num_poses):
-            position, rotation, sigmas = self.decode_partial_graph_data_from_int(
-                getattr(msg, f'relative_pos_{i}'),
-                getattr(msg, f'relative_rot_{i}'),
-                getattr(msg, f'unique_sigmas_{i}')
-            )
-            # Add to the cycle graph data
-            graph_id = f'BTWN_{expected_poses[i]}_{expected_poses[i+1]}'
-            self.cycle_graph_data[graph_id] = {
-                "key1": expected_poses[i],
-                "key2": expected_poses[i+1],
-                "position": position,
-                "orientation": rotation,
-                "sigmas": sigmas
-            }
-        # For each range measurement, decode the data:
-            if i < 4:
-                local_symbol = expected_poses[int(getattr(msg, f'local_index_{i}'))]
-                remote_addr = chr(getattr(msg, f'remote_addr_{i}')+ord("A"))
-                meas_range = getattr(msg, f'meas_range_{i}') / self.codec_scale_factors["partial_graph"]["range"]
-                # NOTE: by reversing the order of the keys, we match the convention of the existing range entry
-                # It will not overwrite the existing entry, because key1 is just a chr but the key1 on file is a symbol
-                graph_id = f'RNG_{remote_addr}_{local_symbol}'
-                self.cycle_graph_data[graph_id] = {
-                    "key1": remote_addr,
-                    "key2": local_symbol,
-                    "range": meas_range
-                }
-            elif i < 6:
-                local_symbol = expected_poses[int(getattr(msg, f'local_index_{i}'))]
-                remote_addr = chr(getattr(msg, f'remote_addr_{i}')+ord("A"))
-                remote_index = getattr(msg, f'remote_index_{i}')
-                remote_symbol = chr(ord("A") + remote_addr) + str(remote_index)
-                # NOTE: by reversing the order of the keys, we match the order of the existing range entry
-                # It will not overwrite the existing entry, because key2 is a symb, but key2 on file is a chr
-                graph_id = f'RNG_{remote_symbol}_{local_symbol}'
-                self.cycle_graph_data[graph_id] = {
-                    "key1": remote_symbol,
-                    "key2": local_symbol,
-                    "range": None
-                }
-            else:
-                rospy.logerr("[%s] Invalid range measurement index: %d" % (rospy.Time.now(), i))
-                continue
-        return
-
-    def synchronize_partial_graphs(self):
-        """This function synchronizes the partial graphs once all expected agents have reported
-        - It assumes that process_partial_graph has been called for each agent's partial graph
-        - It associates the ranges between graphs, checks connectivity and adds range sigmas
-        - It can be called on an insufficient number of agents, but will only process the data that is available
-        and will remove any unconnected entries
-        """
-        # Clean up the range associations by associating the duplicate entries and removing the duplicates
-        for key in self.cycle_graph_data.keys():
-            if key.startswith("RNG") and len(self.cycle_graph_data[key]["key2"]) == 1:
-                # Search the remaining RNG entries for a matching key1
-                chr = self.cycle_graph_data[key]["key2"]
-                for match in self.cycle_graph_data.keys():
-                    if match.startswith("RNG") and self.cycle_graph_data[match]["key1"] == self.cycle_graph_data[key]["key1"]:
-                        # Double check that the chr matches the key2 of the match
-                        if self.cycle_graph_data[match]["key2"][0] == chr:
-                            # If so, set the range of the key entry to the value measured in the match
-                            self.cycle_graph_data[match]["range"] = self.cycle_graph_data[key]["range"]
-                            # Remove the key entry from the cycle graph data
-                            del self.cycle_graph_data[key]
-                            break
-                        else:
-                            rospy.logerr("[%s] Mismatched key2 character for range entry %s" % (rospy.Time.now(), key))
-                            continue
-                    else:
-                        rospy.logerr("[%s] No matching association found for range entry %s" % (rospy.Time.now(), key))
-
-        # Now we need to check the connectivity of the cycle graph data
-        # Build a list of the keys in each vehicle's pose chain BTWN_key1_key2 -> [key1, key2, ...]
-        nodes = []
-        for key in self.cycle_graph_data.keys():
-            if key.startswith("BTWN"):
-                key1 = self.cycle_graph_data[key]["key1"]
-                key2 = self.cycle_graph_data[key]["key2"]
-                if key1 not in nodes:
-                    nodes.append(key1)
-                if key2 not in nodes:
-                    nodes.append(key2)
-        # Then append the landmarks to the poses list
-        if self.num_landmarks > 0:
-            for i in range(self.num_landmarks):
-                nodes.append("L%d" % i)
-
-        # Check that the ranges are associated with a pose and contain a measurement
-        for key in self.cycle_graph_data.keys():
-            if key.startswith("RNG"):
-                key1_check = True
-                key2_check = True
-                range_check = True
-                # Check that the key1 is in the poses list
-                if self.cycle_graph_data[key]["key1"] not in nodes:
-                    key1_check = False
-                    continue
-                    # Check that the key2 is in the poses list
-                if self.cycle_graph_data[key]["key2"] not in nodes:
-                    key2_check = False
-                    continue
-                # Check that the range is not None
-                if self.cycle_graph_data[key]["range"] is None:
-                    range_check = False
-                    continue
-
-                # If all checks pass, add the range to the cycle graph data
-                if key1_check and key2_check and range_check:
-                    self.cycle_graph_data[key]["range_sigma"] = self.sigma_range
-                elif (not key1_check or not key2_check) and range_check:
-                    rospy.logerr("[%s] Recieved range failed to associate, removing" % (rospy.Time.now(), key))
-                    del self.cycle_graph_data[key]
-                elif (key1_check and key2_check) and not range_check:
-                    rospy.logerr("[%s] Transmitted range failed to associate, removing" % (rospy.Time.now(), key))
-                    del self.cycle_graph_data[key]
-                elif not key1_check and not key2_check :
-                    rospy.loginfo("[%s] Range entry %s has no associated in poses, removing" % (rospy.Time.now(), key))
-                    del self.cycle_graph_data[key]
-                else:
-                    rospy.logerr("[%s] Range entry %s is incomplete!" % (rospy.Time.now(), key))
-
+            return
+        # Log the reciept
+        rospy.loginfo("[%s] Changed water status to %s" % (rospy.Time.now(), msg.data))
         return
 
     # Message Handling Functions
@@ -894,11 +476,7 @@ class CycleManager:
         local_chr = chr(ord("A") + self.local_address)
         local_symbol = local_chr + str(self.modem_addresses[local_chr][1])
         # Encode the initial prior factor data into a message
-        initial_position, initial_orientation, initial_sigmas = encode_init_prior_data_as_int([0,0,0], [0,0,0,1], [1.7, 1.7, 0.1, 0.5, 0.5, 0.5])
-        #initial_position, initial_orientation, initial_sigmas = encode_init_prior_data_as_int(self.gps_fix[0], self.gps_fix[1], self.gps_fix[2])
-        if initial_position is None or initial_orientation is None or initial_sigmas is None:
-            rospy.logerr("[%s] Failed to encode initial prior factor data!" % rospy.Time.now())
-            return
+        initial_position, initial_orientation, initial_sigmas = encode_init_prior_data_as_int(self.gps_fix[0], self.gps_fix[1], self.gps_fix[2])
         # Set the initial prior factor message
         init_prior_msg = InitPrior()
         init_prior_msg.local_addr = int(self.local_address)
@@ -918,38 +496,32 @@ class CycleManager:
         rospy.loginfo("[%s] Published Initial Prior Factor" % (rospy.Time.now()))
         return
 
-    def build_partial_graph_from_local_data(self):
+    def build_partial_graph(self):
         """This function builds the partial graph from the cycle graph data
-        - It checks that the graph is connected and notes any discrepancies
+        - It checks that the graph is connected and notes any discrepancies (does not currently patch them, just fails)
         - It check that the graph will fit in the PartialGraph.msg
         - It builds the partial graph message from the cycle graph data
         Returns:
             PartialGraph: The built partial graph message
         """
         partial_graph = PartialGraph()
-        # Check if the partial graph is connected:
-        if not self.check_partial_graph_data_for_completeness():
-            rospy.logerr("[%s] Partial graph data is incomplete" % rospy.Time.now())
-            return partial_graph
-        elif self.num_agents == 1 and self.num_landmarks == 0:
+        # Check if the partial graph can be sent in the msg and is connected:
+        if self.num_agents == 1 and self.num_landmarks == 0:
             rospy.loginfo("[%s] No partial graph data to send" % rospy.Time.now())
             return partial_graph
         else:
-            # Read the partial graph data into the cycle graph data
-            self.cycle_graph_data = self.partial_graph_data.copy()
-            # Check if the partial graph data fits within the PartialGraph.msg
-            if not self.check_partial_graph_data_for_comms():
-                rospy.logerr("[%s] Partial graph data does not fit within the PartialGraph.msg" % rospy.Time.now())
-                return partial_graph
+            # Check that the graph is the right size, is feasible and is connected:
+            graph_check = check_partial_graph_msg(self.partial_graph_data)
+            if not graph_check:
+                rospy.logerror("[%s] Partial graph data check failed" % rospy.Time.now())
             else:
-                rospy.loginfo("[%s] Partial graph data fits within the PartialGraph.msg" % rospy.Time.now())
-                # Create the partial graph message
-                # Initialize the partial graph message
+                rospy.loginfo("[%s] Partial graph data check passed" % rospy.Time.now())
 
+                # Read the partial graph data into the cycle graph data
+                self.cycle_graph_data = self.partial_graph_data.copy()
                 # Set the local address and full index
                 partial_graph.local_addr = int(self.local_address)
                 partial_graph.full_index = self.modem_addresses[chr(ord("A") + self.local_address)][1]
-                # Set the number of poses (between 0 and 6) using the number of "BTWN" entries in the cycle graph data
                 partial_graph.num_poses = len([key for key in self.partial_graph_data.keys() if key.startswith("BTWN")])
 
                 # Iterate through the cycle graph data and populate the partial graph
@@ -962,11 +534,18 @@ class CycleManager:
                         # If this is the first BTWN entry, set the initial position and orientation to the GPS data
                         if num_btwn == 0:
                             # Compose the relative pose with the failed cycle relative pose
-                            relative_position, relative_orientation, relative_sigmas = self.compose_relative_pose_with_failed_cycle(data["position"], data["orientation"], data["sigmas"])
-                            position, orientation, sigmas = encode_partial_graph_data_as_int(0, relative_position, relative_orientation, relative_sigmas)
+                            if self.failed_cycle_relative_pose["key1"] is not None:
+                                corr_pos, corr_ori, corr_sig = correct_first_relative_pose_for_failed_cycle(
+                                    data, self.failed_cycle_relative_pose)
+                                position, orientation, sigmas = encode_partial_graph_pose_as_int(
+                                    corr_pos, corr_ori, corr_sig)
+                            else:
+                                position, orientation, sigmas = encode_partial_graph_pose_as_int(
+                                    data["position"], data["orientation"], data["sigmas"])
                         else:
                             # Extract the relative position and orientation data
-                            position, orientation, sigmas = encode_partial_graph_data_as_int(num_btwn, data["position"], data["orientation"], data["sigmas"])
+                            position, orientation, sigmas = encode_partial_graph_pose_as_int(
+                                data["position"], data["orientation"], data["sigmas"])
                         setattr(partial_graph, f'relative_pos_{num_btwn}', position)
                         setattr(partial_graph, f'relative_rot_{num_btwn}', orientation)
                         setattr(partial_graph, f'unique_sigmas_{num_btwn}', sigmas)
@@ -975,7 +554,7 @@ class CycleManager:
                         # Get the local index and remote address from the graph data
                         local_index = int(data["key1"][1:]) - partial_graph.full_index  # Extract the index from the key:
                         remote_addr = int(self.modem_addresses[data["key2"]]) # note this may be a landmark of form "L0"
-                        meas_range = int(data["range"] * self.codec_scale_factors["partial_graph"]["range"])
+                        meas_range = encode_partial_graph_range_as_int(data["range"])
                         # Set the range data in the partial graph
                         setattr(partial_graph, f'local_index_{num_rng_from_us}', local_index)
                         setattr(partial_graph, f'remote_addr_{num_rng_from_us}', remote_addr)
@@ -993,117 +572,7 @@ class CycleManager:
                     else:
                         rospy.logerr("[%s] Invalid graph ID: %s" % (rospy.Time.now(), graph_id))
                         continue
-                # Log that we've "received" the partial graph
-                self.inbound_partial_graphs[chr(partial_graph.local_addr + ord("A"))] = True
         return partial_graph
-
-    def build_cycle_graph(self):
-        """This function builds the cycle graph from the staged data
-        Returns:
-            PartialGraph: The built partial graph message
-        """
-        # Crete the message
-        msg = CycleGraph()
-        msg.header = Header()
-        msg.header.stamp = rospy.Time.now()
-
-        # Load all the relative poses from the self.cycle_graph_data dict
-        for key, data in self.cycle_graph_data.items():
-            if key.startswith("BTWN"):
-                position, orientation, sigmas = encode_partial_graph_data_as_int(0, data["position"], data["orientation"], data["sigmas"])
-                relative_pose = PoseWithAssoc()
-                relative_pose.key1 = data["key1"]
-                relative_pose.key2 = data["key2"]
-                relative_pose.pose.position = Point(*position)
-                relative_pose.pose.orientation = Quaternion(*orientation)
-                relative_pose.covariance = np.diag(sigmas**2).flatten().tolist()  # Flatten the covariance matrix to a list
-                msg.relative_poses.append(relative_pose)
-
-            elif key.startswith("RNG"):
-                range_measurments = RangeWithAssoc()
-                range_measurments.key1 = data["key1"]
-                range_measurments.key2 = data["key2"]
-                range_measurments.meas_range = data["range"]
-                range_measurments.range_sigma = self.sigma_range
-                msg.range_measurements.append(range_measurments)
-
-            else:
-                rospy.logerr("[%s] Invalid graph ID: %s" % (rospy.Time.now(), key))
-                continue
-        # Publish the cycle graph message
-        self.cycle_graph_pub.publish(msg)
-        rospy.loginfo("[%s] Published Cycle Graph" % rospy.Time.now())
-
-    def on_init_prior(self, msg):
-        """This function processes initial prior factor messages
-        Args:
-            msg (PosePriorFactor): The initial prior factor message
-        """
-        # Unpack the fields
-        local_addr = msg.local_addr
-        full_index = msg.full_index
-        initial_position = msg.initial_position
-        initial_orientation = msg.initial_orientation
-        initial_sigmas = msg.initial_sigmas
-        # Decode the initial prior factor data
-        initial_position, initial_orientation, initial_sigmas = self.decode_init_prior_data_from_int(initial_position, initial_orientation, initial_sigmas)
-        # Store in the inbound_init_priors dict
-        self.inbound_init_priors[chr(ord("A") + local_addr)] = {
-            "key": local_addr+str(full_index),
-            "initial_position": initial_position,
-            "initial_orientation": initial_orientation,
-            "initial_sigmas": initial_sigmas
-        }
-        rospy.loginfo("[%s] Received Initial Prior Factor from %s" % (rospy.Time.now(),local_addr))
-
-        #Check if the number of keys in the dict is equal to the number of agents
-        if len(self.inbound_init_priors) == self.num_agents:
-            # If so, we have received all initial prior factors
-            rospy.loginfo("[%s] Received all Initial Prior Factors from all agents" % rospy.Time.now())
-            # Add the pose priors to a cycle graph message and send to the estimator
-            msg = CycleGraph()
-            msg.header = Header()
-            msg.header.stamp = rospy.Time.now()
-            for key, data in self.inbound_init_priors.items():
-                pose_prior = PoseWithAssoc()
-                pose_prior.key1 = data["key"]
-                pose_prior.key2 = data["key"]
-                pose_prior.pose.position = Point(*data["initial_position"])
-                pose_prior.pose.orientation = Quaternion(*data["initial_orientation"])
-                pose_prior.covariance = np.diag(data["initial_sigmas"]**2).flatten().tolist()
-                msg.relative_poses.append(pose_prior)
-            # Publish the cycle graph message
-            self.cycle_graph_pub.publish(msg)
-            rospy.loginfo("[%s] Published Cycle Graph with Initial Prior Factors" % rospy.Time.now())
-        else:
-            rospy.loginfo("[%s] Waiting for all Initial Prior Factors from agents" % rospy.Time.now())
-        return
-
-    def on_partial_graph(self, msg):
-        """This function processes partial graph messages
-        Args:
-            msg (PartialGraph): The partial graph message
-        """
-        # Unpack the fields
-        local_addr = chr(msg.local_addr + ord("A"))
-        full_index = msg.full_index
-        num_poses = msg.num_poses
-        # Log that we've recieved the partial graph
-        if self.inbound_partial_graphs[local_addr] is None:
-            self.inbound_partial_graphs[local_addr] = True
-            self.process_inbound_partial_graph(msg)
-            # Check if we have received partial graphs from the agents
-            if len(self.inbound_partial_graphs.keys()) == self.num_agents:
-                rospy.loginfo("[%s] Received Partial Graphs from all agents" % rospy.Time.now())
-                # Synchronize the data
-                self.synchronize_partial_graphs()
-                # Send the graph and send to the estimator
-                self.build_cycle_graph()
-            else:
-                rospy.loginfo("[%s] Received Partial Graph from %s" % (rospy.Time.now(), local_addr))
-        else:
-            rospy.logerr("[%s] Received duplicate Partial Graph from %s" % (rospy.Time.now(), local_addr))
-        return
 
 if __name__ == "__main__":
 

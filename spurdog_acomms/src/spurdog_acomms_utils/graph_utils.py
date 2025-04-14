@@ -117,3 +117,61 @@ def marginalize_partial_graph(partial_graph):
         J_i = compute_jacobian(T_total, T_i)
         P_total = J_i @ P_total @ J_i.T + P_i
     return T_total, P_total
+
+def compose_two_transformations(T1, P1, T2, P2):
+    """
+    Compose two transformation matrices.
+    Args:
+        T1 (np.ndarray): The first transformation matrix.
+        T2 (np.ndarray): The second transformation matrix.
+    Returns:
+        np.ndarray: The composed transformation matrix.
+    """
+    T12 = np.eye(4)
+    P12 = np.eye((6,6))
+    T12 = T12 @ T1
+    J12 = compute_jacobian(T12, T1)
+    P12 = J12 @ P1 @ J12.T + P2
+    T12 = T12 @ T2
+    J12 = compute_jacobian(T12, T2)
+    P12 = J12 @ P12 @ J12.T + P2
+    return T12, P12
+
+def correct_first_relative_pose_for_failed_cycle(initial_relative_pose, relative_pose_from_failed_cycle):
+    """
+    Correct the first pose for a failed pose.
+    Args:
+        initial_relative_pose (dict): The initial relative pose.
+            "key1", "key2", "position", "orientation", "sigmas"
+        relative_pose_from_failed_cycle (dict): The relative pose from the failed cycle.
+            "key1", "key2", "position", "orientation", "sigmas"
+    Returns:
+        dict: The corrected relative pose.
+    """
+    # Convert the initial relative pose to a transformation matrix
+    T_initial = np.eye(4)
+    T_initial[0:3, 0:3] = spt.Rotation.from_quat(initial_relative_pose["orientation"]).as_matrix()
+    T_initial[0:3, 3] = initial_relative_pose["position"]
+    # Convert the sigmas to a covariance matrix
+    sigmas = initial_relative_pose["sigmas"]
+    P_initial = np.zeros((6, 6))
+    P_initial[0:3, 0:3] = np.diag(sigmas[0:3]**2)
+    P_initial[3:6, 3:6] = np.diag(sigmas[3:6]**2)
+    # Convert the relative pose from the failed cycle to a transformation matrix
+    T_failed = np.eye(4)
+    T_failed[0:3, 0:3] = spt.Rotation.from_quat(relative_pose_from_failed_cycle["orientation"]).as_matrix()
+    T_failed[0:3, 3] = relative_pose_from_failed_cycle["position"]
+    # Convert the sigmas to a covariance matrix
+    sigmas = relative_pose_from_failed_cycle["sigmas"]
+    P_failed = np.zeros((6, 6))
+    P_failed[0:3, 0:3] = np.diag(sigmas[0:3]**2)
+    P_failed[3:6, 3:6] = np.diag(sigmas[3:6]**2)
+    # Compute the composed transformation matrix
+    T_composed, P_composed = compose_two_transformations(T_initial, P_initial, T_failed, P_failed)
+    # Split back into positoin, quaternion and sigmas
+    position = T_composed[0:3, 3]
+    quaternion = spt.Rotation.from_matrix(T_composed[0:3, 0:3]).as_quat()
+    sigmas = np.zeros(6)
+    sigmas[0:3] = np.sqrt(np.diag(P_composed[0:3, 0:3]))
+    sigmas[3:6] = np.sqrt(np.diag(P_composed[3:6, 3:6]))
+    return position, quaternion, sigmas

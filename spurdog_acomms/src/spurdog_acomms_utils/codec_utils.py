@@ -110,7 +110,7 @@ def decode_init_prior_data_from_int(initial_position, initial_orientation, initi
     ])
     return initial_position, initial_orientation, initial_sigmas
 
-def encode_partial_graph_data_as_int(id, position, orientation, sigmas):
+def encode_partial_graph_pose_as_int(position, orientation, sigmas):
     """This function encodes the partial graph data into a message
     Args:
         position (np.array): The relative position
@@ -157,7 +157,23 @@ def encode_partial_graph_data_as_int(id, position, orientation, sigmas):
         sigmas = list([sx, sy, sz, sroll, spitch, syaw])
     return position, orientation, sigmas
 
-def decode_partial_graph_data_from_int(position, orientation, sigmas):
+def encode_partial_graph_range_as_int(range_value):
+    """This function encodes the range value into a message
+    Args:
+        range_value (float): The range value
+    Returns:
+        int: The encoded range value
+    """
+    # Range is a int8, multiply by scale, then convert to int8
+    range_value = int(range_value * CODEC_SCALE_FACTORS["partial_graph"]["range"])
+    # verify all fields are within int8 range
+    if not (np.abs(range_value) <= 127):
+        rospy.logerr("[%s] Range value out of range!" % rospy.Time.now())
+        return None
+    else:
+        return range_value
+
+def decode_partial_graph_pose_from_int(position, orientation, sigmas):
     """This function decodes the partial graph data from a message
     Args:
         position (list): The relative position
@@ -193,6 +209,18 @@ def decode_partial_graph_data_from_int(position, orientation, sigmas):
     ])
 
     return position, orientation, sigmas
+
+def decode_partial_graph_range_from_int(range_value):
+    """This function decodes the range value from a message
+    Args:
+        range_value (int): The range value
+    Returns:
+        float: The decoded range value
+    """
+    # Decode the data by applying the reverse of the encoding process
+    # Range is a int8, divide by scale to get original value
+    range_value = range_value / CODEC_SCALE_FACTORS["partial_graph"]["range"]
+    return range_value
 
 # Message checking functions:
 def check_partial_graph_for_msg_size(num_btwn, num_rng_from_us, num_rng_to_us):
@@ -292,4 +320,3 @@ def check_partial_graph_msg(partial_graph_data):
     else:
         rospy.logerr("[%s] Partial graph data UNSAT" % rospy.Time.now())
         return False
-
