@@ -23,7 +23,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
+catkin_python_setup()
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -52,26 +52,12 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
-  # Symbol.msg
-  # Point.msg
-  # Quaternion.msg
-  # Pose.msg
-  # NoiseModelPoint.msg
-  # NoiseModelPose.msg
-  # PoseChain.msg
-  # PointPriorFactor.msg
-  # PosePriorFactor.msg
-  # RelPoseFactor.msg
-  # RangeFactor.msg
-  # CycleInit.msg
-  # InitiatedRange.msg
-  # RecievedRange.msg
-  # RelativePoseMin.msg
   PoseWithAssoc.msg
   RangeWithAssoc.msg
   InitPrior.msg
   PartialGraph.msg
   CycleGraph.msg
+  CommsCycleStatus.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -177,12 +163,15 @@ include_directories(
 
 # all install targets should use catkin DESTINATION variables
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
-
+install(DIRECTORY src/spurdog_acomms_utils
+  DESTINATION ${CATKIN_PACKAGE_PYTHON_DESTINATION}/spurdog_acomms_utils
+)
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
   src/comms_cycle_mgr.py
-  src/comms_cycle_test.py
+  src/factor_graph_mgr.py
+  #src/comms_cycle_test.py
   src/imu_sensor_handler.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

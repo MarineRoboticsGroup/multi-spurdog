@@ -60,11 +60,11 @@
             </node>
 
             <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen">
-                <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
+                <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config_v3.yaml" />
             </node>
 
             <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen">
-                <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
+                <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config_v3.yaml" />
             </node>
         </group>
 
