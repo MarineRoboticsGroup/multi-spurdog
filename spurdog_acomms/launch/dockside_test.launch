@@ -10,24 +10,23 @@
     <!-- Args that we would change at agent-to-agent level-->
     <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
     <arg name="source_addr" default="0" doc="int"/>
-    <arg name="num_agents" default="2" />
-    <arg name="num_slots" value="$(eval 2 * num_agents)" />
-
+    <arg name="num_agents" default="1" />
+    <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/>
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
 
     <!-- Start the agent node -->
     <group ns="$(arg agent_name)">
+
         <!-- Shared Parameters -->
         <param name="agent_name" value="$(arg agent_name)" />
         <param name="modem_address" value="$(arg source_addr)" />
-        <param name="source_addr" value="$(arg source_addr)" />
+        <param name="source_addr" value="0" />
         <param name="num_agents" value="$(arg num_agents)" />
         <param name="num_landmarks" value="2" />
-        <param name="landmarks" value="{}" />
-        <param name="active_slots" value="$(arg source_addr)" />
-        <param name="num_slots" value="$(arg num_slots)" />
-        <param name="sigma_range" value="0.1" />
+        <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" />
+        <param name="num_slots" value="$(eval 2 * num_agents)" />
+        <param name="sigma_range" value="1" />
         <param name="sound_speed" value="1500" />
 
         <!-- Modem group -->
@@ -54,9 +53,8 @@
             </node>
 
             <node name="tdma_node" pkg="ros_acomms" type="tdma_node.py" output="log" required="true" respawn="false">
-                <param name="num_slots" value="$(arg num_slots)" />
-                <param name="active_slots" value="$(arg source_addr)" />
-                <param name="slot_duration_seconds" value="30" />
+                <param name="active_slots" value="$(arg active_slots)"/>
+                <param name="slot_duration_seconds" value="15" />
             </node>
 
             <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen">
@@ -68,7 +66,7 @@
             </node>
         </group>
 
-        <!-- Launch communication and graph managers (they inherit all needed params) -->
+        <!-- Launch communication and graph managers-->
         <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_cycle_mgr.py" output="screen" />
         <node name="factor_graph_mgr" pkg="spurdog_acomms" type="comms_cycle_mgr.py" output="screen" />
 

@@ -12,7 +12,7 @@ def configure_modem_addresses(num_agents, num_landmarks, local_address):
     Returns:
         list: The modem addresses for the agents and landmarks.
     """
-    modem_addresses = []
+    modem_addresses = {}
     if num_agents == 1 and num_landmarks == 0:
         rospy.logerr("[%s] No addresses to ping" % rospy.Time.now())
         return None

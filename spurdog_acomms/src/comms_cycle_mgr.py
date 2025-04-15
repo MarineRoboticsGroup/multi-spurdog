@@ -43,11 +43,11 @@ class CycleManager:
     """This is a node to run the comms cycle for the vehicle."""
     def __init__(self):
         rospy.init_node('comms_cycle_manager', anonymous=True)
-        self.local_address = rospy.get_param("~modem_address", 0)
-        self.num_agents = rospy.get_param("~num_agents", 1)
-        self.num_landmarks = rospy.get_param("~num_landmarks", 0)
-        self.landmarks = rospy.get_param("~landmarks", {}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
-        self.sound_speed = rospy.get_param("~sound_speed", 1500)
+        self.local_address = int(rospy.get_param("modem_address", 0))
+        self.num_agents = int(rospy.get_param("num_agents", 1))
+        self.num_landmarks = int(rospy.get_param("num_landmarks", 0))
+        self.landmarks = rospy.get_param("landmarks", {}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        self.sound_speed = float(rospy.get_param("sound_speed", 1500))
         # Variables for addressing
         self.modem_addresses = {}
         self.cycle_target_mapping = {}
@@ -64,8 +64,8 @@ class CycleManager:
         # Variables for external sensors
         self.gps_fix = [[1,2,3],[0,0,0,1],[np.eye(6)]] # [position, orientation, covariance]
         # Variables for message handling
-        self.staged_init_prior = None
-        self.staged_partial_graph = None
+        self.staged_init_prior = InitPrior()
+        self.staged_partial_graph = PartialGraph()
         self.partial_graph_data = {}
         self.cycle_graph_data = {}
         self.inbound_init_priors = {}
@@ -84,8 +84,8 @@ class CycleManager:
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
-        rospy.wait_for_service("preintegrate_imu")
         self.ping_client = rospy.ServiceProxy("modem/ping_modem", PingModem)
+        rospy.wait_for_service("preintegrate_imu")
         self.preintegrate_imu = rospy.ServiceProxy("preintegrate_imu", PreintegrateIMU)
         rospy.loginfo("[%s] Services ready, initializing topics" % rospy.Time.now())
         # Initialize topics
@@ -269,10 +269,10 @@ class CycleManager:
         return
 
     # Ping Handling:
-    def on_nmea_from_modem(self, msg: String):
+    def on_nmea_from_modem(self, msg):
         """This function receives NMEA messages from the modem
         """
-        nmea_type, data = parse_nmea_sentence(msg)
+        nmea_type, data = parse_nmea_sentence(msg.data)
         # Process the NMEA data by field
         if nmea_type == "$CACMD": # Modem-to-host acknowledgement of a ping command
             src, dest = parse_nmea_cacmd(data)

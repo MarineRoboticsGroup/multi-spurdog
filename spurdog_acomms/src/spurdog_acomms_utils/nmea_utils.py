@@ -4,8 +4,9 @@ from datetime import datetime
 
 def parse_nmea_sentence(nmea_sentence):
     # Get the NMEA data type and the data
-    nmea_msg = nmea_sentence.split('*')[0]#remove checksum
-    nmea_string = nmea_msg.split(",") # split into fields
+    # Convert nmea string to a comma separated list
+    nmea_stripped = nmea_sentence.split("*")[0] # Remove checksum
+    nmea_string = nmea_stripped.split(",") # split into fields
     nmea_type = nmea_string[0] # Get the NMEA string type
     data = nmea_string[1:] # Get the NMEA data in list form
     return nmea_type, data

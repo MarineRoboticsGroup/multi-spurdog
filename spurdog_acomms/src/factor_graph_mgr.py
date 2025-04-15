@@ -8,14 +8,8 @@ from geometry_msgs.msg import Point, Quaternion, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
     TdmaStatus
 )
-from ros_acomms_msgs.srv import(
-    PingModem, PingModemResponse, PingModemRequest
-)
 from spurdog_acomms.msg import(
     InitPrior, PartialGraph, PoseWithAssoc, RangeWithAssoc, CycleGraph, CommsCycleStatus
-)
-from spurdog_acomms.srv import(
-    PreintegrateIMU, PreintegrateIMUResponse
 )
 from spurdog_acomms_utils.setup_utils import(
     configure_modem_addresses,
@@ -33,12 +27,12 @@ from spurdog_acomms_utils.graph_utils import (
 class GraphManager:
     """This is a node to run the comms cycle for the vehicle."""
     def __init__(self):
-        rospy.init_node('comms_cycle_manager', anonymous=True)
-        self.local_address = rospy.get_param("~modem_address", 0)
-        self.num_agents = rospy.get_param("~num_agents", 1)
-        self.num_landmarks = rospy.get_param("~num_landmarks", 0)
-        self.landmarks = rospy.get_param("~landmarks", {}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
-        self.sigma_range = rospy.get_param("~sigma_range", 0.1)
+        rospy.init_node('factor_graph_manager', anonymous=True)
+        self.local_address = int(rospy.get_param("modem_address", 0))
+        self.num_agents = int(rospy.get_param("num_agents", 1))
+        self.num_landmarks = int(rospy.get_param("num_landmarks", 0))
+        self.landmarks = rospy.get_param("landmarks", {}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        self.sigma_range = float(rospy.get_param("sigma_range", 1))
         # Variables for addressing
         self.modem_addresses = {}
         self.cycle_target_mapping = {}
@@ -60,7 +54,7 @@ class GraphManager:
         self.comms_cycle_status = rospy.Publisher("comms_cycle_status", CommsCycleStatus, queue_size=1)
         self.cycle_graph_pub = rospy.Publisher("cycle_graph", CycleGraph, queue_size=1)
         # Initialize the modem addresses and cycle targets
-        rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
+        rospy.loginfo("[%s] Topics ready, initializing graph manager" % rospy.Time.now())
 
     # Setup function
     def configure_comms_cycle(self):
@@ -256,7 +250,7 @@ class GraphManager:
         initial_orientation = msg.initial_orientation
         initial_sigmas = msg.initial_sigmas
         # Decode the initial prior factor data
-        initial_position, initial_orientation, initial_sigmas = self.decode_init_prior_data_from_int(initial_position, initial_orientation, initial_sigmas)
+        initial_position, initial_orientation, initial_sigmas = decode_init_prior_data_from_int(initial_position, initial_orientation, initial_sigmas)
         # Store in the inbound_init_priors dict
         self.inbound_init_priors[chr(ord("A") + local_addr)] = {
             "key": local_addr+str(full_index),
