@@ -217,15 +217,14 @@ class CycleManager:
     def on_tdma_cycle_reset(self):
         """This function is called when the TDMA slot returns to 0
         """
-        #TODO: Unclear if a partial graph message with no associated ranges would be sent and
-        # and therefore smoothed and kicked back.
         if self.init_complete:
             # NOTE: The smoothed relative pose is incorporated within build_partial_graph
             self.staged_partial_graph = self.build_partial_graph()
+            # NOTE: If the graph fails the check, this will be an empty message
+            # If there are no successful pings, the graph will be empty and preintegration won't occur
+            # The checking function evaluates if the graph is connected, and without duplicates
+            # It also check sfor gross errors (like violating the size limit)
             self.partial_graph_data.clear()
-            #TODO: This may return an empty message if there are unconnected poses,
-            # if there is only one modem in the network, or if the graph can't fit in the message.
-            # Unconnected ranges are removed within the checking function, so they will not affect this.
         elif self.staged_init_prior == None:
             # If we are not initialized, we need to build the init prior
             self.staged_init_prior = self.build_init_prior()

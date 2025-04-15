@@ -300,19 +300,26 @@ class GraphManager:
         Args:
             msg (PartialGraph): The partial graph message
         """
-        # Unpack the fields
-        local_addr = chr(msg.local_addr + ord("A"))
-        full_index = msg.full_index
-        num_poses = msg.num_poses
-        # Log that we've recieved the partial graph
-        if self.inbound_partial_graphs[local_addr] is False:
-            self.inbound_partial_graphs[local_addr] = True
-            self.process_inbound_partial_graph(msg) # adds the data to the cycle graph data
-            rospy.loginfo("[%s] Received Partial Graph from %s" % (rospy.Time.now(), local_addr))
-            # Check if all partial graphs have been received
-            self.check_if_all_partial_graphs_received()
+        # This message can be empy, so check that first
+        if msg == PartialGraph():
+            #TODO: Re-evaluate if you want to log this empty message in inbound_partial_graphs
+            # I think it would be better to handle this as a bad cycle, rather than an empty cycle
+            rospy.logerr("[%s] Received empty Partial Graph message" % rospy.Time.now())
+            return
         else:
-            rospy.logerr("[%s] Received duplicate Partial Graph from %s" % (rospy.Time.now(), local_addr))
+            # Unpack the fields
+            local_addr = chr(msg.local_addr + ord("A"))
+            full_index = msg.full_index
+            num_poses = msg.num_poses
+            # Log that we've recieved the partial graph
+            if self.inbound_partial_graphs[local_addr] is False:
+                self.inbound_partial_graphs[local_addr] = True
+                self.process_inbound_partial_graph(msg) # adds the data to the cycle graph data
+                rospy.loginfo("[%s] Received Partial Graph from %s" % (rospy.Time.now(), local_addr))
+                # Check if all partial graphs have been received
+                self.check_if_all_partial_graphs_received()
+            else:
+                rospy.logerr("[%s] Received duplicate Partial Graph from %s" % (rospy.Time.now(), local_addr))
         return
 
     def process_inbound_partial_graph(self, msg:PartialGraph):
@@ -534,7 +541,6 @@ class GraphManager:
         # Create the relative pose message
         return key1, key2, relative_translation, relative_rotation, relative_sigmas
 
-#TODO: Add marginialization for partial graphs from failed cycles.
 # Its better to do it here because then you only need to track one partial graph in the comms cycle manager node.
 if __name__ == "__main__":
 

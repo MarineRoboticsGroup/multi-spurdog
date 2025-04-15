@@ -142,7 +142,7 @@ class CycleManager:
         # Start the cycle
         rospy.loginfo("[%s] Comms Cycle Running" % rospy.Time.now())
 
-    # Setup Functions: #TODO: There's an error in here (str indices not integers)
+    # Setup Functions:
     def setup_addresses(self):
         """This function sets up the number of agents and landmarks
         """
