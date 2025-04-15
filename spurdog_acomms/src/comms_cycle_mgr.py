@@ -127,12 +127,20 @@ class CycleManager:
         self.smooth_poses = msg.should_smooth
         if msg.should_smooth:
             self.failed_cycle_relative_pose = {
-                "key1": msg.key,
-                "key2": msg.key,
+                "key1": msg.key1,
+                "key2": msg.key2,
                 "position": msg.translation,
                 "orientation": msg.quaternion,
                 "sigmas": msg.sigmas
             }
+            #NOTE: Smoothing might give A0-A5, but message format allows for A0-A1.
+            # To remedy this, without modifying the pose sequencing or error checking held here,
+            # we have to assume that the partial graphs are always connected to the previous
+            # regardless of what the indices are.
+            # So while the A0-A5 relative pose is incorporated into the between labeled A5-A6,
+            # it will actually connect A0-A6
+            # This can be can be corrected easily on the graph management side, and is safe
+            # because we're preventing publication of unconnected graphs here.
         else:
             self.failed_cycle_relative_pose = {
                 "key1": None,

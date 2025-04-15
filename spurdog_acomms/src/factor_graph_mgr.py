@@ -76,6 +76,12 @@ class GraphManager:
                 "position": np.array(self.landmarks["L%d" % i]),
                 "sigmas": np.array([1.7, 1.7, 0.1])
             }
+        # Initialize the second entry of all the agent modem addreses to be 0 (the pose index)
+        for key in self.modem_addresses.keys():
+            if key.startswith("L"):
+                pass
+            else:
+                self.modem_addresses[key] = [self.modem_addresses[key][0], 0]
         # Initialize the partial graph data as a dict of False values with the modem addresses as keys
         for key in self.modem_addresses.keys():
             index = chr(ord("A") + key) # Works because only the agents send partial graphs
@@ -149,7 +155,9 @@ class GraphManager:
         - This is to prevent the comms_cycle_mgr node and factor_graph_mgr_node from executing at the same time
         - This is called after the last ros message is sent, but possibly before the modem finished the last ping
         """
+        # Initialize the cycle status
         cycle_complete, should_smooth = False
+        key1, key2, translation, rotation, sigmas = None, None, None, None, None
         # Check if we've completed initialization (we're in the partial graph phase):
         if self.init_complete:
             num_msg_rcvd = len([v for v in self.inbound_partial_graphs.values() if v == True])
@@ -158,6 +166,7 @@ class GraphManager:
             elif num_msg_rcvd == 1:
                 # Log the cycle failure, but smooth so we can try to reset in the next cycle
                 should_smooth = True
+                key1, key2, translation, rotation, sigmas = self.get_smoothed_relative_pose()
                 rospy.logwarn("[%s] Only one partial graph received, scrubbing cycle" % rospy.Time.now())
             elif (num_msg_rcvd > 1 and num_msg_rcvd < self.num_agents):
                 # NOTE: Sync function is robust to partial inputs, and will prune any unconnected data
@@ -181,9 +190,11 @@ class GraphManager:
             elif num_msg_rcvd == (1 + self.num_landmarks):
                 # Log the cycle failure, but smooth so we can try to reset in the next cycle
                 should_smooth = True
+                key1, key2, translation, rotation, sigmas = self.get_smoothed_relative_pose()
                 rospy.logwarn("[%s] Only our initial prior received, scrubbing cycle" % rospy.Time.now())
             elif (num_msg_rcvd > 1 and num_msg_rcvd < (self.num_agents + self.num_landmarks)):
                 should_smooth = True
+                key1, key2, translation, rotation, sigmas = self.get_smoothed_relative_pose()
                 rospy.logwarn("[%s] Only one initial prior received, scrubbing cycle" % rospy.Time.now())
             elif num_msg_rcvd == (self.num_agents + self.num_landmarks):
                 cycle_complete = True
@@ -198,6 +209,11 @@ class GraphManager:
         msg.init_complete = self.init_complete
         msg.cycle_complete = cycle_complete
         msg.should_smooth = should_smooth
+        msg.key1 = key1
+        msg.key2 = key2
+        msg.position = translation
+        msg.orientation = rotation
+        msg.sigmas = sigmas
         return
 
     def on_mission_state(self, msg: String):
@@ -392,16 +408,41 @@ class GraphManager:
                         rospy.logerr("[%s] No matching association found for range entry %s" % (rospy.Time.now(), key))
 
         # Now we need to check the connectivity of the cycle graph data
-        # Build a list of the keys in each vehicle's pose chain BTWN_key1_key2 -> [key1, key2, ...]
-        nodes = []
+        pose_chains = {}
         for key in self.cycle_graph_data.keys():
             if key.startswith("BTWN"):
+                # Get the key1 and key2
                 key1 = self.cycle_graph_data[key]["key1"]
                 key2 = self.cycle_graph_data[key]["key2"]
-                if key1 not in nodes:
-                    nodes.append(key1)
-                if key2 not in nodes:
-                    nodes.append(key2)
+                # Check if the keys are in the pose chains dict
+                if key1[0] not in pose_chains.keys():
+                    # First pose in chain, check that it is the one from the end of the last graph
+                    if int(key1[1:])!= self.modem_addresses[key1[0]][1]:
+                        rospy.logerr("[%s] Discontinuos pose chain for key %s" % (rospy.Time.now(), key1))
+                        # Re-key this entry to the last key we saw, to enforce continuity.
+                        # NOTE: The relative pose reported has already acounted for this, but I can't easily re-key
+                        # this in the comms_cycle_manager.
+                        # This has no impact on the range measurement association because this pose is never
+                        # connected to a range measurement
+                        self.cycle_graph_data[key]["key1"] = key1[0] + str(self.modem_addresses[key1[0]][1])
+                    else:
+                        pose_chains[key1[0]] = [int(key1[1:]), int(key2[1:])]
+                else:
+                    pose_chains[key1[0]].append(int(key2[1:]))
+        # Sort the pose index entries in each vehicle's pose chain, then add the last index to the modem_addresses
+        for key in pose_chains.keys():
+            # Sort the pose chain
+            pose_chains[key].sort()
+            self.modem_addresses[key][1] = pose_chains[key][-1]
+
+        # Build a list of the keys in each vehicle's pose chain from the pose_chains dict BTWN_key1_key2 -> [key1, key2, ...]
+        nodes = []
+        for key in pose_chains.keys():
+            # Add the key1 and key2 to the nodes list
+            nodes.append(key + str(pose_chains[key][0]))
+            for i in range(1, len(pose_chains[key])):
+                nodes.append(key + str(pose_chains[key][i]))
+
         # Then append the landmarks to the poses list
         if self.num_landmarks > 0:
             for i in range(self.num_landmarks):
@@ -476,6 +517,22 @@ class GraphManager:
         # Publish the cycle graph message
         self.cycle_graph_pub.publish(msg)
         rospy.loginfo("[%s] Published Cycle Graph" % rospy.Time.now())
+
+    def get_smoothed_relative_pose(self):
+        """This function gets the smoothed relative pose from the cycle graph data
+        Returns:
+            PoseWithAssoc: The smoothed relative pose
+        """
+        # Get the partial graph for our key from the inbound partial graphs
+        partial_graph = self.inbound_partial_graphs[chr(self.local_address + ord("A"))]
+        key1, key2, T_total, P_total = marginalize_partial_graph(partial_graph)
+        # Convert T_total to a translation and quaternion rotation
+        relative_translation = T_total[0:3, 3]
+        relative_rotation = T_total[0:3, 0:3]
+        relative_rotation = spt.Rotation.from_matrix(relative_rotation).as_quat()
+        relative_sigmas = np.sqrt(np.diag(P_total).flatten().tolist())
+        # Create the relative pose message
+        return key1, key2, relative_translation, relative_rotation, relative_sigmas
 
 #TODO: Add marginialization for partial graphs from failed cycles.
 # Its better to do it here because then you only need to track one partial graph in the comms cycle manager node.

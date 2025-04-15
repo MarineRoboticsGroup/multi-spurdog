@@ -97,8 +97,15 @@ def marginalize_partial_graph(partial_graph):
     # Compose the relative pose measurements
     relative_transformations  = []
     relative_covariances = []
+    keys = []
+    # Get the first and last key index graph_id = "BTWN_%s_%s" % (key1, key2)
+
     for key in partial_graph.keys():
         if key.startswith("BTWN"):
+            # Get the key1 and key2 from the graph id
+            key1, key2 = key.split("_")[1:3]
+            keys.append(key1)
+            keys.append(key2)
             # Convert the BTWN entry to a relative pose
             transformation, covariance = convert_partial_graph_btwn_to_relative_pose(partial_graph[key])
             relative_transformations.append(transformation)
@@ -116,7 +123,13 @@ def marginalize_partial_graph(partial_graph):
         # Compose the covariances
         J_i = compute_jacobian(T_total, T_i)
         P_total = J_i @ P_total @ J_i.T + P_i
-    return T_total, P_total
+    # Get the set of keys and sort
+    keys = list(set(keys))
+    keys.sort()
+    # Get the first and last key indices
+    key1 = keys[0][1:]
+    key2 = keys[-1][1:]
+    return key1, key2, T_total, P_total
 
 def compose_two_transformations(T1, P1, T2, P2):
     """
