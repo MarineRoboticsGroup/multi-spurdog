@@ -12,6 +12,7 @@
     <arg name="source_addr" default="0" doc="int"/>
     <arg name="num_agents" default="1" />
     <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/>
+
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
 
@@ -69,8 +70,16 @@
         <!-- Launch communication and graph managers-->
         <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_cycle_mgr.py" output="screen" />
         <node name="factor_graph_mgr" pkg="spurdog_acomms" type="comms_cycle_mgr.py" output="screen" />
+        <node name="imu_sensor_handler" pkg="spurdog_acomms" type="imu_sensor_handler.py" output="screen">
+            <param name="buffer_size" value="1000"/>
+            <param name="imu_type" value="navigator_ahrs"/>
+        </node>
 
         <!-- Launch the MOOS interface bridge -->
         <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="log" />
+
+        <node name="rosbag" pkg="rosbag" type="record"
+            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /home/morrisjp/bags/$(arg agent_name).bag'
+            output="screen" />
     </group>
 </launch>

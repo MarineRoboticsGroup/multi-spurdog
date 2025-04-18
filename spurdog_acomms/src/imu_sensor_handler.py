@@ -33,10 +33,10 @@ class IMUSensorHandler:
         # IMU Subscriber
         if rospy.get_param("~imu_type") == "navigator_ahrs":
             self.noise_params = self.available_noise_params['navigator_ahrs']
-            self.imu_sub = rospy.Subscriber("spurdog_moos_bridge/navigator_ahrs", Imu, self.navigator_ahrs_callback)
+            self.imu_sub = rospy.Subscriber("navigator_ahrs", Imu, self.navigator_ahrs_callback)
         elif rospy.get_param("~imu_type") == "microstrain_cv7":
             self.noise_params = self.available_noise_params['microstrain_cv7']
-            self.imu_sub = rospy.Subscriber("spurdog_moos_bridge/cv7_ahrs", Imu, self.cv7_ahrs_callback)
+            self.imu_sub = rospy.Subscriber("cv7_ahrs", Imu, self.cv7_ahrs_callback)
         else:
             rospy.logerr("Unsupported IMU type specified. Please check the parameter.")
             return
