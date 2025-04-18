@@ -134,14 +134,16 @@ class CycleManager:
                 "orientation": msg.quaternion,
                 "sigmas": msg.sigmas
             }
-            #NOTE: Smoothing might give A0-A5, but message format allows for A0-A1.
-            # To remedy this, without modifying the pose sequencing or error checking held here,
-            # we have to assume that the partial graphs are always connected to the previous
-            # regardless of what the indices are.
-            # So while the A0-A5 relative pose is incorporated into the between labeled A5-A6,
-            # it will actually connect A0-A6
-            # This can be can be corrected easily on the graph management side, and is safe
-            # because we're preventing publication of unconnected graphs here.
+            #NOTE:
+            # Smoothing results in a relative pose connecting A0-A5, but message format only allows
+            # for relative poses with sequential indices to be published.
+            # So we can't sequence a partial graph covering A0-A6, A6-A7, A7-A8, A8-A9, A9-A10
+            # So instead we transmit A5-A6, A6-A7, A7-A8, A8-A9, A9-A10, where the measurements under A5-A6
+            # actually represent A0-A6.
+            # To account for this, the factor_graph_mgr (synchronize_partial_graphs) checks if the partial graph
+            # is continguous with the previous graph, and if not, will re-key the graph to be contiguous.
+            # NOTE: we do not roll back the pose_time_lookup, so its possible that the smoothing will result in
+            # different sequence numbers for the two.
         else:
             self.failed_cycle_relative_pose = {
                 "key1": None,
