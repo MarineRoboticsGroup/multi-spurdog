@@ -55,10 +55,11 @@ class CycleManager:
         self.tdma_status = TdmaStatus()
         self.tdma_cycle_sequence = 0
         self.msg_preload = 10 # seconds to allow for encoding the message before the tdma window opens
-        self.skew_buffer = 1 # seconds on either side to account for any skew in the modem clock
+        self.msg_transmit_duration = 5 # seconds to allow for the message to be sent in the first half of the slot
+        self.skew_buffer = 2 # seconds on either side to account for any skew in the modem clock
         # Variables for acomms event topic
         self.ping_method = "ping with payload"
-        self.ping_timeout = 5 # seconds
+        self.ping_timeout = 4 # seconds
         self.ping_slot_open = False
         self.loaded_msg = False # last message we sent to the modem
         # Variables for external sensors
@@ -193,7 +194,11 @@ class CycleManager:
                 if elapsed_time_in_slot < 1:
                     rospy.loginfo("[%s] TDMA Active Slot Started, %ssec Remaining" % (rospy.Time.now(), remaining_active_sec))
                     self.loaded_msg = False
-                elif elapsed_time_in_slot > self.skew_buffer and remaining_sec_in_slot > self.skew_buffer:
+                # NOTE: from t=0 to t=msg_transmit_duration, the modem is attempting to clear the queue
+                # From t=msg_transmit_duration to t=ping_timeout + skew_buffer, the modem is sending the message
+                elif elapsed_time_in_slot > self.msg_transmit_duration and remaining_sec_in_slot > (self.skew_buffer+self.ping_timeout):
+                    # NOTE: This ensures that the ping cycle takes 5sec to clear the queue at the beginning of the slot, then 4sec for one ping,
+                    # and 4sec for the second ping, then idle for 2sec to prevent overlap
                     self.execute_ping_cycle(current_slot, elapsed_time_in_slot)
                 else:
                     pass
