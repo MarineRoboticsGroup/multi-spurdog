@@ -30,8 +30,9 @@ class GraphManager:
         rospy.init_node('factor_graph_manager', anonymous=True)
         self.local_address = int(rospy.get_param("modem_address", 0))
         self.num_agents = int(rospy.get_param("num_agents", 1))
-        self.num_landmarks = int(rospy.get_param("num_landmarks", 0))
-        self.landmarks = rospy.get_param("landmarks", {}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
+        self.landmarks = {"L0":[-71.7845,-39.6078,1.5],
+                          "L1":[65.0832,25.6598,1.5]}  # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
         self.sigma_range = float(rospy.get_param("sigma_range", 1))
         # Variables for addressing
         self.modem_addresses = {}
@@ -40,6 +41,7 @@ class GraphManager:
         self.tdma_status = TdmaStatus()
         self.tdma_cycle_sequence = 0
         self.cycle_graph_data = {}
+        self.cycle_graph_count = 0
         self.inbound_init_priors = {}
         self.inbound_partial_graphs = {}
         self.in_water = False
@@ -88,6 +90,7 @@ class GraphManager:
         Args:
             msg (TdmaStatus): The TDMA status message
         """
+        #TODO: This is largely irrelevant now that we are using the comms_cycle_mgr node
         # Get the TDMA status
         num_slots = 2 * self.num_agents
         current_slot = msg.current_slot
@@ -106,42 +109,9 @@ class GraphManager:
         elif current_slot == (num_slots -2) and remaining_sec_in_slot < 3 and self.cycle_reset == False:
             self.on_tdma_cycle_reset()
             self.cycle_reset = True
-        # If we need to send messages to other modems:
-        if self.num_agents > 1 or self.num_landmarks > 0:
-        # Load the cycle message into the queue so its ready to go when we are active
-            if time_to_next_active < self.msg_preload and not self.loaded_msg:
-                if self.tdma_cycle_sequence == 0:
-                    rospy.loginfo("[%s] Publishing Init Prior" % rospy.Time.now())
-                    self.init_prior_pub.publish(self.staged_init_prior)
-                    self.loaded_msg = True
-                else:
-                    rospy.loginfo("[%s] Publishing Partial Graph" % rospy.Time.now())
-                    self.partial_graph_pub.publish(self.staged_partial_graph)
-                    self.loaded_msg = True
-            # If we are active, we need to execute the ping cycle
-            elif we_are_active == True:
-                if elapsed_time_in_slot < 1:
-                    rospy.loginfo("[%s] TDMA Active Slot Started, %ssec Remaining" % (rospy.Time.now(), remaining_active_sec))
-                    self.loaded_msg = False
-                elif elapsed_time_in_slot > self.skew_buffer and remaining_sec_in_slot > self.skew_buffer:
-                    self.execute_ping_cycle(current_slot, elapsed_time_in_slot)
-                else:
-                    pass
-            else:
-                # If we are not active, do nothing
-                pass
-        else:
-            # This is an escape to prevent the ping cycle from executing if we have no other agents or landmarks
-            rospy.logwarn("[%s] No other agents or landmarks to ping" % rospy.Time.now())
 
         # Regardless, update TDMA
         self.tdma_status = msg
-        # self.tdma_status.current_slot = current_slot
-        # self.tdma_status.we_are_active = we_are_active
-        # self.tdma_status.remaining_slot_seconds = remaining_sec_in_slot
-        # self.tdma_status.remaining_active_seconds = remaining_active_sec
-        # self.tdma_status.time_to_next_active = time_to_next_active
-        # self.tdma_status.slot_duration_seconds = slot_duration
         return
 
     def on_tdma_cycle_reset(self):
@@ -150,7 +120,8 @@ class GraphManager:
         - This is called after the last ros message is sent, but possibly before the modem finished the last ping
         """
         # Initialize the cycle status
-        cycle_complete, should_smooth = False
+        cycle_complete = False
+        should_smooth = False
         key1, key2, translation, rotation, sigmas = None, None, None, None, None
         # Check if we've completed initialization (we're in the partial graph phase):
         if self.init_complete:
@@ -177,11 +148,12 @@ class GraphManager:
 
         # If we are still in the init phase, we need to check if we've received all of the initial priors
         else:
-            num_msg_rcvd = len([v for v in self.inbound_init_priors.values() if v is not None])
+            #num_msg_rcvd = len([v for v in self.inbound_init_priors.values() if v is not None])
+            num_msg_rcvd = len(self.inbound_init_priors)
             if num_msg_rcvd < (1 + self.num_landmarks):
                 # Publish that the cycle has failed, but since we didn't get a graph, we can't smooth
-                rospy.logerr("[%s] No initial priors received, resetting cycle" % rospy.Time.now())
-            elif num_msg_rcvd == (1 + self.num_landmarks):
+                rospy.logerr("[%s] No initial priors received (%s), resetting cycle" % (rospy.Time.now(), len(self.inbound_init_priors)))
+            elif num_msg_rcvd == (1 + self.num_landmarks) and self.num_agents !=1:
                 # Log the cycle failure, but smooth so we can try to reset in the next cycle
                 should_smooth = True
                 key1, key2, translation, rotation, sigmas = self.get_smoothed_relative_pose()
@@ -205,8 +177,8 @@ class GraphManager:
         msg.should_smooth = should_smooth
         msg.key1 = key1
         msg.key2 = key2
-        msg.position = translation
-        msg.orientation = rotation
+        msg.translation = translation
+        msg.quaternion = rotation
         msg.sigmas = sigmas
         return
 
@@ -226,7 +198,7 @@ class GraphManager:
             if value == "true":
                 if self.in_water == False:
                     self.in_water = True
-                    rospy.loginfo("[%s] In water, building init prior" % (rospy.Time.now()))
+                    #rospy.loginfo("[%s] In water" % (rospy.Time.now()))
                 else:
                     return
             elif value == "false":
@@ -253,7 +225,7 @@ class GraphManager:
         initial_position, initial_orientation, initial_sigmas = decode_init_prior_data_from_int(initial_position, initial_orientation, initial_sigmas)
         # Store in the inbound_init_priors dict
         self.inbound_init_priors[chr(ord("A") + local_addr)] = {
-            "key": local_addr+str(full_index),
+            "key": chr(ord("A") + local_addr)+str(full_index),
             "initial_position": initial_position,
             "initial_orientation": initial_orientation,
             "initial_sigmas": initial_sigmas
@@ -266,8 +238,20 @@ class GraphManager:
     def check_if_all_init_priors_received(self):
         """This function checks if all initial prior factors have been received
         """
+        # Generate the landmark priors
+        for i in range(self.num_landmarks):
+            position = self.landmarks["L%d" % i]
+            self.inbound_init_priors["L%d" % i] = {
+                "key": "L%d" % i,
+                "initial_position": np.array(position),
+                "initial_orientation": np.array([0, 0, 0, 1]),  # Assuming no rotation for landmarks
+                "initial_sigmas": np.array([1.7, 1.7, 0.1, 0.1, 0.1, 0.1])
+            }
+            # Log that we added the prior
+            rospy.loginfo("[%s] Added Initial Prior Factor for Landmark L%d" % (rospy.Time.now(), i))
+
         #Check if the number of keys in the dict is equal to the number of agents
-        if len(self.inbound_init_priors) == self.num_agents:
+        if len(self.inbound_init_priors) == self.num_agents + self.num_landmarks:
             # If so, we have received all initial prior factors
             rospy.loginfo("[%s] Received all Initial Prior Factors from all agents" % rospy.Time.now())
             # Add the pose priors to a cycle graph message and send to the estimator
@@ -275,16 +259,28 @@ class GraphManager:
             msg.header = Header()
             msg.header.stamp = rospy.Time.now()
             for key, data in self.inbound_init_priors.items():
+                # if the key is a landmark, we need to add it as a pose prior
                 pose_prior = PoseWithAssoc()
                 pose_prior.key1 = data["key"]
                 pose_prior.key2 = data["key"]
-                pose_prior.pose.position = Point(*data["initial_position"])
-                pose_prior.pose.orientation = Quaternion(*data["initial_orientation"])
-                pose_prior.covariance = np.diag(data["initial_sigmas"]**2).flatten().tolist()
-                msg.relative_poses.append(pose_prior)
+                pose_prior.pose.pose.position = Point(*data["initial_position"])
+                pose_prior.pose.pose.orientation = Quaternion(*data["initial_orientation"])
+                rospy.loginfo("[%s] Adding Initial Prior Factor for %s" % (rospy.Time.now(), data))
+                pose_prior.pose.covariance = data["initial_sigmas"]**2
             # Publish the cycle graph message
             self.cycle_graph_pub.publish(msg)
             rospy.loginfo("[%s] Published Cycle Graph with Initial Prior Factors" % rospy.Time.now())
+            # Publish comms cycle status
+            cycle_status_msg = CommsCycleStatus()
+            cycle_status_msg.sequence_number = 1
+            cycle_status_msg.init_complete = True
+            cycle_status_msg.cycle_complete = True
+            cycle_status_msg.should_smooth = False
+            cycle_status_msg.key1 = None
+            cycle_status_msg.key2 = None
+            cycle_status_msg.translation = None
+            cycle_status_msg.quaternion = None
+            cycle_status_msg.sigmas = None
         else:
             rospy.loginfo("[%s] Waiting for all Initial Prior Factors from agents" % rospy.Time.now())
         return
@@ -517,6 +513,7 @@ class GraphManager:
                 continue
         # Publish the cycle graph message
         self.cycle_graph_pub.publish(msg)
+        self.cycle_graph_count += 1
         rospy.loginfo("[%s] Published Cycle Graph" % rospy.Time.now())
 
     def get_smoothed_relative_pose(self):
@@ -546,6 +543,8 @@ if __name__ == "__main__":
     except Exception as e:
         rospy.logerr("[%s] Graph Mgr Error: %s" % (rospy.Time.now(), e))
     finally:
+        # Print the number of cycle graphs published
+        rospy.loginfo("[%s] Cycle Graphs Published: %d" % (rospy.Time.now(), graph_mgr.cycle_graph_count))
         rospy.loginfo("[%s] Graph Mgr Exiting" % rospy.Time.now())
         rospy.signal_shutdown("Graph Mgr Exiting")
         exit(0)

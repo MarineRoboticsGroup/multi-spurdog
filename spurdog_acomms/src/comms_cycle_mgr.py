@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import rospy
+from os.path import dirname, join, abspath
 import numpy as np
 from datetime import datetime
 import scipy.spatial.transform as spt
 from std_msgs.msg import Header, String, Time, Float32
-from geometry_msgs.msg import Point, Quaternion, PoseWithCovarianceStamped
+from geometry_msgs.msg import Point, Quaternion, Pose, PoseWithCovariance, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
-    TdmaStatus
+    TdmaStatus, QueueStatus
 )
 from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
@@ -45,8 +46,8 @@ class CycleManager:
         rospy.init_node('comms_cycle_manager', anonymous=True)
         self.local_address = int(rospy.get_param("modem_address", 0))
         self.num_agents = int(rospy.get_param("num_agents", 1))
-        self.num_landmarks = int(rospy.get_param("num_landmarks", 0))
-        self.landmarks = rospy.get_param("landmarks", {}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
+        self.landmarks = rospy.get_param("landmarks", {"L0":[-71.7845,-39.6078,1.5], "L1":[65.0832,25.6598,1.5]}) # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
         self.sound_speed = float(rospy.get_param("sound_speed", 1500))
         # Variables for addressing
         self.modem_addresses = {}
@@ -54,19 +55,21 @@ class CycleManager:
         # Variables for tdma and cycle execution
         self.tdma_status = TdmaStatus()
         self.tdma_cycle_sequence = 0
-        self.msg_preload = 10 # seconds to allow for encoding the message before the tdma window opens
-        self.msg_transmit_duration = 5 # seconds to allow for the message to be sent in the first half of the slot
-        self.skew_buffer = 2 # seconds on either side to account for any skew in the modem clock
+        self.queue_status = QueueStatus()
+        self.msg_preload = 5 # seconds to allow for encoding the message before the tdma window opens
         # Variables for acomms event topic
         self.ping_method = "ping with payload"
-        self.ping_timeout = 4 # seconds
-        self.ping_slot_open = False
-        self.loaded_msg = False # last message we sent to the modem
+        self.ping_timeout = 3 # seconds
+        self.message_on_safe = False # True if messages not allowed
+        self.ping_on_safe = True # True if pings not allowed
+        self.ping_slot_1_attempted = False # True if the first ping slot has been attempted
+        self.ping_slot_2_attempted = False # True if the second ping slot has been attempted
         # Variables for external sensors
-        self.gps_fix = [[1,2,3],[0,0,0,1],[np.eye(6)]] # [position, orientation, covariance]
+        self.gps_fix = [[1,2,3],[0,0,0,1],[1.7,1.7,3.5,0.1,0.1,0.1]] # [position, orientation, covariance]
         # Variables for message handling
         self.staged_init_prior = InitPrior()
         self.staged_partial_graph = PartialGraph()
+        self.range_data = []
         self.partial_graph_data = {}
         self.cycle_graph_data = {}
         self.inbound_init_priors = {}
@@ -74,7 +77,7 @@ class CycleManager:
         self.pose_time_lookup = {}
         self.in_water = False
         self.smooth_poses = False
-        self.init_complete = False
+        self.init_complete = True
         self.failed_cycle_relative_pose = {
             "key1": None,
             "key2": None,
@@ -91,6 +94,8 @@ class CycleManager:
         rospy.loginfo("[%s] Services ready, initializing topics" % rospy.Time.now())
         # Initialize topics
         self.tdma_from_modem = rospy.Subscriber("modem/tdma_status", TdmaStatus, self.on_tdma_status, queue_size=1)
+        self.queue_status_from_modem = rospy.Subscriber("modem/queue_status", QueueStatus, self.on_queue_status, queue_size=1)
+        rospy.loginfo("[%s] TDMA Status msg registered Configured" % rospy.Time.now())
         # Monitor NMEA messages to track the pings and trigger relative pose measurements
         self.nmea_from_modem = rospy.Subscriber("modem/nmea_from_modem", String, self.on_nmea_from_modem)
         # Establish the message subs and pubs
@@ -107,6 +112,7 @@ class CycleManager:
         self.configure_comms_cycle()
         # Start the cycle
         rospy.loginfo("[%s] Comms Cycle Configured" % rospy.Time.now())
+        rospy.sleep(10) # allow for modem to configure
 
     def configure_comms_cycle(self):
         """This function configures the comms cycle for the vehicle.
@@ -114,6 +120,11 @@ class CycleManager:
         # Get the modem addresses and cycle targets
         self.modem_addresses = configure_modem_addresses(self.num_agents, self.num_landmarks, self.local_address)
         self.cycle_target_mapping = configure_cycle_targets(self.modem_addresses)
+        # Confifure the first pose in pose_time_lookup
+        local_chr = chr(ord("A") + self.local_address)
+        self.pose_time_lookup[local_chr + str(0)] = rospy.Time.now()  # Initial pose at time of cycle start
+        # Print cycle targets for debugging
+        rospy.loginfo("[%s] Cycle Targets: %s" % (rospy.Time.now(), self.cycle_target_mapping))
         return
 
     def on_comms_cycle_status(self, msg):
@@ -122,7 +133,7 @@ class CycleManager:
             msg (CommsCycleStatus): The comms cycle status message
         """
         # Get message field:
-        cycle_seq_number = msg.sequence_number
+        cycle_seq = msg.sequence_number
         self.init_complete = msg.init_complete
         cycle_complete = msg.cycle_complete
         self.smooth_poses = msg.should_smooth
@@ -160,6 +171,8 @@ class CycleManager:
             msg (TdmaStatus): The TDMA status message
         """
         # Get the TDMA status
+        msg_id = msg.header.seq
+        msg_stamp = msg.header.stamp.to_nsec()
         current_slot = msg.current_slot
         we_are_active = msg.we_are_active
         remaining_sec_in_slot = msg.remaining_slot_seconds
@@ -168,57 +181,87 @@ class CycleManager:
         slot_duration = msg.slot_duration_seconds
         elapsed_time_in_slot = slot_duration - remaining_sec_in_slot
         #rospy.logwarn("[%s] TDMA Msg: Slot: %s, Prev Slot: %s" % (msg_id, current_slot, self.tdma_status.current_slot))
+
         # Check if the TDMA cycle is restarting:
         if current_slot == 0 and current_slot != self.tdma_status.current_slot:
             self.tdma_cycle_sequence += 1
             self.on_tdma_cycle_reset()
 
         # If we need to send messages to other modems:
-        if self.num_agents > 1 or self.num_landmarks > 0:
-        # Load the cycle message into the queue so its ready to go when we are active
-            if time_to_next_active < self.msg_preload and not self.loaded_msg:
+        if self.num_agents >= 1:
+        # Check if we are in the message preload phase:
+        #NOTE: This normally happens when the vehicle is not active
+            if (we_are_active and remaining_sec_in_slot < self.msg_preload) or (we_are_active==False and time_to_next_active < self.msg_preload) and self.queue_status.total_message_count == 0 and self.message_on_safe == False:
+                #rospy.loginfo("[%s] Preload Status: Remaining Seconds: %.2f, Active: %s, In Queue %d" % (rospy.Time.now(), remaining_sec_in_slot, we_are_active, self.queue_status.total_message_count))
+                # Check if we are in the initial prior phase:
                 if self.tdma_cycle_sequence == 0:
-                    rospy.loginfo("[%s] Publishing Init Prior" % rospy.Time.now())
-                    # Publish to the modem:
-                    self.init_prior_pub.publish(self.staged_init_prior)
-                    # Bypass the modem and publish directly to the graph manager
-                    self.init_prior_bypass_pub.publish(self.staged_init_prior)
-                    self.loaded_msg = True
+                    # Check if init prior is staged, if not, build it:
+                    if self.staged_init_prior is not None and self.staged_init_prior.initial_position[0] == 0:
+                        self.build_init_prior()
+                        self.init_prior_pub.publish(self.staged_init_prior)
+                        # Bypass the modem and publish directly to the graph manager
+                        self.init_prior_bypass_pub.publish(self.staged_init_prior)
+                        #self.loaded_msg = True
+                        rospy.loginfo("[%s] Published Init Prior %s" % (rospy.Time.now(), self.staged_init_prior))
+                        #self.tdma_cycle_sequence += 1
+                    else:
+                        pass
+                # If we are in the partial graph phase:
+                elif self.queue_status.total_message_count == 0:
+                    # If we don't have a valid partial graph staged, send a template
+                    if self.staged_partial_graph.num_poses == 0:
+                        #rospy.loginfo("[%s] No partial graph data to send" % rospy.Time.now())
+                        self.partial_graph_pub.publish(PartialGraph())
+                    else:
+                        rospy.loginfo("[%s] Publishing Partial Graph %s" % (rospy.Time.now(),msg_id))
+                        #rospy.loginfo("[%s] Staged Partial Graph %s" % (rospy.Time.now(),self.staged_partial_graph))
+                        # Publish to the modem
+                        self.partial_graph_pub.publish(self.staged_partial_graph)
+                        # Bypass the modem and publish directly to the graph manager
+                        self.partial_graph_pub.publish(self.staged_partial_graph)
                 else:
-                    rospy.loginfo("[%s] Publishing Partial Graph" % rospy.Time.now())
-                    # Publish to the modem
-                    self.partial_graph_pub.publish(self.staged_partial_graph)
-                    # Bypass the modem and publish directly to the graph manager
-                    self.partial_graph_pub.publish(self.staged_partial_graph)
-                    self.loaded_msg = True
-            # If we are active, we need to execute the ping cycle
-            elif we_are_active == True:
-                if elapsed_time_in_slot < 1:
-                    rospy.loginfo("[%s] TDMA Active Slot Started, %ssec Remaining" % (rospy.Time.now(), remaining_active_sec))
-                    self.loaded_msg = False
-                # NOTE: from t=0 to t=msg_transmit_duration, the modem is attempting to clear the queue
-                # From t=msg_transmit_duration to t=ping_timeout + skew_buffer, the modem is sending the message
-                elif elapsed_time_in_slot > self.msg_transmit_duration and remaining_sec_in_slot > (self.skew_buffer+self.ping_timeout):
-                    # NOTE: This ensures that the ping cycle takes 5sec to clear the queue at the beginning of the slot, then 4sec for one ping,
-                    # and 4sec for the second ping, then idle for 2sec to prevent overlap
-                    self.execute_ping_cycle(current_slot, elapsed_time_in_slot)
-                else:
-                    pass
-            else:
-                # If we are not active, do nothing
-                pass
+                    pass # We've already loaded
+                self.message_on_safe = True  # If we are in the preload phase, we should not ping
         else:
             # This is an escape to prevent the ping cycle from executing if we have no other agents or landmarks
-            rospy.logwarn("[%s] No other agents or landmarks to ping" % rospy.Time.now())
+            rospy.logerr("[%s] No other agents or landmarks to ping" % rospy.Time.now())
+
+        # If we are active, we need to execute the ping cycle
+        if we_are_active == True:
+            #rospy.loginfo("[%s] Active Status: Slot %s, Remaining Seconds: %.2f, Active: %s, Ping Safety: %s" % (rospy.Time.now(), current_slot, remaining_sec_in_slot, we_are_active, self.ping_on_safe))
+            # If we have just entered the active slot:
+            if self.tdma_status.we_are_active == False:
+                rospy.loginfo("[%s] TDMA Active Slot Started, %ssec Remaining" % (rospy.Time.now(), remaining_active_sec))
+                self.message_on_safe = False  # If we are in the active slot, we should allow messages
+                self.ping_slot_1_attempted = False
+                self.ping_slot_2_attempted = False
+            elif self.ping_on_safe == False:
+                #rospy.loginfo("[%s] Attempting to ping- P1 Status: %s, P2 Status: %s" % (rospy.Time.now(), self.ping_slot_1_attempted, self.ping_slot_2_attempted))
+                first_tgt, second_tgt = self.cycle_target_mapping[current_slot]
+                if self.ping_slot_1_attempted == False and self.ping_slot_2_attempted == False:
+                    # Execute the ping cycle for the current slot
+                    self.ping_slot_1_attempted = True
+                    self.send_ping(first_tgt)
+                    rospy.sleep(self.ping_timeout)
+                elif self.ping_slot_1_attempted == True and self.ping_slot_2_attempted == False:
+                    self.ping_slot_2_attempted = True
+                    self.send_ping(second_tgt)
+                    rospy.sleep(self.ping_timeout)
+                    rospy.loginfo("[%s] Ping Cycle Completed, Time to Complete: %.2f seconds" % (rospy.Time.now(), elapsed_time_in_slot))
+                else:
+                    # Log that the ping process is completed and note how long it took to get there
+                    pass
+            else:
+                # If we are not allowed to ping, log that we are waiting for the next cycle
+                #rospy.loginfo("[%s] Pings not allowed, waiting for next cycle" % rospy.Time.now())
+                pass
+        else:
+            # If we are not active, do nothing
+            #rospy.loginfo("[%s] Not in active slot, waiting for next cycle" % rospy.Time.now())
+            pass
 
         # Regardless, update TDMA
         self.tdma_status = msg
-        # self.tdma_status.current_slot = current_slot
-        # self.tdma_status.we_are_active = we_are_active
-        # self.tdma_status.remaining_slot_seconds = remaining_sec_in_slot
-        # self.tdma_status.remaining_active_seconds = remaining_active_sec
-        # self.tdma_status.time_to_next_active = time_to_next_active
-        # self.tdma_status.slot_duration_seconds = slot_duration
         return
 
     def on_tdma_cycle_reset(self):
@@ -232,47 +275,47 @@ class CycleManager:
             # The checking function evaluates if the graph is connected, and without duplicates
             # It also check sfor gross errors (like violating the size limit)
             self.partial_graph_data.clear()
-        elif self.staged_init_prior == None:
+            self.tdma_cycle_sequence += 1
+        elif self.staged_init_prior == InitPrior():
             # If we are not initialized, we need to build the init prior
             self.staged_init_prior = self.build_init_prior()
+            self.tdma_cycle_sequence = 0
         else:
+            # We are initialized, but others are not, so we need to reset the cycle
             self.partial_graph_data.clear()
+            self.tdma_cycle_sequence = 0
             rospy.logwarn("[%s] TDMA Cycle Reset, waiting for init prior data" % rospy.Time.now())
-        self.tdma_cycle_sequence += 1
         return
 
-    def execute_ping_cycle(self, current_slot, elapsed_time_in_slot):
-        """This function executes the cycle for the current TDMA slot
-        - Assumes nothing about the tdma structure other than duration >10sec (limited by ros_acomms/tdma)
+    def on_queue_status(self, msg):
+        """This function handles the queue status message from the modem
+        Args:
+            msg (QueueStatus): The queue status message
         """
-        # Get the targets from the cycle target mapping
-        first_tgt, second_tgt = self.cycle_target_mapping[current_slot]
-
-        # Execute the first of two ping slots
-        if first_tgt == []:
-            rospy.logwarn("[%s] No targets to ping in this slot" % rospy.Time.now())
-            return
+        # Get the queue status
+        msg_id = msg.header.seq
+        msg_stamp = msg.header.stamp.to_nsec()
+        msg_count = msg.total_message_count
+        if msg_count > 0 or self.tdma_status.we_are_active == False:
+            self.ping_on_safe = True  # If there are messages in the queue, we should not ping
+            #rospy.loginfo("[%s] Queue Status: %d messages in queue" % (rospy.Time.now(), msg_count))
+            if msg_count > 1:
+                rospy.logwarn("[%s] Queue Status: %d messages in queue" % (rospy.Time.now(), msg_count))
+        if self.queue_status.total_message_count > 0 and msg_count == 0:
+            # We have flushed the queue and should now allow ping
+            rospy.sleep(3)
+            self.ping_on_safe = False
+            self.ping_slot_1_attempted = False
+            self.ping_slot_2_attempted = False
+            time_to_clear_queue = self.tdma_status.slot_duration_seconds - self.tdma_status.remaining_slot_seconds
+            # Report the time to clear the queue to 2 decimal places
+            rospy.loginfo("[%s] Queue Cleared, Time to Clear: %.2f seconds" % (rospy.Time.now(), time_to_clear_queue))
+        elif self.tdma_status.we_are_active == False and msg_count == 0:
+            # If we are not active and there are messages in the queue, we should not ping
+            self.ping_on_safe = False
         else:
-            if elapsed_time_in_slot > 2:
-                self.ping_slot_open = True
-            elif elapsed_time_in_slot < 3 and self.ping_slot_open == True:
-                self.send_ping(first_tgt)
-                self.ping_slot_open = False
-            else:
-                return
-
-        # Execute the second of two ping slots
-        if second_tgt == []:
-            rospy.logwarn("[%s] No second target to ping in this slot" % rospy.Time.now())
-            return
-        else:
-            if elapsed_time_in_slot > 2 + self.ping_timeout:
-                self.ping_slot_open = True
-            elif elapsed_time_in_slot < (3 + self.ping_timeout):
-                self.send_ping(second_tgt)
-                self.ping_slot_open = False
-            else:
-                return
+            pass
+        self.queue_status = msg
         return
 
     # Ping Handling:
@@ -300,16 +343,16 @@ class CycleManager:
 
         elif nmea_type == "$CACMR": # Modem-to-host acknowledgement of a ping response
             src, dest, recieved_ping_time = parse_nmea_cacmr(data)
-            if data[1] == "PNR" and src == self.local_address:
+            if data[0] == "PNR" and src == self.local_address:
                 rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, chr(ord("A") + dest)))
-            elif data[1] == "PNR":
+            elif data[0] == "PNR":
                 rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (recieved_ping_time, chr(ord("A") + src), chr(ord("A") + dest)))
             else:
                 rospy.logerr("[%s] Received $CACMR with unexpected data: %s" % (rospy.Time.now(), data))
 
         elif nmea_type == "$CARFP" and data[5] == "-1": # Modem-to-host acknowledgement of a minipacket ping payload
             src, dest, recieved_msg_time, num_frames, payload = parse_nmea_carfp(data)
-            if not recieved_msg_time or not src or not dest or not payload:
+            if recieved_msg_time == None or not src == None or not dest == None:
                 rospy.logerr("[%s] CARFP message is missing required fields" % rospy.Time.now())
                 return
             elif dest == self.local_address:
@@ -357,23 +400,43 @@ class CycleManager:
             #rospy.loginfo("[%s] One Ping Only Vasily." % (rospy.Time.now()))
             rospy.loginfo("[%s] Sending Ping to %s with payload %s" % (rospy.Time.now(), target_addr, symbol))
             ping_resp = self.ping_client(ping_req)
+            # Response
+            # bool timed_out
+            # float32 one_way_travel_time
+            # float32 tat
+
+            # int8 txlevel
+            # int8 timestamp_resolution
+            # int8 toa_mode
+            # int8 snv_on
+            # uint32 timestamp
             # Check if the ping timed out
             if ping_resp.timed_out:
                 rospy.logwarn("[%s] Ping to %s Timed Out" % (rospy.Time.now(), target_addr))
+                self.range_data.append([rospy.Time.now().to_sec() -self.ping_timeout/2, self.local_address, target_addr, None, None])
             else:
-                rospy.loginfo("[%s] Ping to %s Successful" % (rospy.Time.now(), target_addr))
-                src = ping_resp.cst.src
-                dest = ping_resp.cst.dest
+                rospy.loginfo("[%s] Ping Successful: "% (rospy.Time.now()))
+                dest = ping_resp.cst.src
+                src = ping_resp.cst.dest
                 owtt = ping_resp.one_way_travel_time
+                tat = ping_resp.tat
                 measured_range = owtt * self.sound_speed
-                timestamp = ping_resp.timestamp
+                # Convert the timestamp to a ROS Time object
+                # NOTE: The timestamp is in float seconds, so we can convert it to a ROS Time object
+                timestamp = ping_resp.cst.toa - rospy.Duration.from_sec(owtt)
+
+                # Log all the fields
+                rospy.loginfo("[%s] Ping Response: timestamp=%s, src=%d, dest=%d, owtt=%.4f, tat= %.4f, measured_range=%.4f" % (rospy.Time.now(), timestamp, src, dest, owtt, tat, measured_range))
                 # TODO: Verify this is rostime
-                self.request_preintegration(timestamp, True) # Request a relative pose measurement
-                # Search the modem_addresses for the dest address to get the dest_chr
+                # Log the ping response
+                src_chr = chr(ord("A") + src)
                 if dest < self.num_agents:
                     dest_chr = chr(ord("A") + dest)
                 else:
                     dest_chr = "L%d" % (dest - self.num_agents)
+                self.range_data.append([timestamp, src, dest, owtt, measured_range])
+                #NOTE: This allows for preintegration between ranges to landmarks and ranges to agents
+                self.request_preintegration(timestamp, True) # Request a relative pose measurement
                 # Add to the cycle graph data
                 graph_id = "RNG_%s_%s" % (symbol, dest_chr)
                 self.partial_graph_data[graph_id] = {
@@ -400,7 +463,19 @@ class CycleManager:
         key1_index = self.modem_addresses[local_chr][1]
         ti = self.pose_time_lookup[local_chr + str(key1_index)]
         try:
-            response = self.preintegrate_imu(ti, tj)
+            #response = self.preintegrate_imu(ti, tj)
+
+            # Generate a placeholder response for comms testing
+            response = PreintegrateIMUResponse(
+                success=True,
+                pose_delta=PoseWithCovariance(
+                    pose=Pose(
+                        position=Point(x=0.0, y=0.0, z=0.0),
+                        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+                    ),
+                    covariance=[1.0] * 36  # Placeholder covariance
+                    )
+                )
             if not response.success:
                 rospy.logerr(f"Preintegration failed: {response.error_message}")
                 return None
@@ -413,9 +488,9 @@ class CycleManager:
                     self.modem_addresses[local_chr][1] = key1_index + 1
                     self.pose_time_lookup[key2] = tj
                     x_ij = response.pose_delta
-                    pose = x_ij.pose.pose
-                    position = np.array([pose.position.x, pose.position.y, pose.position.z])
-                    orientation = np.array([pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
+                    pose = x_ij.pose
+                    position = np.array(pose.position)
+                    orientation = np.array(pose.orientation)
                     covariance = np.array(response.pose_delta.covariance).reshape((6, 6))
                     sigmas = np.sqrt(np.diag(covariance))
                     # Add to the cycle graph data
@@ -423,8 +498,8 @@ class CycleManager:
                     self.partial_graph_data[graph_id] = {
                         "key1": key1,
                         "key2": key2,
-                        "position": np.array([position.x, position.y, position.z]),
-                        "orientation": np.array([orientation.x, orientation.y, orientation.z, orientation.w]),
+                        "position": np.array(position),
+                        "orientation": np.array(orientation),
                         "sigmas": sigmas
                     }
                 else:
@@ -445,8 +520,8 @@ class CycleManager:
         self.gps_fix[0] = [msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z]
         self.gps_fix[1] = [msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w]
         self.gps_fix[2] = np.sqrt(np.diag(msg.pose.covariance))  # GPS covariance is a 6x6 matrix, we only need the diagonal
-        # Log the reciept
-        rospy.loginfo("[%s] Received GPS data" % pose_time)
+        # Log the reciept (disabled for dockside)
+        #rospy.loginfo("[%s] Received GPS data" % pose_time)
         return
 
     def on_mission_state(self, msg: String):
@@ -490,7 +565,7 @@ class CycleManager:
         local_chr = chr(ord("A") + self.local_address)
         local_symbol = local_chr + str(self.modem_addresses[local_chr][1])
         # Encode the initial prior factor data into a message
-        initial_position, initial_orientation, initial_sigmas = encode_init_prior_data_as_int(self.gps_fix[0], self.gps_fix[1], self.gps_fix[2])
+        initial_position, initial_orientation, initial_sigmas = encode_init_prior_data_as_int(self.gps_fix[0],self.gps_fix[1],self.gps_fix[2])
         # Set the initial prior factor message
         init_prior_msg = InitPrior()
         init_prior_msg.local_addr = int(self.local_address)
@@ -498,8 +573,15 @@ class CycleManager:
         init_prior_msg.initial_position = initial_position
         init_prior_msg.initial_orientation = initial_orientation
         init_prior_msg.initial_sigmas = initial_sigmas
+        # Pass the position to the pose time lookup
+        init_symbol = local_chr + str(0)
+        self.pose_time_lookup[init_symbol] = rospy.Time.now()
         # Stage the initial prior factor message for sending
         self.staged_init_prior = init_prior_msg
+        # Publish the initial prior factor to the modem
+       #self.init_prior_pub.publish(self.staged_init_prior)
+        # Bypass the modem and publish directly to the graph manager
+        #self.init_prior_bypass_pub.publish(self.staged_init_prior)
         self.inbound_init_priors[local_chr] = {
             "key": local_symbol,
             "position": initial_position,
@@ -507,7 +589,15 @@ class CycleManager:
             "sigmas": initial_sigmas
         }
         # Log that we've sent the message
-        rospy.loginfo("[%s] Published Initial Prior Factor" % (rospy.Time.now()))
+        #rospy.loginfo("[%s] Created Initial Prior Factor: %s" % (rospy.Time.now(), self.staged_init_prior)
+        #TODO: This correctly sends the message, but bypasses the staging feature (and redundant message)
+        # self.init_prior_pub.publish(self.staged_init_prior)
+        # # Bypass the modem and publish directly to the graph manager
+        # self.init_prior_bypass_pub.publish(self.staged_init_prior)
+        # #self.loaded_msg = True
+        # rospy.loginfo("[%s] Published Init Prior %s" % (rospy.Time.now(), self.staged_init_prior))
+        # #self.tdma_cycle_sequence += 1
+        # self.staged_init_prior = InitPrior()  # Clear the staged init prior after publishing
         return
 
     def build_partial_graph(self):
@@ -520,14 +610,14 @@ class CycleManager:
         """
         partial_graph = PartialGraph()
         # Check if the partial graph can be sent in the msg and is connected:
-        if self.num_agents == 1 and self.num_landmarks == 0:
-            rospy.loginfo("[%s] No partial graph data to send" % rospy.Time.now())
+        if self.num_agents == 1:
+            #rospy.loginfo("[%s] No partial graph data to send" % rospy.Time.now())
             return partial_graph
         else:
             # Check that the graph is the right size, is feasible and is connected:
             graph_check = check_partial_graph_msg(self.partial_graph_data)
             if not graph_check:
-                rospy.logerror("[%s] Partial graph data check failed" % rospy.Time.now())
+                rospy.logerr("[%s] Partial graph data check failed" % rospy.Time.now())
             else:
                 rospy.loginfo("[%s] Partial graph data check passed" % rospy.Time.now())
 
@@ -586,7 +676,46 @@ class CycleManager:
                     else:
                         rospy.logerr("[%s] Invalid graph ID: %s" % (rospy.Time.now(), graph_id))
                         continue
+
         return partial_graph
+
+    def summarize_range_data(self):
+        """This function summarizes the range data collected upon node shutdown"""
+        rospy.loginfo("[%s] Range Data Summary:" % rospy.Time.now())
+
+        # Report the number of completed ranges to each dest
+        range_summary = {}
+        for entry in self.range_data:
+            timestamp, src, dest, owtt, measured_range = entry
+            if dest not in range_summary:
+                range_summary[dest] = []
+            range_summary[dest].append((timestamp, src, owtt, measured_range))
+        for dest in range_summary.keys():
+            # if there are no ranges to this dest, skip it
+            if not range_summary[dest]:
+                rospy.loginfo("[%s] No ranges to %s" % (rospy.Time.now(), chr(ord("A") + dest)))
+            else:
+                #Check if there is an entry that includes a measured_range
+                has_measured_range = any(r[3] is not None for r in range_summary[dest])
+                if not has_measured_range:
+                    rospy.loginfo("[%s] Ranges to %s: %d / %d valid" % (rospy.Time.now(), chr(ord("A") + dest), 0, len(range_summary[dest])))
+                else:
+                    ranges = len([r for r in range_summary[dest] if r[3] is not None])
+                    mean = np.mean([r[3] for r in range_summary[dest] if r[3] is not None])
+                    sigma = np.std([r[3] for r in range_summary[dest] if r[3] is not None])
+                    rospy.loginfo("[%s] Ranges to %s: %d / %d valid, Mean: %.2f, Sigma: %.2f" % (rospy.Time.now(), chr(ord("A") + dest), ranges, len(range_summary[dest]), mean, sigma))
+
+        # Print the range data to a log file:
+        if not self.range_data:
+            rospy.loginfo("[%s] No range data collected" % rospy.Time.now())
+            return
+        first_timestamp = self.range_data[0][0]
+        log_file = join("/home/morrisjp/bags/June", f"range_data_{first_timestamp}.txt")
+        with open(log_file, "w") as f:
+            for entry in self.range_data:
+                timestamp, src, dest, owtt, measured_range = entry
+                f.write(f"{timestamp}, {src}, {dest}, {owtt}, {measured_range}")
+        return
 
 if __name__ == "__main__":
 
@@ -598,6 +727,8 @@ if __name__ == "__main__":
     except Exception as e:
         rospy.logerr("[%s] Comms Cycle Mgr Error: %s" % (rospy.Time.now(), e))
     finally:
+        # Summarize the range data collected
+        cycle_mgr.summarize_range_data()
         rospy.loginfo("[%s] Comms Cycle Mgr Exiting" % rospy.Time.now())
         rospy.signal_shutdown("Comms Cycle Mgr Exiting")
         exit(0)

@@ -50,7 +50,7 @@ class IMUSensorHandler:
         """
         timestamp = msg.header.stamp.to_sec()
         self.imu_buffer.append((timestamp, msg))
-        rospy.loginfo(f"Stored IMU message at time {timestamp}")
+        #rospy.loginfo(f"Stored IMU message at time {timestamp}")
 
     def cv7_ahrs_callback(self, msg):
         """
@@ -70,7 +70,7 @@ class IMUSensorHandler:
         msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w = R.from_matrix(orientation).as_quat()
         # Store the modified message
         self.imu_buffer.append((timestamp, msg))
-        rospy.loginfo(f"Stored IMU message at time {timestamp}")
+        #rospy.loginfo(f"Stored IMU message at time {timestamp}")
 
     def convert_cv7_to_rh_axes_and_scale(self, orientation, accel, omega):
         """
@@ -116,7 +116,9 @@ class IMUSensorHandler:
         preintegrated_meas.pose.orientation = R.from_matrix(dR).as_quat()
         preintegrated_meas.covariance = cov.flatten().tolist()  # Flatten covariance for ROS message
 
-        rospy.loginfo(f"Processing IMU preintegration from {t1} to {t2}.")
+        rospy.loginfo(f"Processing IMU preintegration from {t1} to {t2} with {len(selected_msgs)} rows.")
+        PreintegrateIMUResponse.success = True
+        PreintegrateIMUResponse.pose_delta = preintegrated_meas
 
         return PreintegrateIMUResponse(preintegrated_meas)
 
