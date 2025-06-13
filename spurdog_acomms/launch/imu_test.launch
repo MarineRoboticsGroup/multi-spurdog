@@ -8,8 +8,8 @@
 
 <launch>
     <!-- Args that we would change at agent-to-agent level-->
-    <!-- <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
-    <arg name="source_addr" default="0" doc="int"/>
+    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
+    <!-- <arg name="source_addr" default="0" doc="int"/>
     <arg name="num_agents" default="1" />
     <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/>
     <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/> -->
@@ -55,26 +55,12 @@
             </node>
         </group> -->
 
-        <!-- Launch communication and graph managers-->
-        <node name="imu_preintegrator" pkg="spurdog_acomms" type="imu_preintegrator_node" output="screen">
-            <!-- IMU noise parameters -->
-            <param name="accel_noise_sigma" value="0.01" />
-            <param name="gyro_noise_sigma" value="0.001" />
-            <param name="accel_bias_rw_sigma" value="0.0001" />
-            <param name="gyro_bias_rw_sigma" value="0.00001" />
-
-            <!-- Initial bias values -->
-            <param name="accel_bias_x" value="0.0" />
-            <param name="accel_bias_y" value="0.0" />
-            <param name="accel_bias_z" value="0.0" />
-            <param name="gyro_bias_x" value="0.0" />
-            <param name="gyro_bias_y" value="0.0" />
-            <param name="gyro_bias_z" value="0.0" />
-        </node>
+        <!-- Launch the MOOS interface bridge -->
+        <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="screen" />
 
         <!-- Launch the IMU preintegration node -->
         <node name="rosbag" pkg="rosbag" type="record"
-            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /home/morrisjp/bags/June/ping_test.bag'
+            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /ros/logs/$(arg agent_name).bag'
             output="screen" />
     </group>
 </launch>
