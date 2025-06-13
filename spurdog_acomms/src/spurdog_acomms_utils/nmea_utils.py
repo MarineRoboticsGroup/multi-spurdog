@@ -35,7 +35,7 @@ def parse_nmea_cacma(nmea_data: list):
         rospy.logerr("[%s] CAMCA data length is not 9, instead %s!" % (rospy.Time.now(), len(nmea_data)))
         return None
     else:
-        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
+        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp()).to_sec()
         src = int(nmea_data[2])
         dest = int(nmea_data[3])
         return src, dest, recieved_ping_time
@@ -53,10 +53,11 @@ def parse_nmea_cacmr(nmea_data: list):
         # Remove any items that contain ''
         nmea_data = [item for item in nmea_data if item != '']
         # Remove the last item if it is empty
-        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[1],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
+        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[1],"%Y-%m-%dT%H:%M:%S.%f").timestamp()).to_sec()
         src = int(nmea_data[3])
         dest = int(nmea_data[2])
-        return src, dest, recieved_ping_time
+        owtt = float(nmea_data[4]) if nmea_data[4] else 0.0  # OWTT in seconds
+        return src, dest, recieved_ping_time, owtt
 
 def parse_nmea_carfp(nmea_data: list):
     """ Modem-to-host acknowledgement that a minipacket has been recieved
@@ -74,7 +75,7 @@ def parse_nmea_carfp(nmea_data: list):
         # Remove any items that contain ''
         nmea_data = [item for item in nmea_data if item != '']
         # Get the time, src and dest
-        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp())
+        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp()).to_sec()
         src = int(nmea_data[2])
         dest = int(nmea_data[3])
         if nmea_data[5] != "-1": # $CARFP data[5]=-1 indicates a ping minipacket
@@ -91,6 +92,66 @@ def parse_nmea_carfp(nmea_data: list):
             return None, None, None, None, None
         return src, dest, recieved_ping_time, num_frames, data_payload
 
+def parse_nmea_cacst(nmea_data: list):
+    """ Modem-to-host report of recieved acoustic signal
+       From Recieved Ping: "$CACST,8,0,20250606230123.348554,06,32767,45,0102,0123,07,00,00,00,00,1,001,000,0,5,1,0,150,26.0,9.48,-100,-6.48,-01,0.01,51,25000,5000,0,-1,-1,00*4A"
+       From Recieved Ping: "$CACST,[0]Version#,TOA,<?>,<?>,<?>,[5]<?>,SHF-GAIN,SHF-INPSHIFT,SHF-INSHIFT,SHF-P2BSHIFT,[10]Rate,SRC,DEST,PSKError,PacketType,[15]NframesExp,Nbadframes,SNR-RSS,SNR-IN,SNR-OUT,[20]SymbSNR?,MSEError?,DQF,DOP,StdDevNoise(dB),[25]Carrier,BW,PCM,<?>,<?>,<?>*CS
+    """
+    # Extratc the time of arrival 20250606230123.348554 and conert it to a rospy.Time object
+    toa = rospy.Time.from_sec(datetime.strptime(nmea_data[2],"%Y%m%d%H%M%S.%f").timestamp()).to_sec()
+    # Extract the source and destination
+    src = int(nmea_data[14])
+    dest = int(nmea_data[15])
+    # Detect if its PSK or FSK based $CACST (is [10] ==0?)
+    if nmea_data[13] == "-1":
+        # Error in PSK data
+        rospy.logerr("[%s] CACST PSK data error: %s!" % (rospy.Time.now(), nmea_data))
+        return
+    elif nmea_data[13] == "0":
+        # FSK data
+        # dqf = int(nmea_data[13])
+        # symb_snr = float(nmea_data[20])
+        rospy.logerr("[%s] CACST FSK data not implemented yet: %s!" % (rospy.Time.now(), nmea_data))
+    else:
+        # Analyze the Nframes and report the message type:
+        nframes = int(nmea_data[18])
+        if nframes == 1:
+            # Message is a ping:
+            msg_type = "ping"
+        else:
+            # Message is a ping response:
+            msg_type = "data"
+        # Extract the SNR values
+        snr_rss = float(nmea_data[20])
+        snr_in = float(nmea_data[21])
+        snr_out = float(nmea_data[22])
+        #mse_eq = float(nmea_data[21])
+    dop = float(nmea_data[26])
+    stddev_noise = float(nmea_data[27])
+    # Return the parsed data
+    return toa, src, dest, msg_type, nframes, snr_rss, snr_in, snr_out, dop, stddev_noise
+
+def parse_nmea_caxst(nmea_data: list):
+    """Modem to host report of a transmitted signal
+    From Ping: $CAXST,7,20250606,230103.000935,3,0,200,5000,25000,1,0,1,0,0,1,5,2,25000*53"
+    From Pckt: $CAXST,7,20250606,230117.336548,3,0,200,5000,25000,1,0,0,0,0,8,5,28,25000*66"
+    $CAXST,Version#,Date(YYYYMMDD),TOT(hhmmss.ssssss),ClockStatus,Mode,ProbeLength,BW,Carrier,<?>,SRC,DEST,ACK,<?>,<?>,NframesSent,Rate,Nbytes,Carrier*CS
+    """
+    # Parse the time as rostime
+    msg_tot = nmea_data[1]+nmea_data[2]
+    tot = rospy.Time.from_sec(datetime.strptime(msg_tot,"%Y%m%d%H%M%S.%f").timestamp()).to_sec()
+    # Parse the SRC, DEST
+    src = int(nmea_data[9])
+    dest = int(nmea_data[10])
+    if nmea_data[11] == "0":
+        msg_type = "ping"
+    else:
+        msg_type = "data"
+    nframes = int(nmea_data[13])
+    nbytes = int(nmea_data[15])
+
+    return tot, src, dest, msg_type, nframes, nbytes
+
 def parse_nmea_carev(nmea_data: list):
     "Modem to host software version message"
     if nmea_data[1] == "AUV":
@@ -98,3 +159,13 @@ def parse_nmea_carev(nmea_data: list):
     else:
         return None
     return firmware_version
+
+def parse_nmea_catxf(nmea_data: list):
+    """Modem to host acknowledgement of a transmitted minipacket
+    "$CATXF,2*56"
+    "$CATXF,28*6E"
+    $CATXF,Nbytes*CS
+    """
+    # Parse the time as rostime
+    nbytes = int(nmea_data[0])
+    return nbytes

@@ -3,7 +3,12 @@ project(spurdog_acomms)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
+add_compile_options(-std=c++17)
 
+# set(GTSAM_DIR "/usr/local/lib/cmake/GTSAM")
+set(GTSAM_DIR "/usr/local/lib/cmake/GTSAM")
+
+# set(EIGEN3_INCLUDE_DIRS "/usr/include/eigen3")
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -12,10 +17,14 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   sensor_msgs
+  geometry_msgs
   std_msgs
+  nav_msgs
   message_generation
 )
-
+find_package(GTSAM REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -64,6 +73,7 @@ add_message_files(
 add_service_files(
   FILES
   PreintegrateIMU.srv
+  PreintegrateImu.srv
 )
 
 ## Generate actions in the 'action' folder
@@ -77,6 +87,8 @@ add_service_files(
 generate_messages(
   DEPENDENCIES
   sensor_msgs#   std_msgs
+  geometry_msgs
+  nav_msgs
   std_msgs
 )
 
@@ -110,9 +122,9 @@ generate_messages(
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
+  INCLUDE_DIRS include
 #  LIBRARIES spurdog_acomms
-  CATKIN_DEPENDS ros_acomms roscpp rospy sensor_msgs std_msgs message_runtime
+  CATKIN_DEPENDS ros_acomms roscpp rospy sensor_msgs std_msgs message_runtime geometry_msgs nav_msgs
 #  DEPENDS system_lib
 )
 
@@ -124,7 +136,11 @@ catkin_package(
 ## Your package locations should be listed before other locations
 include_directories(
 # include
+  include
   ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
+  ${GTSAM_INCLUDE_DIRS}
+  ${Boost_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -141,6 +157,7 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/spurdog_acomms_node.cpp)
+add_executable(imu_preintegrator src/imu_preintegrator.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -157,6 +174,14 @@ include_directories(
 #   ${catkin_LIBRARIES}
 # )
 
+target_link_libraries(imu_preintegrator
+  ${catkin_LIBRARIES}
+  ${Boost_LIBRARIES}
+  gtsam
+)
+
+add_dependencies(imu_preintegrator ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 #############
 ## Install ##
 #############
@@ -169,9 +194,11 @@ install(DIRECTORY src/spurdog_acomms_utils
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
+  src/ping_test.py
+  src/extract_range_data.py
   src/comms_cycle_mgr.py
   src/factor_graph_mgr.py
-  #src/comms_cycle_test.py
+  src/comms_ltwt.py
   src/imu_sensor_handler.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

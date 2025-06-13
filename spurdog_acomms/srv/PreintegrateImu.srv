@@ -1,0 +1,4 @@
+time final_time
+---
+bool success
+geometry_msgs/PoseWithCovarianceStamped pose_delta

@@ -14,23 +14,23 @@ uint8[6] unique_sigmas_0
 # Relative Pose 1 (16 bytes)
 int16[3] relative_pos_1
 int8[4] relative_rot_1
-uint8[3] unique_sigmas_1
+uint8[6] unique_sigmas_1
 # Relative Pose 2 (16 bytes)
 int16[3] relative_pos_2
 int8[4] relative_rot_2
-uint8[3] unique_sigmas_2
+uint8[6] unique_sigmas_2
 # Relative Pose 3 (16 bytes)
 int16[3] relative_pos_3
 int8[4] relative_rot_3
-uint8[3] unique_sigmas_3
+uint8[6] unique_sigmas_3
 # Relative Pose 4 (16 bytes)
 int16[3] relative_pos_4
 int8[4] relative_rot_4
-uint8[3] unique_sigmas_4
+uint8[6] unique_sigmas_4
 # Relative Pose 5 (16 bytes)
 int16[3] relative_pos_5
 int8[4] relative_rot_5
-uint8[3] unique_sigmas_5
+uint8[6] unique_sigmas_5
 
 # Initiated Ranges (16 bytes)
 # Initiated Range 0
