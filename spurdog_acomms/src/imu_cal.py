@@ -201,8 +201,8 @@ class IMUSensorCalibration:
             ax.grid(True)
         #plt.tight_layout()
         # Save the figure
-        rospy.loginfo(f"Plot saved as {title.replace(' ', '_').lower()}_data_plot.png")
-        save_path = os.path.join(os.path.expanduser("~"), f"{title.replace(' ', '_').lower()}_data_plot.png")
+        rospy.loginfo(f"Plot saved as {title.replace(' ', '_').lower()}_plot.png")
+        save_path = os.path.join(os.path.expanduser("~"), f"{title.replace(' ', '_').lower()}_plot.png")
         plt.savefig(save_path)
         # Log the location where the plot is saved
         rospy.loginfo(f"Plot saved at: {save_path}")
