@@ -199,7 +199,9 @@ catkin_install_python(PROGRAMS
   src/comms_cycle_mgr.py
   src/factor_graph_mgr.py
   src/comms_ltwt.py
+  src/comms_lbl.py
   src/imu_sensor_handler.py
+  src/imu_cal.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

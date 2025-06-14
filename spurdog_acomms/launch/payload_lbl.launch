@@ -1,0 +1,80 @@
+<!-- Launch Script for testing comms dockside with WHOI Modem
+    John P Morrison
+    MIT/WHOI Joint Program
+    15 APR 2025
+    Modify the args for agent-to-agent level changes
+    Modify the params only for day-to-day changes
+-->
+
+<launch>
+    <!-- Args that we would change at agent-to-agent level-->
+    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
+    <arg name="source_addr" default="0" doc="int"/>
+    <arg name="num_agents" default="1" />
+    <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/>
+    <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/>
+
+    <!-- Set the ROSCONSOLE_FORMAT -->
+    <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <!-- Start the agent node -->
+    <group ns="$(arg agent_name)">
+
+        <!-- Shared Parameters -->
+        <param name="agent_name" value="$(arg agent_name)" />
+        <param name="modem_address" value="$(arg source_addr)" />
+        <!-- <param name="source_addr" value="0" /> -->
+        <param name="num_agents" value="$(arg num_agents)" />
+        <param name="num_landmarks" value="2" />
+        <!-- <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" /> -->
+        <!-- <param name="num_slots" value="$(eval 2 * num_agents)" /> -->
+        <param name="sigma_range" value="1" />
+        <param name="sound_speed" value="1486" />
+
+        <!-- Modem group -->
+        <group ns="modem">
+            <node name="acomms_driver" pkg="ros_acomms" type="acomms_driver_node.py" respawn="true" respawn_delay="10" output="log">
+                <param name="modem_connection_type" value="serial" />
+                <param name="modem_serial_port" value="/dev/ttyUSB0" type="str" />
+                <param name="modem_baud_rate" value="19200" />
+                <param name="set_modem_time" value="true" />
+                <rosparam param="modem_config">
+                    ALL: 0
+                    BND: 0
+                    MOD: 1
+                    CST: 1
+                    FC0: 25000
+                    BW0: 5000
+                    SRC: 0
+                    XST: 1
+                    TAT: 50
+                    pwramp.txlevel: 0
+                    psk.packet.mod_hdr_version: 1
+                </rosparam>
+            </node>
+        </group>
+
+        <!-- Launch communication and graph managers-->
+        <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_lbl.py" output="screen" />
+
+        <node name="imu_preintegrator" pkg="spurdog_acomms" type="imu_preintegrator" output="screen">
+            <param name="accel_noise_sigma" value="0.022"/>
+            <param name="gyro_noise_sigma" value="0.001"/>
+            <!-- <param name="accel_bias_rw_sigma" value="0.01"/>
+            <param name="gyro_bias_rw_sigma" value="0.01"/> -->
+            <param name="accel_bias_x" value="0.0"/>
+            <param name="accel_bias_y" value="0.0"/>
+            <param name="accel_bias_z" value="0.0"/>
+            <param name="gyro_bias_x" value="0.0"/>
+            <param name="gyro_bias_y" value="0.0"/>
+            <param name="gyro_bias_z" value="0.0"/>
+        </node>
+
+        <!-- Launch the MOOS interface bridge -->
+        <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="log" />
+
+        <node name="rosbag" pkg="rosbag" type="record"
+            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /ros/logs/$(arg agent_name).bag'
+            output="screen" />
+    </group>
+</launch>

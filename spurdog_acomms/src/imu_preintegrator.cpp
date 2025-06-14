@@ -31,7 +31,7 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
   // Load the noise parameters from the launch file
   double accel_noise_sigma, gyro_noise_sigma;
   double accel_bias_rw_sigma, gyro_bias_rw_sigma;
-  nh_.param("accel_noise_sigma", accel_noise_sigma, 0.01);
+  nh_.param("accel_noise_sigma", accel_noise_sigma, 0.02);
   nh_.param("gyro_noise_sigma", gyro_noise_sigma, 0.001);
   nh_.param("accel_bias_rw_sigma", accel_bias_rw_sigma, 0.0001);
   nh_.param("gyro_bias_rw_sigma", gyro_bias_rw_sigma, 0.00001);
