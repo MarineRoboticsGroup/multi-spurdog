@@ -13,13 +13,9 @@ class IMUSensorCalibration:
         rospy.init_node('imu_sensor_handler', anonymous=True)
 
         # IMU Subscriber
-        if rospy.get_param("~imu_type") == "navigator_ahrs":
-            self.imu_sub = rospy.Subscriber("navigator_ahrs", Imu, self.navigator_ahrs_callback)
-        elif rospy.get_param("~imu_type") == "cv7_ahrs":
-            self.imu_sub = rospy.Subscriber("cv7_ahrs", Imu, self.cv7_ahrs_callback)
-        else:
-            rospy.logerr("Unsupported IMU type specified. Please check the parameter.")
-            return
+        self.imu_sub = rospy.Subscriber("navigator_ahrs", Imu, self.navigator_ahrs_callback)
+        self.imu_sub = rospy.Subscriber("cv7_ahrs", Imu, self.cv7_ahrs_callback)
+
         self.navigator_ahrs_data = {
             "timestamp": [],
             'qx': [],
@@ -95,14 +91,19 @@ class IMUSensorCalibration:
 
     def get_mean_and_sigma(self):
         """ Get the mean and standard deviation for both IMU types. """
-        if rospy.get_param("~imu_type") == "navigator_ahrs":
-            mean_data, sigma_data = self.calculate_mean_and_sigma(self.navigator_ahrs_data)
-        elif rospy.get_param("~imu_type") == "cv7_ahrs":
-            mean_data, sigma_data = self.calculate_mean_and_sigma(self.cv7_ahrs_data)
+        if not self.navigator_ahrs_data['timestamp']:
+            rospy.logwarn("No data received from navigator_ahrs.")
+            nav_mean_data, nav_sigma_data = None, None
         else:
-            rospy.logerr("Unsupported IMU type specified. Please check the parameter.")
-            return None, None
-        return mean_data, sigma_data
+            rospy.loginfo("Data received from navigator_ahrs.")
+            nav_mean_data, nav_sigma_data = self.calculate_mean_and_sigma(self.navigator_ahrs_data)
+        if not self.cv7_ahrs_data['timestamp']:
+            rospy.logwarn("No data received from cv7_ahrs.")
+            cv7_mean_data, cv7_sigma_data = None, None
+        else:
+            rospy.loginfo("Data received from cv7_ahrs.")
+            cv7_mean_data, cv7_sigma_data = self.calculate_mean_and_sigma(self.cv7_ahrs_data)
+        return nav_mean_data, nav_sigma_data, cv7_mean_data, cv7_sigma_data
 
     def get_linregression_data(self, data):
         """ Get the linear regression data for the given x and y data. """
@@ -125,64 +126,77 @@ class IMUSensorCalibration:
 
     def get_drift(self):
         """ Calculate the drift of the IMU data. """
-        if rospy.get_param("~imu_type") == "navigator_ahrs":
-            m_data, c_data = self.get_linregression_data(self.navigator_ahrs_data)
-        elif rospy.get_param("~imu_type") == "cv7_ahrs":
-            m_data, c_data = self.get_linregression_data(self.cv7_ahrs_data)
+        # Check if we have data for the navigator_ahrs
+        if not self.navigator_ahrs_data['timestamp']:
+            rospy.logwarn("No data received from navigator_ahrs for drift calculation.")
+            nav_m_data, nav_c_data = None, None
         else:
-            rospy.logerr("Unsupported IMU type specified. Please check the parameter.")
-            return None
-        return m_data, c_data
+            rospy.loginfo("Calculating drift for navigator_ahrs.")
+            nav_m_data, nav_c_data = self.get_linregression_data(self.navigator_ahrs_data)
+        # Check if we have data for the cv7_ahrs
+        if not self.cv7_ahrs_data['timestamp']:
+            rospy.logwarn("No data received from cv7_ahrs for drift calculation.")
+            cv7_m_data, cv7_c_data = None, None
+        else:
+            rospy.loginfo("Calculating drift for cv7_ahrs.")
+            cv7_m_data, cv7_c_data = self.get_linregression_data(self.cv7_ahrs_data)
+        return nav_m_data, nav_c_data, cv7_m_data, cv7_c_data
 
-    def plot_data(self, mean_data, sigma_data, m_data, c_data):
+    def plot_data(self, cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data):
         """ Plot acceleration and angular velocity data with respect to time.
         """
         # Plot the data in 3 rows, 2 columsn (with acceleration in the first column and angular velocity in the second column)
         # Include the mean and standard deviation in the plots as labels
         fig, axs = plt.subplots(3, 2, figsize=(12, 12))
-        #axs[0, 0].plot(self.navigator_ahrs_data['accel_x'], label='Accel X')
+        # Accel X subplot
+        axs[0, 0].plot(self.navigator_ahrs_data['accel_x'], label='Accel X')
         axs[0, 0].plot(self.cv7_ahrs_data['accel_x'], label='Accel X CV7', linestyle='--')
-        # axs[0, 0].set_title('Acceleration X')
-        # axs[0, 0].set_xlabel('Time')
         axs[0, 0].set_ylabel('Accel_X (m/s^2)')
         axs[0, 0].legend()
-        #axs[0, 1].plot(self.navigator_ahrs_data['omega_x'], label='Omega X')
+        axs[0, 0].text(0.05, 0.95,
+            f'CV7 Mean: {cv7_mean_data["accel_x"]:.6f} Sigma: {cv7_sigma_data["accel_x"]:.6f} Drift: {cv7_m_data["accel_x"]:.6f}*t + {cv7_c_data["accel_x"]:.6f}\n NAV Mean: {nav_mean_data["accel_x"]:.6f} Sigma: {nav_sigma_data["accel_x"]:.6f} Drift: {nav_m_data["accel_x"]:.6f}*t + {nav_c_data["accel_x"]:.6f}',
+            transform=axs[0, 0].transAxes, fontsize=10, verticalalignment='top')
+        # Omega X subplot
+        axs[0, 1].plot(self.navigator_ahrs_data['omega_x'], label='Omega X')
         axs[0, 1].plot(self.cv7_ahrs_data['omega_x'], label='Omega X CV7', linestyle='--')
-        # axs[0, 1].set_title('Angular Velocity X')
-        # axs[0, 1].set_xlabel('Time')
         axs[0, 1].set_ylabel('Omega_X (rad/s)')
-        #axs[1, 0].plot(self.navigator_ahrs_data['accel_y'], label='Accel Y')
+        axs[0, 1].text(0.05, 0.95,
+            f'CV7 Mean: {cv7_mean_data["omega_x"]:.6f} Sigma: {cv7_sigma_data["omega_x"]:.6f} Drift: {cv7_m_data["omega_x"]:.6f}*t + {cv7_c_data["omega_x"]:.6f}\n NAV Mean: {nav_mean_data["omega_x"]:.6f} Sigma: {nav_sigma_data["omega_x"]:.6f} Drift: {nav_m_data["omega_x"]:.6f}*t + {nav_c_data["omega_x"]:.6f}',
+            transform=axs[0, 1].transAxes, fontsize=10, verticalalignment='top')
+        # Accel Y subplot
+        axs[1, 0].plot(self.navigator_ahrs_data['accel_y'], label='Accel Y')
         axs[1, 0].plot(self.cv7_ahrs_data['accel_y'], label='Accel Y CV7', linestyle='--')
-        # axs[1, 0].set_title('Acceleration Y')
-        # axs[1, 0].set_xlabel('Time')
         axs[1, 0].set_ylabel('Accel_Y (m/s^2)')
-        #axs[1, 1].plot(self.navigator_ahrs_data['omega_y'], label='Omega Y')
+        axs[1, 0].text(0.05, 0.95,
+            f'CV7 Mean: {cv7_mean_data["accel_y"]:.6f} Sigma: {cv7_sigma_data["accel_y"]:.6f} Drift: {cv7_m_data["accel_y"]:.6f}*t + {cv7_c_data["accel_y"]:.6f}\n NAV Mean: {nav_mean_data["accel_y"]:.6f} Sigma: {nav_sigma_data["accel_y"]:.6f} Drift: {nav_m_data["accel_y"]:.6f}*t + {nav_c_data["accel_y"]:.6f}',
+            transform=axs[1, 0].transAxes, fontsize=10, verticalalignment='top')
+        # Omega Y subplot
+        axs[1, 1].plot(self.navigator_ahrs_data['omega_y'], label='Omega Y')
         axs[1, 1].plot(self.cv7_ahrs_data['omega_y'], label='Omega Y CV7', linestyle='--')
-        # axs[1, 1].set_title('Angular Velocity Y')
-        # axs[1, 1].set_xlabel('Time')
         axs[1, 1].set_ylabel('Omega_Y (rad/s)')
-        #axs[2, 0].plot(self.navigator_ahrs_data['accel_z'], label='Accel Z')
+        axs[1, 1].text(0.05, 0.95,
+            f'CV7 Mean: {cv7_mean_data["omega_y"]:.6f} Sigma: {cv7_sigma_data["omega_y"]:.6f} Drift: {cv7_m_data["omega_y"]:.6f}*t + {cv7_c_data["omega_y"]:.6f}\n NAV Mean: {nav_mean_data["omega_y"]:.6f} Sigma: {nav_sigma_data["omega_y"]:.6f} Drift: {nav_m_data["omega_y"]:.6f}*t + {nav_c_data["omega_y"]:.6f}',
+            transform=axs[1, 1].transAxes, fontsize=10, verticalalignment='top')
+        # Accel Z subplot
+        axs[2, 0].plot(self.navigator_ahrs_data['accel_z'], label='Accel Z')
         axs[2, 0].plot(self.cv7_ahrs_data['accel_z'], label='Accel Z CV7', linestyle='--')
-        # axs[2, 0].set_title('Acceleration Z')
-        # axs[2, 0].set_xlabel('Time')
         axs[2, 0].set_ylabel('Accel_Z (m/s^2)')
-        #axs[2, 1].plot(self.navigator_ahrs_data['omega_z'], label='Omega Z')
+        axs[2, 0].set_xlabel('Time (s)')
+        axs[2, 0].text(0.05, 0.95,
+            f'CV7 Mean: {cv7_mean_data["accel_z"]:.6f} Sigma: {cv7_sigma_data["accel_z"]:.6f} Drift: {cv7_m_data["accel_z"]:.6f}*t + {cv7_c_data["accel_z"]:.6f}\n NAV Mean: {nav_mean_data["accel_z"]:.6f} Sigma: {nav_sigma_data["accel_z"]:.6f} Drift: {nav_m_data["accel_z"]:.6f}*t + {nav_c_data["accel_z"]:.6f}',
+            transform=axs[2, 0].transAxes, fontsize=10, verticalalignment='top')
+        # Omega Z subplot
+        axs[2, 1].plot(self.navigator_ahrs_data['omega_z'], label='Omega Z')
         axs[2, 1].plot(self.cv7_ahrs_data['omega_z'], label='Omega Z CV7', linestyle='--')
-        # axs[2, 1].set_title('Angular Velocity Z')
-        # axs[2, 1].set_xlabel('Time')
         axs[2, 1].set_ylabel('Omega_Z (rad/s)')
-        # Include the mean and standar deviation values as a text note on each plot
-        # The accel_x plot will have the mean and sigma value of accel_x only and so on
-        axs[0, 0].text(0.05, 0.95, f'Mean: {mean_data["accel_x"]:.6f} Sigma: {sigma_data["accel_x"]:.6f} Drift: {m_data["accel_x"]:.6f}*t + {c_data["accel_x"]:.6f}',transform=axs[0, 0].transAxes, fontsize=10, verticalalignment='top')
-        axs[0, 1].text(0.05, 0.95, f'Mean: {mean_data["omega_x"]:.6f} Sigma: {sigma_data["omega_x"]:.6f} Drift: {m_data["omega_x"]:.6f}*t + {c_data["omega_x"]:.6f}',transform=axs[0, 1].transAxes, fontsize=10, verticalalignment='top')
-        axs[1, 0].text(0.05, 0.95, f'Mean: {mean_data["accel_y"]:.6f} Sigma: {sigma_data["accel_y"]:.6f} Drift: {m_data["accel_y"]:.6f}*t + {c_data["accel_y"]:.6f}',transform=axs[1, 0].transAxes, fontsize=10, verticalalignment='top')
-        axs[1, 1].text(0.05, 0.95, f'Mean: {mean_data["omega_y"]:.6f} Sigma: {sigma_data["omega_y"]:.6f} Drift: {m_data["omega_y"]:.6f}*t + {c_data["omega_y"]:.6f}',transform=axs[1, 1].transAxes, fontsize=10, verticalalignment='top')
-        axs[2, 0].text(0.05, 0.95, f'Mean: {mean_data["accel_z"]:.6f} Sigma: {sigma_data["accel_z"]:.6f} Drift: {m_data["accel_z"]:.6f}*t + {c_data["accel_z"]:.6f}',transform=axs[2, 0].transAxes, fontsize=10, verticalalignment='top')
-        axs[2, 1].text(0.05, 0.95, f'Mean: {mean_data["omega_z"]:.6f} Sigma: {sigma_data["omega_z"]:.6f} Drift: {m_data["omega_z"]:.6f}*t + {c_data["omega_z"]:.6f}',transform=axs[2, 1].transAxes, fontsize=10, verticalalignment='top')
+        axs[2, 1].set_xlabel('Time (s)')
+        axs[2, 1].text(0.05, 0.95,
+            f'CV7 Mean: {cv7_mean_data["omega_z"]:.6f} Sigma: {cv7_sigma_data["omega_z"]:.6f} Drift: {cv7_m_data["omega_z"]:.6f}*t + {cv7_c_data["omega_z"]:.6f}\n NAV Mean: {nav_mean_data["omega_z"]:.6f} Sigma: {nav_sigma_data["omega_z"]:.6f} Drift: {nav_m_data["omega_z"]:.6f}*t + {nav_c_data["omega_z"]:.6f}',
+            transform=axs[2, 1].transAxes, fontsize=10, verticalalignment='top')
         plt.tight_layout()
         plt.show()
-        # Save the plot to a file
-        plt.savefig('/home/morrisjp/bags/June/13June/imu_calibration_plot.png')
+        # Save the plot to a file in the current directory
+        plt.savefig('imu_calibration_plot.png')
 
     def run(self):
         rospy.spin()
@@ -191,9 +205,9 @@ if __name__ == '__main__':
     try:
         imu_node = IMUSensorCalibration()
         imu_node.run()
-        mean_data, sigma_data = imu_node.get_mean_and_sigma()
-        m_data, c_data = imu_node.get_drift()
-        if mean_data and sigma_data:
-            imu_node.plot_data(mean_data, sigma_data, m_data, c_data)
+        nav_mean_data, nav_sigma_data, cv7_mean_data, cv7_sigma_data = imu_node.get_mean_and_sigma()
+        nav_m_data, nav_c_data, cv7_m_data, cv7_c_data = imu_node.get_drift()
+        imu_node.plot_data(cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data)
+        rospy.loginfo("IMU calibration node is running.")
     except rospy.ROSInterruptException:
         pass

@@ -5,18 +5,17 @@
 #include <sensor_msgs/Imu.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <spurdog_acomms/PreintegrateImu.h>
+
 #include <memory>
 #include <deque>
 #include <mutex>
+
+// GTSAM headers
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/PreintegrationParams.h>
-// #include <gtsam/navigation/PreintegrationCombinedParams.h>
-#include <gtsam/navigation/PreintegrationBase.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/ImuBias.h>
-#include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/geometry/Pose3.h>
-#include <gtsam/geometry/Quaternion.h>
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/base/Matrix.h>
 #include <gtsam/base/Vector.h>
@@ -32,9 +31,7 @@ private:
   ros::Time ti_;
 
   std::shared_ptr<gtsam::PreintegrationParams> preint_params_; // For PreintegrationBase and ManifoldPreintegration
-  // std::shared_ptr<gtsam::PreintegrationCombinedParams> preint_params_;
   gtsam::imuBias::ConstantBias bias;
-
 
 public:
   ImuPreintegratorNode();

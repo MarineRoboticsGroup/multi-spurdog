@@ -501,6 +501,8 @@ class CycleManager:
                     sigmas = np.sqrt(np.diag(covariance))
                     # Store the pose ing the preintegration data
                     self.preintegration_data.append({
+                        "ti": ti,
+                        "tj": tj,
                         "key1": key1,
                         "key2": key2,
                         "position": position,
@@ -743,10 +745,21 @@ class CycleManager:
             with open(preintegration_file, mode='w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 # Write header
-                writer.writerow(["key1", "key2", "position_x", "position_y", "position_z", "orientation_x", "orientation_y", "orientation_z", "orientation_w", "sigmas_x", "sigmas_y", "sigmas_z"])
+                writer.writerow(["ti","tj","key1", "key2", "position_x", "position_y", "position_z", "q_x", "q_y", "q_z", "q_w", "sig_x", "sig_y", "sig_z, sig_r, sig_p, sig_y"])
                 # Write data rows
                 for entry in self.preintegration_data:
-                    writer.writerow([entry["key1"], entry["key2"], *entry["position"], *entry["orientation"], *entry["sigmas"]])
+                    position = entry["position"]
+                    orientation = entry["orientation"]
+                    sigmas = entry["sigmas"]
+                    writer.writerow([
+                        entry["ti"].to_sec(),
+                        entry["tj"].to_sec(),
+                        entry["key1"],
+                        entry["key2"],
+                        position[0], position[1], position[2],
+                        orientation[0], orientation[1], orientation[2], orientation[3],
+                        sigmas[0], sigmas[1], sigmas[2], sigmas[3], sigmas[4], sigmas[5]
+                    ])
             rospy.loginfo("[%s] Preintegration Data Written to File at: %s" % (rospy.Time.now(), preintegration_file))
         return
 

@@ -16,7 +16,6 @@
 #include <gtsam/navigation/PreintegrationBase.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/ImuBias.h>
-#include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Quaternion.h>
 #include <gtsam/inference/Symbol.h>
@@ -84,24 +83,49 @@ bool ImuPreintegratorNode::handlePreintegrate(spurdog_acomms::PreintegrateImu::R
   pim.resetIntegrationAndSetBias(bias);
   std::lock_guard<std::mutex> lock(buffer_mutex_);
   ros::Time last_msg_time = ti_;
-  for (const auto& imu_msg : imu_buffer_) {
-      ros::Time t = imu_msg.header.stamp;
-      if (t <= ti_ || t > tj) continue;
-      double dt = (t - last_msg_time).toSec();
+  // for (const auto& imu_msg : imu_buffer_) {
+  //     ros::Time t = imu_msg.header.stamp;
+  //     if (t <= ti_ || t > tj) continue;
+  //     double dt = (t - last_msg_time).toSec();
 
-      gtsam::Vector3 acc(imu_msg.linear_acceleration.x,
-                        imu_msg.linear_acceleration.y,
-                        imu_msg.linear_acceleration.z);
-      gtsam::Vector3 gyro(imu_msg.angular_velocity.x,
+  //     gtsam::Vector3 acc(imu_msg.linear_acceleration.x,
+  //                       imu_msg.linear_acceleration.y,
+  //                       imu_msg.linear_acceleration.z);
+  //     gtsam::Vector3 gyro(imu_msg.angular_velocity.x,
+  //                       imu_msg.angular_velocity.y,
+  //                       imu_msg.angular_velocity.z);
+
+  //     pim.integrateMeasurement(acc, gyro, dt);
+  //     last_msg_time = t;
+  //     // Pop the message out of the buffer
+  //     imu_buffer_.pop_front();
+  //   }
+  while (!imu_buffer_.empty()) {
+    const auto& imu_msg = imu_buffer_.front();
+    ros::Time t = imu_msg.header.stamp;
+
+    if (t <= ti_) {
+      imu_buffer_.pop_front();  // discard stale messages
+      continue;
+    }
+    if (t > tj) {
+      break;  // stop once we're past the integration window
+    }
+
+    double dt = (t - last_msg_time).toSec();
+
+    gtsam::Vector3 acc(imu_msg.linear_acceleration.x,
+                      imu_msg.linear_acceleration.y,
+                      imu_msg.linear_acceleration.z);
+    gtsam::Vector3 gyro(imu_msg.angular_velocity.x,
                         imu_msg.angular_velocity.y,
                         imu_msg.angular_velocity.z);
 
-      pim.integrateMeasurement(acc, gyro, dt);
-      last_msg_time = t;
-      // Pop the message out of the buffer
-      imu_buffer_.pop_front();
-    }
+    pim.integrateMeasurement(acc, gyro, dt);
+    last_msg_time = t;
 
+    imu_buffer_.pop_front();  // remove after using
+  }
   // Integrate the measurements
   double deltaTij = pim.deltaTij();
   // Check that deltaTij is approximately equal to the requested time difference
