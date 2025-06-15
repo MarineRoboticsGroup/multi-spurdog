@@ -30,8 +30,8 @@ private:
   std::mutex buffer_mutex_;
   ros::Time ti_;
 
-  std::shared_ptr<gtsam::PreintegrationParams> preint_params_; // For PreintegrationBase and ManifoldPreintegration
-  // boost::shared_ptr<gtsam::PreintegrationParams> preint_params_;
+  // std::shared_ptr<gtsam::PreintegrationParams> preint_params_; // For PreintegrationBase and ManifoldPreintegration
+  boost::shared_ptr<gtsam::PreintegrationParams> preint_params_;
 
   gtsam::imuBias::ConstantBias bias;
 

@@ -2,12 +2,12 @@ cmake_minimum_required(VERSION 3.0.2)
 project(spurdog_acomms)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
-add_compile_options(-std=c++17)
+add_compile_options(-std=c++11)
+# add_compile_options(-std=c++17)
 
 # set(GTSAM_DIR "/usr/local/lib/cmake/GTSAM")
 set(GTSAM_DIR "/usr/local/lib/cmake/GTSAM")
-
+set(EIGEN3_INCLUDE_DIR /usr/local/include/eigen3)
 # set(EIGEN3_INCLUDE_DIRS "/usr/include/eigen3")
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -141,6 +141,7 @@ include_directories(
   ${EIGEN3_INCLUDE_DIRS}
   ${GTSAM_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIR}
 )
 
 ## Declare a C++ library
