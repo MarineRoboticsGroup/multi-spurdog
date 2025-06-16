@@ -67,7 +67,8 @@ add_message_files(
   PartialGraph.msg
   CycleGraph.msg
   CommsCycleStatus.msg
-)
+  PoseFactorStamped.msg
+  RangeFactorStamped.msg)
 
 ## Generate services in the 'srv' folder
 add_service_files(
