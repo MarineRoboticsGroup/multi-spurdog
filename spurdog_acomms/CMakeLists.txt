@@ -204,6 +204,7 @@ catkin_install_python(PROGRAMS
   src/comms_lbl.py
   src/imu_sensor_handler.py
   src/imu_cal.py
+  src/test_preintegration.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
