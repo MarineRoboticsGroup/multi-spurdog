@@ -8,7 +8,7 @@ import scipy.spatial.transform as spt
 from std_msgs.msg import Header, String, Time, Float32
 from geometry_msgs.msg import Point, Quaternion, Pose, PoseWithCovariance, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
-    TdmaStatus, QueueStatus
+    TdmaStatus, QueueStatus, PingReply
 )
 from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
@@ -64,14 +64,15 @@ class CycleManager:
         self.in_water = False
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
-        rospy.wait_for_service("modem/ping_modem")
-        self.ping_client = rospy.ServiceProxy("modem/ping_modem", PingModem)
+        #rospy.wait_for_service("modem/ping_modem")
+        #self.ping_client = rospy.ServiceProxy("modem/ping_modem", PingModem)
         rospy.wait_for_service("preintegrate_imu")
         self.preintegrate_imu = rospy.ServiceProxy("preintegrate_imu", PreintegrateImu)
         rospy.loginfo("[%s] Services ready, initializing topics" % rospy.Time.now())
         # Initialize topics
         # Monitor NMEA messages to track the pings and trigger relative pose measurements
         self.nmea_from_modem = rospy.Subscriber("modem/nmea_from_modem", String, self.on_nmea_from_modem)
+        self.range_from_modem = rospy.Subscriber("modem/ping_reply", PingReply, self.on_ping_reply)
         # Establish the message subs and pubs
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         # Initialize Subscribers for handling external sensors
@@ -87,7 +88,7 @@ class CycleManager:
         rospy.sleep(10) # allow for modem to configure
         # Attempt a ping to the first target
         rospy.loginfo("[%s] Starting Comms Cycle" % rospy.Time.now())
-        self.send_ping(self.modem_addresses["L0"][0])  # Send a ping to the first landmark
+        #self.send_ping(self.modem_addresses["L0"][0])  # Send a ping to the first landmark
 
     def configure_comms_cycle(self):
         """This function configures the comms cycle for the vehicle.
@@ -270,6 +271,52 @@ class CycleManager:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
         return
 
+    def on_ping_reply(self, msg: PingReply):
+        """This function receives ping replies from the modem
+        Args:
+            msg (PingReply): The ping reply message
+        """
+        # Unpack message
+        timestamp = rospy.Time.from_sec(msg.cst.toa.secs + msg.cst.toa.nsecs / 1e9)
+        src = msg.dest
+        dest = msg.src
+        owtt = rospy.Duration.from_sec(msg.owtt)
+        tat = rospy.Duration.from_sec(msg.tat)
+        measured_range = msg.owtt * self.sound_speed
+        # Log the ping reply
+        rospy.loginfo("[%s] Ping Reply: timestamp=%s, src=%d, dest=%d, owtt=%.4f, tat= %.4f, measured_range=%.4f" % (timestamp, timestamp, src, dest, owtt.to_sec(), tat.to_sec(), measured_range))
+        # Request preintegration
+        self.request_preintegration(timestamp, True)  # Request a relative pose measurement
+        # Publish the range factor
+        src_chr = chr(ord("A") + src)
+        if dest < self.num_agents:
+            dest_chr = chr(ord("A") + dest)
+            key2 = dest_chr + str(self.modem_addresses[dest_chr][1])
+        else:
+            key2 = "L%d" % (dest - self.num_agents)
+        range_factor_msg = RangeFactorStamped(
+            header=Header(stamp=timestamp, frame_id=src_chr),
+            key1= src_chr + str(self.modem_addresses[src_chr][1]),
+            key2=key2,
+            meas_range=measured_range,
+            range_sigma = 0.1,  # Placeholder value, adjust as needed
+        )
+        # Append the range data
+        self.range_data.append([timestamp.to_sec(), src, dest, owtt.to_sec(), measured_range])
+        # Publish the range factor
+        self.range_factor_pub.publish(range_factor_msg)
+        #rospy.loginfo("[%s] Published Range Factor: %s" % (timestamp, range_factor_msg))
+        # Attempt to send a ping to the next target
+        first_tgt, second_tgt = self.cycle_target_mapping["0"]
+        if src == first_tgt:
+            #self.send_ping(second_tgt)
+            rospy.loginfo("[%s] Received Ping Reply from %s, sending next ping to %s" % (timestamp, src_chr, chr(ord("A") + second_tgt)))
+        elif src == second_tgt:
+            #self.send_ping(first_tgt)
+            rospy.loginfo("[%s] Received Ping Reply from %s, sending next ping to %s" % (timestamp, src_chr, chr(ord("A") + first_tgt)))
+        else:
+            rospy.logwarn("[%s] Received Ping Reply from unexpected source %s, not sending next ping" % (timestamp, src))
+        return
     # Sensor data handling
     def request_preintegration(self, tj, adv_pose: bool = True):
         """This function requests a relative pose measurement from imu sensor handler node
@@ -315,11 +362,13 @@ class CycleManager:
                     self.pose_time_lookup[key2] = tj
                     x_ij = response.pose_delta
                     # pose_delta is a PoseWithCovarianceStamped message
-                    position = np.array(x_ij.pose.pose.position)
-                    orientation = np.array(x_ij.pose.pose.orientation)
+                    position = x_ij.pose.pose.position
+                    orientation = x_ij.pose.pose.orientation
                     # Convert the covariance to a numpy array and reshape it to 6x6
-                    covariance = np.array(x_ij.pose.covariance).reshape((6, 6))
-                    sigmas = np.sqrt(np.diag(covariance))
+                    covariance = x_ij.pose.covariance
+                    # Convert covariance to a 6x6 numpy array
+                    cov_mat = np.array(covariance).reshape(6, 6)
+                    sigmas = np.sqrt(np.diag(cov_mat))
                     # Store the pose ing the preintegration data
                     self.preintegration_data.append({
                         "ti": ti,
@@ -330,17 +379,34 @@ class CycleManager:
                         "orientation": orientation,
                         "sigmas": sigmas
                     })
+                    # Log the position and orientation
+                    # Convert the orientation delta to rpy
+                    orientation_rpy = spt.Rotation.from_quat([orientation.x, orientation.y, orientation.z, orientation.w]).as_euler('xyz', degrees=True)
+                    rospy.loginfo(f"Preintegrated pose from {key1} to {key2}: position(m)={position}, orientation(deg)={orientation_rpy}, sigmas={sigmas}")
                     # Publish the pose factor
                     pose_factor_msg = PoseFactorStamped(
                         header=Header(stamp=tj, frame_id=local_chr),
                         key1=key1,
                         key2=key2,
-                        position=Point(*position),
-                        orientation=Quaternion(*orientation),
-                        sigmas=sigmas.tolist()
+                        pose = PoseWithCovariance(
+                            pose=Pose(
+                                position=Point(
+                                    x=position.x,
+                                    y=position.y,
+                                    z=position.z
+                                ),
+                                orientation=Quaternion(
+                                    x=orientation.x,
+                                    y=orientation.y,
+                                    z=orientation.z,
+                                    w=orientation.w
+                                )
+                            ),
+                            covariance=covariance
+                        )
                     )
                     self.pose_factor_pub.publish(pose_factor_msg)
-                    rospy.loginfo(f"Published pose factor: {pose_factor_msg}")
+                    #rospy.loginfo(f"Published pose factor: {pose_factor_msg}")
                     # This allows for calling preintegration to clear the queue without advancing the pose
                     pass
         except rospy.ServiceException as e:

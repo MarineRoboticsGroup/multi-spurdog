@@ -202,9 +202,11 @@ catkin_install_python(PROGRAMS
   src/factor_graph_mgr.py
   src/comms_ltwt.py
   src/comms_lbl.py
+  src/comms_lbl_devel.py
   src/imu_sensor_handler.py
   src/imu_cal.py
   src/test_preintegration.py
+  src/test_timing.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

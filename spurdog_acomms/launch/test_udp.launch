@@ -16,7 +16,11 @@
     <!-- Start the agent node -->
     <group ns="$(arg agent_name)">
 
-        <node name="imu_debug" pkg="spurdog_acomms" type="test_preintegration.py" output="screen">
-        </node>
+        <!-- Launch the MOOS interface bridge -->
+        <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="screen" />
+
+        <node name="rosbag" pkg="rosbag" type="record"
+            args='-a -o /ros/logs/$(arg agent_name).bag'
+            output="screen" />
     </group>
 </launch>
