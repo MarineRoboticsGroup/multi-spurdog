@@ -3,7 +3,6 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
-#include <std_msgs/Bool.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <spurdog_acomms/PreintegrateImu.h>
 
