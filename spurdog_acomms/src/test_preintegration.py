@@ -306,7 +306,7 @@ class CycleManager:
                 )
                 return None
             else:
-                rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
+                #rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
                 if adv_pose:
                     # Advance the key indices and the time
                     key1 = local_chr + str(key1_index)
@@ -340,7 +340,7 @@ class CycleManager:
                         sigmas=sigmas.tolist()
                     )
                     self.pose_factor_pub.publish(pose_factor_msg)
-                    rospy.loginfo(f"Published pose factor: {pose_factor_msg}")
+                    #rospy.loginfo(f"Published pose factor: {pose_factor_msg}")
                     # This allows for calling preintegration to clear the queue without advancing the pose
                     pass
         except rospy.ServiceException as e:

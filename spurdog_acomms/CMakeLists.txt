@@ -160,7 +160,7 @@ include_directories(
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/spurdog_acomms_node.cpp)
 add_executable(imu_preintegrator src/imu_preintegrator.cpp)
-
+add_executable(manifold_preintegrator src/manifold_preintegrator.cpp)
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -181,8 +181,12 @@ target_link_libraries(imu_preintegrator
   ${Boost_LIBRARIES}
   gtsam
 )
-
-add_dependencies(imu_preintegrator ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(manifold_preintegrator
+  ${catkin_LIBRARIES}
+  ${Boost_LIBRARIES}
+  gtsam
+)
+add_dependencies(imu_preintegrator manifold_preintegrator ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 #############
 ## Install ##

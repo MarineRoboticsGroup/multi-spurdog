@@ -353,7 +353,7 @@ class CycleManager:
                 )
                 return None
             else:
-                rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
+                #rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
                 if adv_pose:
                     # Advance the key indices and the time
                     key1 = local_chr + str(key1_index)
@@ -382,7 +382,7 @@ class CycleManager:
                     # Log the position and orientation
                     # Convert the orientation delta to rpy
                     orientation_rpy = spt.Rotation.from_quat([orientation.x, orientation.y, orientation.z, orientation.w]).as_euler('xyz', degrees=True)
-                    rospy.loginfo(f"Preintegrated pose from {key1} to {key2}: position(m)={position}, orientation(deg)={orientation_rpy}, sigmas={sigmas}")
+                    #rospy.loginfo(f"Preintegrated pose from {key1} to {key2}: position(m)={position}, orientation(deg)={orientation_rpy}, sigmas={sigmas}")
                     # Publish the pose factor
                     pose_factor_msg = PoseFactorStamped(
                         header=Header(stamp=tj, frame_id=local_chr),

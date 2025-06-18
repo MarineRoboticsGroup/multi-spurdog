@@ -143,61 +143,62 @@ class IMUSensorCalibration:
             cv7_m_data, cv7_c_data = self.get_linregression_data(self.cv7_ahrs_data)
         return nav_m_data, nav_c_data, cv7_m_data, cv7_c_data
 
-    def get_accel_bias(self, cv7_data, navigator_data):
+    def get_accel_bias(self, imu_data):
         """ Calculate the acceleration bias for the given IMU data. """
         # Use the mean quaternion orientation to correct for gravity
         # Upright is 0,0,0,1 quaternion (x, y, z, w)
         upright_quat = np.array([0.0, 0.0, 0.0, 1.0])
-        g = 9.81  # Gravity in m/s^2
+        g = 9.8066  # Gravity in m/s^2
         # Get the mean quaternion orientation
-        if not cv7_data['timestamp'] or not navigator_data['timestamp']:
-            rospy.logwarn("No data received for acceleration bias calculation.")
-            return {}
-        cv7_mean_quat = np.array([
-            np.mean(cv7_data['qx']),
-            np.mean(cv7_data['qy']),
-            np.mean(cv7_data['qz']),
-            np.mean(cv7_data['qw'])
-        ])
-        navigator_mean_quat = np.array([
-            np.mean(navigator_data['qx']),
-            np.mean(navigator_data['qy']),
-            np.mean(navigator_data['qz']),
-            np.mean(navigator_data['qw'])
-        ])
-        # Convert the navigator mean quaternion to a rotation matrix and log
-        navigator_rot = R.from_quat(navigator_mean_quat).as_dcm()
-        # Log as rpy
-        navigator_rpy = R.from_dcm(navigator_rot).as_euler('xyz', degrees=True)
-        rospy.loginfo(f"Navigator mean orientation RPY: {navigator_rpy}")
-        cv_rot = R.from_quat(cv7_mean_quat).as_dcm()
-        # Log as rpy
-        cv7_rpy = R.from_dcm(cv_rot).as_euler('xyz', degrees=True)
-        rospy.loginfo(f"CV7 mean orientation RPY: {cv7_rpy}")
-        # Find the gravity correction which should be applied, given the navigator orientation
-        # Gravity acts along [0,0,g], but the navigator orientation may not be upright
+        if imu_data == self.cv7_ahrs_data:
+            imu_name = "cv7_ahrs"
+        elif imu_data == self.navigator_ahrs_data:
+            imu_name = "navigator_ahrs"
+        else:
+            rospy.logerr("Unknown IMU data type.")
+            return None
+        # Get the mean quaternion for the IMU data
+        qx_mean = np.mean(imu_data['qx'])
+        qy_mean = np.mean(imu_data['qy'])
+        qz_mean = np.mean(imu_data['qz'])
+        qw_mean = np.mean(imu_data['qw'])
+        # Get the mean orientation in rpy
+        mean_quat = np.array([qx_mean, qy_mean, qz_mean, qw_mean])
+        mean_rpy = R.from_quat(mean_quat).as_euler('xyz', degrees=True)
+        mean_rot = R.from_quat(mean_quat).as_dcm()
+        # Log the mean rpy orientation to terminal
+        rospy.loginfo(f"{imu_name} mean orientation (rpy)(deg): {mean_rpy}")
         # Calculate the gravity vector in the navigator frame
         gravity_vector = np.array([0.0, 0.0, g])
-        # Rotate the gravity vector by the navigator orientation
-        corrected_gravity_vector = R.from_quat(navigator_mean_quat).apply(gravity_vector)
-        # Calculate the acceleration bias for each axis
-        grav_bias = {
+        # Rotate the gravity vector into the IMU frame
+        corrected_gravity_vector = mean_rot @ gravity_vector
+        # Log the corrected gravity vector to terminal
+        #rospy.loginfo(f"{imu_name} corrected gravity vector: {corrected_gravity_vector}")
+        # Get the affect of gravity on each axis
+        gravity_by_axis = {
             'accel_x': corrected_gravity_vector[0],
-            'accel_y': -corrected_gravity_vector[1],
+            'accel_y': corrected_gravity_vector[1],
             'accel_z': corrected_gravity_vector[2]
         }
-        # Log the acceleration bias
-        rospy.loginfo(f"gravity, in Navigator Frame: {grav_bias}")
-        # Now we can calculate the acceleration bias for the CV7 data
+        # Log the gravity effect on each axis to terminal
+        #rospy.loginfo(f"{imu_name} gravity effect on axes: {Gravity_by_axis}")
+        # Calculate the acceleration bias for each axis
         accel_bias = {}
-        for key in ['accel_x', 'accel_y', 'accel_z']:
-            if cv7_data[key]:
-                # Calculate the bias as the difference between the mean acceleration and the gravity correction
-                accel_bias[key] = np.mean(cv7_data[key]) - grav_bias[key]
+        for key in imu_data.keys():
+            if key.startswith('accel_'):
+                # Calculate the bias as the mean acceleration minus the gravity effect
+                if imu_data[key]:
+                    accel_bias[key] = np.mean(imu_data[key]) - gravity_by_axis[key]
+                    rospy.loginfo(f"{imu_name} {key} mean: {np.mean(imu_data[key])}, gravity: {gravity_by_axis[key]}")
+                else:
+                    accel_bias[key] = 0.0
+                # Log the acceleration bias to terminal
+                rospy.loginfo(f"{imu_name} {key} bias: {accel_bias[key]}")
             else:
                 accel_bias[key] = 0.0
-            # Log the acceleration bias to terminal
-            rospy.loginfo(f"Acceleration bias for {key}: {accel_bias[key]}")
+        # Log the acceleration bias to terminal
+        rospy.loginfo(f"{imu_name} acceleration bias: {accel_bias}")
+
         return accel_bias
 
     def plot_data(self, imu_data, mean_data, sigma_data, m_data, c_data):
@@ -275,7 +276,7 @@ if __name__ == '__main__':
     finally:
         nav_mean_data, nav_sigma_data, cv7_mean_data, cv7_sigma_data = imu_node.get_mean_and_sigma()
         nav_m_data, nav_c_data, cv7_m_data, cv7_c_data = imu_node.get_drift()
-        accel_bias = imu_node.get_accel_bias(imu_node.cv7_ahrs_data, imu_node.navigator_ahrs_data)
+        accel_bias = imu_node.get_accel_bias(imu_node.cv7_ahrs_data)
         #imu_node.plot_data(imu_node.cv7_ahrs_data, cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data)
         #imu_node.plot_data(imu_node.navigator_ahrs_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data)
 

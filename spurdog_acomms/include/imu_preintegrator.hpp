@@ -3,6 +3,7 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
+#include <std_msgs/Bool.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <spurdog_acomms/PreintegrateImu.h>
 
@@ -30,14 +31,15 @@ private:
   std::deque<sensor_msgs::Imu> imu_buffer_;
   std::mutex buffer_mutex_;
   ros::Time ti_;
-
+  // Add a sequence number for the IMU messages
+  int req_seq_num_;
   // Preintegration parameters
   boost::shared_ptr<gtsam::PreintegrationParams> preint_params_;
   gtsam::imuBias::ConstantBias bias;
 
   // Preintegration NavState
-  gtsam::NavState initial_state_;
-  gtsam::NavState delta_state_;
+  gtsam::NavState prevState;
+  gtsam::NavState predState;
 
 public:
   ImuPreintegratorNode();
