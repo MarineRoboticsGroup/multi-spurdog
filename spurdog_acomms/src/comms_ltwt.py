@@ -5,7 +5,7 @@ from os.path import dirname, join, abspath
 import numpy as np
 from datetime import datetime
 import scipy.spatial.transform as spt
-from std_msgs.msg import Header, String, Time, Float32
+from std_msgs.msg import Header, String, Time, Float32, Bool
 from geometry_msgs.msg import Point, Quaternion, Pose, PoseWithCovariance, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
     TdmaStatus, QueueStatus
@@ -104,7 +104,8 @@ class CycleManager:
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         # Initialize Subscribers for handling external sensors
         self.gps = rospy.Subscriber("gps", PoseWithCovarianceStamped, self.on_gps)
-        self.mission_status = rospy.Subscriber("mission_state", String, self.on_mission_state)
+        #self.mission_status = rospy.Subscriber("mission_state", String, self.on_mission_state)
+        self.in_water = rospy.Subscriber("in_water", Bool, self.on_in_water)
         self.comms_cycle_status = rospy.Subscriber("comms_cycle_status", CommsCycleStatus, self.on_comms_cycle_status)
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
@@ -531,7 +532,38 @@ class CycleManager:
         #rospy.loginfo("[%s] Received GPS data" % pose_time)
         return
 
-    def on_mission_state(self, msg: String):
+    # def on_mission_state(self, msg: String):
+    #     """This function receives the navigation state data from the estimator
+    #     Args:
+    #         msg (PoseStamped): The navigation state data
+    #     """
+    #     # Replace the initial_position with the GPS data
+    #     # Split the message into a list
+    #     # Get the time
+    #     msg_time = rospy.Time.now()
+    #     msg = msg.data.split("=")
+    #     # Check if the message is valid
+    #     if msg[0] == "IN_WATER":
+    #         value = msg[1]
+    #         if value == "true":
+    #             if self.in_water == False:
+    #                 # Clear preintegration queue
+    #                 self.request_preintegration(msg_time, False)
+    #                 # Build the initial prior factor msg
+    #                 self.build_init_prior()
+    #                 self.in_water = True
+    #                 rospy.loginfo("[%s] In water, building init prior" % (rospy.Time.now()))
+    #             else:
+    #                 return
+    #         elif value == "false":
+    #             self.in_water = False
+    #             self.message_on_safe = True  # Messages are not allowed when not in water
+    #     else:
+    #         return
+    #     # Log the reciept
+    #     rospy.loginfo("[%s] Changed water status to %s" % (rospy.Time.now(), msg.data))
+    #     return
+    def on_in_water(self, msg: Bool):
         """This function receives the navigation state data from the estimator
         Args:
             msg (PoseStamped): The navigation state data
@@ -540,24 +572,20 @@ class CycleManager:
         # Split the message into a list
         # Get the time
         msg_time = rospy.Time.now()
-        msg = msg.data.split("=")
         # Check if the message is valid
-        if msg[0] == "IN_WATER":
-            value = msg[1]
-            if value == "true":
-                if self.in_water == False:
-                    # Clear preintegration queue
-                    self.request_preintegration(msg_time, False)
-                    # Build the initial prior factor msg
-                    self.build_init_prior()
-                    self.in_water = True
-                    rospy.loginfo("[%s] In water, building init prior" % (rospy.Time.now()))
-                else:
-                    return
-            elif value == "false":
-                self.in_water = False
-                self.message_on_safe = True  # Messages are not allowed when not in water
+        if msg.data == True:
+            if self.in_water == False:
+                # Clear preintegration queue
+                self.request_preintegration(msg_time, False)
+                # Build the initial prior factor msg
+                self.build_init_prior()
+                self.in_water = True
+                rospy.loginfo("[%s] In water, building init prior" % (rospy.Time.now()))
+            else:
+                return
         else:
+            self.in_water = False
+            self.message_on_safe = True
             return
         # Log the reciept
         rospy.loginfo("[%s] Changed water status to %s" % (rospy.Time.now(), msg.data))

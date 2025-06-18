@@ -51,7 +51,7 @@ class GraphManager:
         self.tdma_from_modem = rospy.Subscriber("modem/tdma_status", TdmaStatus, self.on_tdma_status, queue_size=1)
         self.init_prior_sub = rospy.Subscriber("modem/from_acomms/init_prior", InitPrior, self.on_init_prior)
         self.partial_graph_sub = rospy.Subscriber("modem/from_acomms/partial_graph", PartialGraph, self.on_partial_graph)
-        self.mission_status = rospy.Subscriber("mission_state", String, self.on_mission_state)
+        #self.mission_status = rospy.Subscriber("mission_state", String, self.on_mission_state)
         # Initialize Publishers:
         self.comms_cycle_status = rospy.Publisher("comms_cycle_status", CommsCycleStatus, queue_size=1)
         self.cycle_graph_pub = rospy.Publisher("cycle_graph", CycleGraph, queue_size=1)

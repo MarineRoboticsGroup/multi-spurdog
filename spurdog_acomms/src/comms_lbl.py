@@ -61,7 +61,6 @@ class CycleManager:
         self.xst_data = []
         self.preintegration_data = []
         self.pose_time_lookup = {}
-        self.in_water = False
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
