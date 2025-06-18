@@ -80,7 +80,9 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
   bias_ = imuBias::ConstantBias(
       Vector3(accel_bias_x, accel_bias_y, accel_bias_z),
       Vector3(gyro_bias_x, gyro_bias_y, gyro_bias_z));
-
+  bias_noise_ = gtsam::noiseModel::Diagonal::Sigmas(
+      (gtsam::Vector(6) << accel_bias_rw_sigma, accel_bias_rw_sigma, accel_bias_rw_sigma,
+                          gyro_bias_rw_sigma, gyro_bias_rw_sigma, gyro_bias_rw_sigma).finished());
   // Initialize for NED using MakeSharedD with gravity pointing down
   pim_params_= PreintegrationCombinedParams::MakeSharedD(9.81); // Gravity in m/s^2
   pim_params_->accelerometerCovariance = I_3x3 * accel_noise_sigma * accel_noise_sigma;
@@ -222,15 +224,14 @@ void ImuPreintegratorNode::generateInitialFactors() {
   );
   gtsam::Vector3 initial_velocity(0.0, 0.0, 0.0); // Assuming stationary at start
   gtsam::noiseModel::Diagonal::shared_ptr pose_noise = gtsam::noiseModel::Diagonal::Sigmas(
-    (gtsam::Vector(6) << 0.1, 0.1, 0.1, 0.1, 0.1, 0.1).finished());
+    (gtsam::Vector(6) << 0.01, 0.01, 0.01, 0.1, 0.1, 0.1).finished());
   gtsam::noiseModel::Diagonal::shared_ptr vel_noise = gtsam::noiseModel::Diagonal::Sigmas(
-    (gtsam::Vector(3) << 0.1, 0.1, 0.1).finished());
-  gtsam::noiseModel::Diagonal::shared_ptr bias_noise = gtsam::noiseModel::Diagonal::Sigmas(
-    (gtsam::Vector(6) << 0.1, 0.1, 0.1, 0.1, 0.1, 0.1).finished());
+    (gtsam::Vector(3) << 0.01, 0.01, 0.01).finished());
+  // Bias noise is initialized on startup
   // Add prior factors to the graph
   graph_.add(gtsam::PriorFactor<gtsam::Pose3>(pose_key, initial_pose, pose_noise));
   graph_.add(gtsam::PriorFactor<gtsam::Vector3>(vel_key, initial_velocity, vel_noise));
-  graph_.add(gtsam::PriorFactor<gtsam::imuBias::ConstantBias>(bias_key, bias_, bias_noise));
+  graph_.add(gtsam::PriorFactor<gtsam::imuBias::ConstantBias>(bias_key, bias_, bias_noise_));
   // Add the initial state to the initial values
   initial_.insert(pose_key, initial_pose);
   initial_.insert(vel_key, initial_velocity);
@@ -240,7 +241,7 @@ void ImuPreintegratorNode::generateInitialFactors() {
   // Add the initial NavState to the preintegrated states
   preint_states_.push_back(initial_state);
   // Log the initial state
-  ROS_INFO("Initial NavState at time %f: Pose = [%f, %f, %f], Velocity = [%f, %f, %f]",
+  ROS_INFO("Generated Initial Factors at time %f with NavState [%f, %f, %f], [%f, %f, %f]",
            ti_.toSec(),
            initial_pose.x(), initial_pose.y(), initial_pose.z(),
            initial_velocity.x(), initial_velocity.y(), initial_velocity.z());
@@ -275,7 +276,7 @@ void ImuPreintegratorNode::generateSequentialFactors(const ros::Time& final_time
   graph_.add(factor);
   // Update the initial values with the new pose and velocity
   gtsam::Pose3 predicted_pose = pim_->predict(preint_states_.back(), bias_).pose();
-  // overide the previous pose orientation with the latest IMU orientation
+  // overide the previous pose orientation with the latest IMU orientation and baro depth
   predicted_pose = gtsam::Pose3(gtsam::Rot3(imu_q_bw_.w(), imu_q_bw_.x(), imu_q_bw_.y(), imu_q_bw_.z()),
                                 gtsam::Point3(predicted_pose.x(), predicted_pose.y(), baro_depth_w_));
   gtsam::Vector3 predicted_velocity = pim_->predict(preint_states_.back(), bias_).velocity();
@@ -284,16 +285,20 @@ void ImuPreintegratorNode::generateSequentialFactors(const ros::Time& final_time
   initial_.insert(bj, bias_);
   // Add priors
   gtsam::noiseModel::Diagonal::shared_ptr pose_noise = gtsam::noiseModel::Diagonal::Sigmas(
-    (gtsam::Vector(6) << 0.1, 0.1, 0.1, 0.1, 0.1, 0.1).finished());
+    (gtsam::Vector(6) << 1, 1, 0.05, 0.1, 0.1, 0.1).finished()); // Loose prior on X,Y, strict prior on Z, and orientation
   gtsam::noiseModel::Diagonal::shared_ptr vel_noise = gtsam::noiseModel::Diagonal::Sigmas(
-    (gtsam::Vector(3) << 0.1, 0.1, 0.1).finished());
-  gtsam::noiseModel::Diagonal::shared_ptr bias_noise = gtsam::noiseModel::Diagonal::Sigmas(
-    (gtsam::Vector(6) << 0.1, 0.1, 0.1, 0.1, 0.1, 0.1).finished());
+    (gtsam::Vector(3) << 0.5, 0.1, 0.05).finished()); // Loose prior on VX, progressively stricter priors on VY, VZ
+  // Bias noise is initialized on startup
   graph_.add(gtsam::PriorFactor<gtsam::Pose3>(xj, predicted_pose, pose_noise));
   graph_.add(gtsam::PriorFactor<gtsam::Vector3>(vj, predicted_velocity, vel_noise));
-  graph_.add(gtsam::PriorFactor<gtsam::imuBias::ConstantBias>(bj, bias_, bias_noise));
+  graph_.add(gtsam::PriorFactor<gtsam::imuBias::ConstantBias>(bj, bias_, bias_noise_));
   // Update the preintegrated states
   gtsam::NavState new_state(predicted_pose, predicted_velocity);
+  // Log the nav state
+  ROS_INFO("Generated New Factors at time %f with NavState: [%f, %f, %f], [%f, %f, %f]",
+           final_time.toSec(),
+           predicted_pose.x(), predicted_pose.y(), predicted_pose.z(),
+           predicted_velocity.x(), predicted_velocity.y(), predicted_velocity.z());
   preint_states_.push_back(new_state);
   // Update the time to factor index mapping
   time_to_factor_index_[final_time] = time_to_factor_index_.size();
@@ -398,7 +403,12 @@ geometry_msgs::PoseWithCovarianceStamped ImuPreintegratorNode::getResults(
   gtsam::Pose3 Tij = optimized_pose_i.between(optimized_pose_j, Hi, Hj);
   gtsam::Matrix Covij = Hi * pose_covariance_i * Hi.transpose() +
                                          Hj * pose_covariance_j * Hj.transpose();
-  // Iterate over the time_to_factor_index_ map to find the end time for the factor index
+  // Log the solved pose difference
+  ROS_INFO("Solved delta index %d to %d: [%.2f, %.2f, %.2f], [%.2f, %.2f, %.2f]",
+           start_idx, end_idx,
+           Tij.x(), Tij.y(), Tij.z(),
+           optimized_velocity_i.x(), optimized_velocity_i.y(), optimized_velocity_i.z());
+  // Build the response message
   geometry_msgs::PoseWithCovarianceStamped response_msg = ImuPreintegratorNode::buildPoseResponse(Tij,Covij, end_idx);
   // Remove any keys and factors prior to the end index
   ImuPreintegratorNode::pruneGraph(end_idx, result);

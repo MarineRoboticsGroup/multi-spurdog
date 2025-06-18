@@ -45,6 +45,7 @@ private:
   double baro_depth_w_;
   gtsam::Vector3 dvl_vel_bw_;
   gtsam::imuBias::ConstantBias bias_;
+  gtsam::noiseModel::Diagonal::shared_ptr bias_noise_;
   boost::shared_ptr<gtsam::PreintegrationCombinedParams> pim_params_;
   // Define a preintegration object
   boost::shared_ptr<gtsam::PreintegratedCombinedMeasurements> pim_;
