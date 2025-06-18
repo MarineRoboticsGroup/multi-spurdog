@@ -52,16 +52,15 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
       gtsam::Vector3(gyro_bias_x, gyro_bias_y, gyro_bias_z));
 
   // Initialize for NED using MakeSharedD with gravity pointing down
-  preint_params_= gtsam::PreintegrationParams::MakeSharedD(9.81); // Gravity in m/s^2
+  preint_params_= gtsam::PreintegrationParams::MakeSharedD(0.0);
   // Manufacturers Quoted Values:
   //preint_params_->accelerometerCovariance = gtsam::I_3x3 * 1.3e-5;
   //preint_params_->gyroscopeCovariance = gtsam::I_3x3 * 2.5e-7;
   preint_params_->accelerometerCovariance = gtsam::I_3x3 * accel_noise_sigma * accel_noise_sigma;
   preint_params_->gyroscopeCovariance = gtsam::I_3x3 * gyro_noise_sigma * gyro_noise_sigma;
-  preint_params_->integrationCovariance = gtsam::I_3x3 * 1e-8;
+  preint_params_->integrationCovariance = gtsam::I_3x3 * 1e-2;
   // preint_params_->biasAccCovariance = gtsam::I_3x3 * accel_bias_rw_sigma * accel_bias_rw_sigma;
   // preint_params_->biasOmegaCovariance = gtsam::I_3x3 * gyro_bias_rw_sigma * gyro_bias_rw_sigma;
-
   ti_ = ros::Time(0);
   prevState = gtsam::NavState(
       gtsam::Rot3(),  // Identity rotation (no initial orientation)
@@ -81,7 +80,7 @@ void ImuPreintegratorNode::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
   }
 }
 
-// Correct Measurements for gravity
+// Correct Measurements for gravity and integrate them
 gtsam::Vector3 CorrectForGravity(const gtsam::Vector3& acc, const gtsam::Quaternion& q) {
   // Gravity in world frame
   gtsam::Vector3 gravity(0, 0, 9.81); // NED frame: z is down
@@ -102,56 +101,46 @@ gtsam::Vector3 CorrectForGravity(const gtsam::Vector3& acc, const gtsam::Quatern
   return corrected_acc;
 }
 
-// Handle the preintegration request
 bool ImuPreintegratorNode::handlePreintegrate(spurdog_acomms::PreintegrateImu::Request &req,
                           spurdog_acomms::PreintegrateImu::Response &res) {
   ros::Time tj = req.final_time;
-  // Check if the requested time is valid
+  // If this is the first time we've requested preintegration, clear the imu buffer
   if (ti_.toSec() == 0 || tj <= ti_) {
     ROS_WARN("Invalid preintegration window with start time %f and end time %f",
              ti_.toSec(), tj.toSec());
     return false;
   }
-  // Check if there is anything in the IMU buffer
-  if (imu_buffer_.empty()) {
-    ROS_WARN("IMU buffer is empty, cannot preintegrate");
-    return false;
-  }
-  // If this is the first time we've requested preintegration, clear the imu buffer
   if (req_seq_num_ == 0) {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
+    imu_buffer_.clear();
     ti_ = req.final_time;
     // get the latest IMU message in the buffer
     ROS_WARN("First preintegration request, clearing IMU buffer and resetting start time to %f", ti_.toSec());
-    req_seq_num_++;
-    // Get the orientation from the latest IMU message
-    const auto& latest_imu_msg = imu_buffer_.back();
-    gtsam::Quaternion q(latest_imu_msg.orientation.w,
-                        latest_imu_msg.orientation.x,
-                        latest_imu_msg.orientation.y,
-                        latest_imu_msg.orientation.z);
-    imu_buffer_.clear();
-    // Set the prevState orientation to the latest IMU orientation
-    // prevState = gtsam::NavState(
-    //     gtsam::Rot3(q),  // Use the latest IMU orientation
-    //     prevState.position(),  // Keep the previous position
-    //     prevState.velocity()   // Keep the previous velocity
-    // );
-    // Convert prevState Attitude to RPY
-    gtsam::Vector3 rpy = prevState.attitude().rpy();
-    ROS_INFO("Resetting prevState to latest IMU orientation: RPY = [%.1f, %.1f, %.1f] degrees",
-              rpy(0) * 180.0 / M_PI, rpy(1) * 180.0 / M_PI, rpy(2) * 180.0 / M_PI);
-    return false;
+    if (!imu_buffer_.empty()) {
+      const auto& latest_imu_msg = imu_buffer_.back();
+      // Get the orientation from the latest IMU message
+      gtsam::Quaternion q(latest_imu_msg.orientation.w,
+                          latest_imu_msg.orientation.x,
+                          latest_imu_msg.orientation.y,
+                          latest_imu_msg.orientation.z);
+      // Set the prevState orientation to the latest IMU orientation
+      prevState = gtsam::NavState(
+          gtsam::Rot3(q),  // Use the latest IMU orientation
+          prevState.position(),  // Keep the previous position
+          prevState.velocity()   // Keep the previous velocity
+      );
+    }
+    ROS_INFO("Cleared IMU buffer for preintegration request.");
   }
+  // Increment the sequence number for the next request
   req_seq_num_++;
-  // We have passed initial validation checks, so we can proceed with preintegration
-  // Reset the preintegration object and load current params
-  gtsam::PreintegratedImuMeasurements pim(preint_params_, bias);
+  // Reset to start the preintegrations
+  gtsam::PreintegratedImuMeasurements pim(preint_params_);
+  pim.resetIntegrationAndSetBias(bias);
 
   std::lock_guard<std::mutex> lock(buffer_mutex_);
   ros::Time last_msg_time = ti_;
 
-  // Iterate through the IMU buffer and integrate measurements that fall within the time window [ti_, tj]
   while (!imu_buffer_.empty()) {
     const auto& imu_msg = imu_buffer_.front();
     ros::Time t = imu_msg.header.stamp;
@@ -165,91 +154,78 @@ bool ImuPreintegratorNode::handlePreintegrate(spurdog_acomms::PreintegrateImu::R
     }
 
     double dt = (t - last_msg_time).toSec();
-    // Extract the IMU measurments
+    // Correct the IMU acceleration for gravity
     gtsam::Quaternion q(imu_msg.orientation.w, imu_msg.orientation.x,
                         imu_msg.orientation.y, imu_msg.orientation.z);
+    // Convert to NED frame (roll, pitch, yaw)
     gtsam::Rot3 imu_rot(q);
-    // Correct the IMU measurements for gravity
-    // gtsam::Vector3 acc = CorrectForGravity(
-    //     gtsam::Vector3(imu_msg.linear_acceleration.x,
-    //                    imu_msg.linear_acceleration.y,
-    //                    imu_msg.linear_acceleration.z),
-    //     q);
-    gtsam::Vector3 acc(-imu_msg.linear_acceleration.x,
-                      -imu_msg.linear_acceleration.y,
-                      -imu_msg.linear_acceleration.z);
+
+    gtsam::Vector3 acc(imu_msg.linear_acceleration.x,
+                      imu_msg.linear_acceleration.y,
+                      imu_msg.linear_acceleration.z);
+    // Correct the acceleration for gravity
+    acc = CorrectForGravity(acc, q);
     gtsam::Vector3 gyro(imu_msg.angular_velocity.x,
                         imu_msg.angular_velocity.y,
                         imu_msg.angular_velocity.z);
     // Log the IMU data with RPY in degrees
-    ROS_INFO("IMU data at time %f: dt(s)= %3f, rpy = [%.3f, %.3f, %.3f], acc = [%.3f, %.3f, %.3f], gyro = [%.3f, %.3f, %.3f]",
-             t.toSec(), dt,
-              imu_rot.roll() * 180.0 / M_PI,
-              imu_rot.pitch() * 180.0 / M_PI,
-              imu_rot.yaw() * 180.0 / M_PI,
-             acc.x(), acc.y(), acc.z(), gyro.x(), gyro.y(), gyro.z());
-    // Preintegrate the IMU measurements
+    // ROS_INFO("IMU data at time %f: dt(s)= %3f, rpy = [%.3f, %.3f, %.3f], acc = [%.3f, %.3f, %.3f], gyro = [%.3f, %.3f, %.3f]",
+    //          t.toSec(), dt,
+    //           imu_rot.roll() * 180.0 / M_PI,
+    //           imu_rot.pitch() * 180.0 / M_PI,
+    //           imu_rot.yaw() * 180.0 / M_PI,
+    //          acc.x(), acc.y(), acc.z(), gyro.x(), gyro.y(), gyro.z());
     pim.integrateMeasurement(acc, gyro, dt);
     last_msg_time = t;
-    // // Replace the current NavState attitude with the IMU rotation
-    // prevState = gtsam::NavState(
-    //     prevState.attitude(),  // Use the predicted attitude
-    //     // /imu_rot,  // Use the IMU rotation
-    //     prevState.position(),  // Keep the previous position
-    //     prevState.velocity()   // Keep the previous velocity
-    // );
-    // Remove the message after adding it to the preintegration object
-    imu_buffer_.pop_front();
+
+    imu_buffer_.pop_front();  // remove after using
   }
-  // Check that the time window matches the measurements added
+  // Predict the final state using the preintegrated measurements
+  predState = pim.predict(prevState, bias);
+
+  // Integrate the measurements
   double deltaTij = pim.deltaTij();
   // Check that deltaTij is approximately equal to the requested time difference
   if (std::abs(deltaTij - (tj - ti_).toSec()) > 0.02) {
     ROS_WARN("Time difference mismatch: requested %.6f, got %.6f", (tj - ti_).toSec(), deltaTij);
     return false;
   }
-
-  // Correct the IMU measurements for gravity
-  // Predict the final state using the preintegrated measurements
-  predState = pim.predict(prevState, bias);
-  pim.resetIntegration();
-  // Reset the prevState attitude and velocity to the resulting predicted state
-  prevState= gtsam::NavState(
-      predState.attitude(),  // Use the predicted attitude
-      gtsam::Point3(0, 0, 0),  // Use the predicted position
-      predState.velocity()   // Use the predicted velocity
-  );
+  const gtsam::Rot3& deltaRij = pim.deltaRij();
+  const gtsam::Vector3& deltaPij = pim.deltaPij();
+  gtsam::Pose3 delta_pose(deltaRij, deltaPij);
+  gtsam::Matrix covariance = pim.preintMeasCov();
+  double norm_deltaPij = deltaPij.norm();
+  // Get the difference between the predicted position and the previous state
+  gtsam::Vector3 deltaP = predState.position() - prevState.position();
+  double norm_deltaP = deltaP.norm();
+  ROS_INFO("Preintegrated IMU measurements over deltaTij = %.2f, |deltaPij| = %.2f, |deltaP| = %.2f", deltaTij, norm_deltaPij, norm_deltaP);
+  // Log the predicted state
+  ROS_INFO("Predicted state at time %f: position = [%.3f, %.3f, %.3f], "
+           "velocity = [%.3f, %.3f, %.3f], orientation = [%.3f, %.3f, %.3f, %.3f]",
+           tj.toSec(),
+           predState.position().x(), predState.position().y(), predState.position().z(),
+           predState.velocity().x(), predState.velocity().y(), predState.velocity().z(),
+           predState.attitude().toQuaternion().x(), predState.attitude().toQuaternion().y(),
+           predState.attitude().toQuaternion().z(), predState.attitude().toQuaternion().w());
+  // Set the initial state for the next preintegration using predState
+  prevState = predState;
+  // Log the preintegrated measurements
+  // ROS_INFO_STREAM("Preintegrated measurements from " << ti_ << " to " << tj
+  //                 << ": deltaRij = " << deltaRij
+  //                 << ", deltaPij = " << deltaPij
+  //                 << ", covariance = " << covariance);
   // Update the ti_
   ti_ = last_msg_time;
-  // Log the elements of the PredNavState
-  double x, y, z, vx, vy, vz;
-  x = predState.position().x();
-  y = predState.position().y();
-  z = predState.position().z();
-  vx = predState.velocity().x();
-  vy = predState.velocity().y();
-  vz = predState.velocity().z();
-  // Convert attitude from ROT3 to RPY
-  gtsam::Quaternion q(predState.attitude().matrix());
-  gtsam::Vector3 rpy = prevState.attitude().rpy();
-  // Compute the error between the predicted state and the previous state
-  ROS_INFO("Predicted NavState at time %f: RPY = [%.1f, %.1f, %.1f] degrees, "
-           "Position = [%.3f, %.3f, %.3f], Velocity = [%.3f, %.3f, %.3f]",
-           tj.toSec(),
-           rpy(0) * 180.0 / M_PI,
-           rpy(1) * 180.0 / M_PI,
-           rpy(2) * 180.0 / M_PI,
-           x, y, z,
-           vx, vy, vz);
   // Create the response message
   geometry_msgs::PoseWithCovarianceStamped rel_pose_msg;
 
   rel_pose_msg.header.stamp = tj;
   rel_pose_msg.header.frame_id = "imu";
   // Fill the pose
-  rel_pose_msg.pose.pose.position.x = x;
-  rel_pose_msg.pose.pose.position.y = y;
-  rel_pose_msg.pose.pose.position.z = z;
+  rel_pose_msg.pose.pose.position.x = delta_pose.translation().x();
+  rel_pose_msg.pose.pose.position.y = delta_pose.translation().y();
+  rel_pose_msg.pose.pose.position.z = delta_pose.translation().z();
+  gtsam::Quaternion q = delta_pose.rotation().toQuaternion();
   rel_pose_msg.pose.pose.orientation.x = q.x();
   rel_pose_msg.pose.pose.orientation.y = q.y();
   rel_pose_msg.pose.pose.orientation.z = q.z();
@@ -257,7 +233,7 @@ bool ImuPreintegratorNode::handlePreintegrate(spurdog_acomms::PreintegrateImu::R
   // Fill the covariance (row-major order)
   for (int i = 0; i < 6; ++i) {
     for (int j = 0; j < 6; ++j) {
-      rel_pose_msg.pose.covariance[i * 6 + j] = 1e-6; // Set a small covariance for simplicity
+      rel_pose_msg.pose.covariance[i * 6 + j] = covariance(i, j);
     }
   }
   res.success = true;

@@ -22,10 +22,9 @@
         <node name="imu_sensor_cal" pkg="spurdog_acomms" type="imu_cal.py" output="screen">
             <param name="imu_type" value="cv7_ahrs"/>
         </node>
-    </group>
-</launch>
-        <!-- <node name="rosbag" pkg="rosbag" type="record"
-            args='-a -o /ros/logs/$(arg agent_name).bag'
+
+        <node name="rosbag" pkg="rosbag" type="record"
+            args='-a -o /ros/logs/$(arg agent_name)imutest.bag'
             output="screen" />
     </group>
-</launch> -->
+</launch>

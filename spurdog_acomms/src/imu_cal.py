@@ -279,5 +279,8 @@ if __name__ == '__main__':
         accel_bias = imu_node.get_accel_bias(imu_node.cv7_ahrs_data)
         #imu_node.plot_data(imu_node.cv7_ahrs_data, cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data)
         #imu_node.plot_data(imu_node.navigator_ahrs_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data)
-
+        # Wait for the user to close the plots
+        imu_node.plot_data(imu_node.cv7_ahrs_data, cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data)
+        imu_node.plot_data(imu_node.navigator_ahrs_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data)
+        rospy.wait(rospy.Duration(60))
         rospy.loginfo("IMU calibration completed. Check the plots for results.")
