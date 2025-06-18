@@ -67,7 +67,8 @@ add_message_files(
   PartialGraph.msg
   CycleGraph.msg
   CommsCycleStatus.msg
-)
+  PoseFactorStamped.msg
+  RangeFactorStamped.msg)
 
 ## Generate services in the 'srv' folder
 add_service_files(
@@ -159,7 +160,7 @@ include_directories(
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/spurdog_acomms_node.cpp)
 add_executable(imu_preintegrator src/imu_preintegrator.cpp)
-
+add_executable(manifold_preintegrator src/manifold_preintegrator.cpp)
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -180,8 +181,12 @@ target_link_libraries(imu_preintegrator
   ${Boost_LIBRARIES}
   gtsam
 )
-
-add_dependencies(imu_preintegrator ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(manifold_preintegrator
+  ${catkin_LIBRARIES}
+  ${Boost_LIBRARIES}
+  gtsam
+)
+add_dependencies(imu_preintegrator manifold_preintegrator ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 #############
 ## Install ##
@@ -201,8 +206,11 @@ catkin_install_python(PROGRAMS
   src/factor_graph_mgr.py
   src/comms_ltwt.py
   src/comms_lbl.py
+  src/comms_lbl_devel.py
   src/imu_sensor_handler.py
   src/imu_cal.py
+  src/test_preintegration.py
+  src/test_timing.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

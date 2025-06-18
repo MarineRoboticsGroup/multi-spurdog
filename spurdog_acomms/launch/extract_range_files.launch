@@ -32,7 +32,6 @@
         <param name="sound_speed" value="1500" /> -->
 
         <!-- Modem group -->
-
         <!-- Launch communication and graph managers-->
         <node name="extract_range_files" pkg="spurdog_acomms" type="extract_range_data.py" output="screen" />
 

@@ -19,10 +19,6 @@
         <!-- Launch the MOOS interface bridge -->
         <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="screen" />
 
-        <node name="imu_sensor_cal" pkg="spurdog_acomms" type="imu_cal.py" output="screen">
-            <param name="imu_type" value="cv7_ahrs"/>
-        </node>
-
         <node name="rosbag" pkg="rosbag" type="record"
             args='-a -o /ros/logs/$(arg agent_name).bag'
             output="screen" />

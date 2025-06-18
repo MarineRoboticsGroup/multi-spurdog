@@ -23,6 +23,7 @@ def parse_nmea_cacmd(nmea_data: list):
     else:
         src = int(nmea_data[1])
         dest = int(nmea_data[2])
+        #command_ping_time = rospy.Time.now()  # Use current time as the command ping time
         return src, dest
 
 def parse_nmea_cacma(nmea_data: list):

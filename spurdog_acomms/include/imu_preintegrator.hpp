@@ -19,6 +19,7 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/base/Matrix.h>
 #include <gtsam/base/Vector.h>
+#include <gtsam/navigation/NavState.h>
 
 class ImuPreintegratorNode {
 private:
@@ -29,11 +30,15 @@ private:
   std::deque<sensor_msgs::Imu> imu_buffer_;
   std::mutex buffer_mutex_;
   ros::Time ti_;
-
-  // std::shared_ptr<gtsam::PreintegrationParams> preint_params_; // For PreintegrationBase and ManifoldPreintegration
+  // Add a sequence number for the IMU messages
+  int req_seq_num_;
+  // Preintegration parameters
   boost::shared_ptr<gtsam::PreintegrationParams> preint_params_;
-
   gtsam::imuBias::ConstantBias bias;
+
+  // Preintegration NavState
+  gtsam::NavState prevState;
+  gtsam::NavState predState;
 
 public:
   ImuPreintegratorNode();
