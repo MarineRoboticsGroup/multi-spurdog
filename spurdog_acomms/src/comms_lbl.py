@@ -14,7 +14,7 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    PoseFactorStamped, RangeFactorStamped
+    InitPrior, PartialGraph, CommsCycleStatus
 )
 from spurdog_acomms.srv import(
     PreintegrateImu, PreintegrateImuResponse
@@ -61,6 +61,7 @@ class CycleManager:
         self.xst_data = []
         self.preintegration_data = []
         self.pose_time_lookup = {}
+        self.in_water = False
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
@@ -75,9 +76,6 @@ class CycleManager:
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         # Initialize Subscribers for handling external sensors
         self.gps = rospy.Subscriber("gps", PoseWithCovarianceStamped, self.on_gps)
-        # Initialize the factor publishers
-        self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
-        self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
         self.configure_comms_cycle()
@@ -250,16 +248,6 @@ class CycleManager:
                 self.range_data.append([timestamp_sec.to_sec(), src, dest, owtt, measured_range])
                 #NOTE: This allows for preintegration between ranges to landmarks and ranges to agents
                 self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement
-                # Publish the range factor
-                range_factor_msg = RangeFactorStamped(
-                    # Set the frame id as the agent name (i.e. src=0, frame_id='A')
-                    header=Header(stamp=timestamp_sec, frame_id=src_chr),
-                    key1=src_chr + str(self.modem_addresses[src_chr][1]),
-                    key2=dest_chr + str(self.modem_addresses[dest_chr][1]),
-                    range=measured_range,
-                    owtt=owtt,
-                    tat=tat
-                )
                 if target_addr == first_tgt:
                     self.send_ping(second_tgt)  # Attempt the second target
                 elif target_addr == second_tgt:
@@ -282,6 +270,9 @@ class CycleManager:
         # Attempt to get a relative pose between the time provided and the last time we tried this
         local_chr = chr(ord("A") + self.local_address)
         key1_index = self.modem_addresses[local_chr][1]
+        key2_index = key1_index + 1
+        key1 = local_chr + str(key1_index)
+        key2 = local_chr + str(key1_index+1)
         ti = self.pose_time_lookup[local_chr + str(key1_index)]
         try:
             rospy.loginfo(f"Attempting to preintegrate between {ti} and {tj}")
@@ -307,11 +298,6 @@ class CycleManager:
             else:
                 rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
                 if adv_pose:
-                    # Advance the key indices and the time
-                    key1 = local_chr + str(key1_index)
-                    key2 = local_chr + str(key1_index+1)
-                    self.modem_addresses[local_chr][1] = key1_index + 1
-                    self.pose_time_lookup[key2] = tj
                     x_ij = response.pose_delta
                     # pose_delta is a PoseWithCovarianceStamped message
                     position = np.array(x_ij.pose.pose.position)
@@ -329,21 +315,15 @@ class CycleManager:
                         "orientation": orientation,
                         "sigmas": sigmas
                     })
-                    # Publish the pose factor
-                    pose_factor_msg = PoseFactorStamped(
-                        header=Header(stamp=tj, frame_id=local_chr),
-                        key1=key1,
-                        key2=key2,
-                        position=Point(*position),
-                        orientation=Quaternion(*orientation),
-                        sigmas=sigmas.tolist()
-                    )
-                    self.pose_factor_pub.publish(pose_factor_msg)
-                    rospy.loginfo(f"Published pose factor: {pose_factor_msg}")
+                else:
                     # This allows for calling preintegration to clear the queue without advancing the pose
                     pass
+
         except rospy.ServiceException as e:
             rospy.logerr(f"Service call failed: {e}")
+        # Advance the key indices and the time
+        self.modem_addresses[local_chr][1] = key2_index
+        self.pose_time_lookup[key2] = tj
         return
 
     def on_gps(self, msg: PoseWithCovarianceStamped):
