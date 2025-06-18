@@ -61,6 +61,7 @@ catkin_python_setup()
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
+  Bar30SoundSpeed.msg
   PoseWithAssoc.msg
   RangeWithAssoc.msg
   InitPrior.msg
