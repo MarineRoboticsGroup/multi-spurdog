@@ -267,6 +267,24 @@ class IMUSensorCalibration:
         plt.show()
         plt.close()
 
+    def print_imu_data(self):
+        """Report the rpy, accel, and gyro values for both imus"""
+        rospy.loginfo("CV7 Data: Accel: {}, Gyro: {}, RPY: {}".format(
+            self.cv7_ahrs_data['accel_x'], self.cv7_ahrs_data['omega_x'], 
+            R.from_quat([self.cv7_ahrs_data['qx'], self.cv7_ahrs_data['qy'], 
+                          self.cv7_ahrs_data['qz'], self.cv7_ahrs_data['qw']]).as_euler('xyz', degrees=True)))
+        rospy.loginfo("Navigator Data: Accel: {}, Gyro: {}, RPY: {}".format(
+            self.navigator_ahrs_data['accel_x'], self.navigator_ahrs_data['omega_x'],
+            R.from_quat([self.navigator_ahrs_data['qx'], self.navigator_ahrs_data['qy'],
+                          self.navigator_ahrs_data['qz'], self.navigator_ahrs_data['qw']]).as_euler('xyz', degrees=True)))
+
+    def run(self):
+        """ Run print IMU data every 10sec"""
+        rate = rospy.Rate(1)
+        while not rospy.is_shutdown():
+            self.print_imu_data()
+            rate.sleep()
+        
 if __name__ == '__main__':
     imu_node = IMUSensorCalibration()
     try:
@@ -280,7 +298,7 @@ if __name__ == '__main__':
         #imu_node.plot_data(imu_node.cv7_ahrs_data, cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data)
         #imu_node.plot_data(imu_node.navigator_ahrs_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data)
         # Wait for the user to close the plots
-        imu_node.plot_data(imu_node.cv7_ahrs_data, cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data)
-        imu_node.plot_data(imu_node.navigator_ahrs_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data)
+        #imu_node.plot_data(imu_node.cv7_ahrs_data, cv7_mean_data, cv7_sigma_data, cv7_m_data, cv7_c_data)
+        #imu_node.plot_data(imu_node.navigator_ahrs_data, nav_mean_data, nav_sigma_data, nav_m_data, nav_c_data)
         rospy.wait(rospy.Duration(60))
         rospy.loginfo("IMU calibration completed. Check the plots for results.")

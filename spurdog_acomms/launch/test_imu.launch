@@ -24,7 +24,7 @@
         </node>
 
         <node name="rosbag" pkg="rosbag" type="record"
-            args='-a -o /ros/logs/$(arg agent_name)imutest.bag'
+            args='-a -o /ros/logs/$(arg agent_name)_imutest.bag'
             output="screen" />
     </group>
 </launch>
