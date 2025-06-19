@@ -86,7 +86,7 @@ class TestTiming:
     def on_navigator(self, msg):
         """Callback for the navigator_ahrs topic."""
         #rospy.loginfo("[%s] Navigator AHRS: %s" % (rospy.Time.now(), msg))
-        self.navigator_time = msg.header.stamp - rospy.Duration(self.navigator_offset)
+        self.navigator_time = msg.header.stamp
         #self.compare_times()
         # Here you can add logic to handle the Navigator AHRS data, e.g., trigger preintegration
         # Store the Navigator data for later use
@@ -139,18 +139,18 @@ class TestTiming:
         # Here you can add logic to handle the nav state, e.g., trigger preintegration
         # Store the nav state data for later use
         self.current_stamps["nav_state"] = msg.header.stamp
-        self.dead_reckon["timestamp"].append(msg.header.stamp.to_sec())
-        self.dead_reckon["x"].append(msg.pose.position.x)
-        self.dead_reckon["y"].append(msg.pose.position.y)
-        self.dead_reckon["z"].append(msg.pose.position.z)
+        self.nav_state_data["timestamp"].append(msg.header.stamp.to_sec())
+        self.nav_state_data["x"].append(msg.pose.position.x)
+        self.nav_state_data["y"].append(msg.pose.position.y)
+        self.nav_state_data["z"].append(msg.pose.position.z)
         roll, pitch, yaw = self.convert_quaternion_to_euler(msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w)
-        self.dead_reckon["roll"].append(roll)
-        self.dead_reckon["pitch"].append(pitch)
-        self.dead_reckon["yaw"].append(yaw)
+        self.nav_state_data["roll"].append(roll)
+        self.nav_state_data["pitch"].append(pitch)
+        self.nav_state_data["yaw"].append(yaw)
         self.compare_times()
 
     def on_gps(self, msg):
-        """Callback for the gps topic."""
+        """Callback for the gps topic. A PoseWithCovarianceStamped message."""
         #rospy.loginfo("[%s] GPS: %s" % (rospy.Time.now(), msg))
         self.gps_time = msg.header.stamp
         #self.compare_times()
@@ -158,21 +158,33 @@ class TestTiming:
         # Store the GPS data for later use
         self.current_stamps["gps"] = msg.header.stamp
         self.gps_data["timestamp"].append(msg.header.stamp.to_sec())
-        self.gps_data["x"].append(msg.pose.position.x)
-        self.gps_data["y"].append(msg.pose.position.y)
-        self.gps_data["z"].append(msg.pose.position.z)
+        self.gps_data["x"].append(msg.pose.pose.position.x)
+        self.gps_data["y"].append(msg.pose.pose.position.y)
+        self.gps_data["z"].append(msg.pose.pose.position.z)
         self.gps_data["position_covariance"].append(msg.pose.covariance)
 
-    def compare_times(self):
+    def compare_times_absolute(self):
         """Print a a comparison the current timestamps of the different messages."""
         # Print a block of text with the current timestamps of the different messages
         if all(self.current_stamps.values()):
             rospy.loginfo("Current Timestamps:")
+            rospy.loginfo(f"Local Time: {rospy.Time.now().to_sec()} sec")
             for key, stamp in self.current_stamps.items():
-                rospy.loginfo(f"{key}: {stamp.to_sec()} seconds")
+                rospy.loginfo(f"{key}: {stamp.to_sec()} sec")
         else:
             rospy.logwarn("Not all timestamps are available yet.")
-
+    def compare_times(self):
+        """Print a comparison of the current timestamps of the different messages to the local time."""
+        # Print a block of text with the current timestamps of the different messages compared to the local time
+        if all(self.current_stamps.values()):
+            rospy.loginfo("Current Timestamps Compared to Local Time:")
+            local_time = rospy.Time.now().to_sec()
+            for key, stamp in self.current_stamps.items():
+                time_diff = stamp.to_sec() - local_time
+                # Calculate the approximate rate that the timestamp is changing
+                rospy.loginfo(f"{key}: Difference: {time_diff:.6f} sec)")
+        else:
+            rospy.logwarn("Not all timestamps are available yet.")
     def plot_position_data_for_comparison(self):
         """Plot the X,Y,Z,R,P,Y data for comparison
            Uses the Nav State and GPS values for X, Y, Z
