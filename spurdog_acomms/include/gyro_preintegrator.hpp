@@ -63,6 +63,7 @@ public:
   bool handlePreintegrate(
       spurdog_acomms::PreintegrateImu::Request &req,
       spurdog_acomms::PreintegrateImu::Response &res);
+  void writePosesToTumFile(const std::string& directory);
 };
 
 #endif  // GYRO_PREINTEGRATOR_HPP

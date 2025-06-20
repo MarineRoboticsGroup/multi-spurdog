@@ -15,6 +15,8 @@
 #include <deque>
 #include <mutex>
 #include <memory>
+#include <fstream>
+
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/PreintegratedRotation.h>
 #include <gtsam/navigation/PreintegrationParams.h>
@@ -33,16 +35,18 @@
 
 
 ImuPreintegratorNode::ImuPreintegratorNode() {
-  ros::NodeHandle nh_("~");
-  imu_sub_ = nh_.subscribe("cv7_ahrs", 10, &ImuPreintegratorNode::imuCallback, this);
-  dvl_vel_sub_ = nh_.subscribe("dvl_pdx", 10, &ImuPreintegratorNode::dvlVelCallback, this);
-  nav_state_sub_ = nh_.subscribe("nav_state", 10, &ImuPreintegratorNode::navStateCallback, this);
-  in_water_sub_ = nh_.subscribe("in_water", 10, &ImuPreintegratorNode::inWaterCallback, this);
-  preint_srv_ = nh_.advertiseService("preintegrate_imu", &ImuPreintegratorNode::handlePreintegrate, this);
+  ros::NodeHandle private_nh_("~");
+  std::string resolved_ns = ros::this_node::getNamespace();  // e.g., "/actor_0"
+  ros::NodeHandle actor_ns(resolved_ns);  // Explicit NodeHandle for /actor_0
+  imu_sub_ = actor_ns.subscribe("cv7_ahrs", 10, &ImuPreintegratorNode::imuCallback, this);
+  dvl_vel_sub_ = actor_ns.subscribe("dvl_pdx", 10, &ImuPreintegratorNode::dvlVelCallback, this);
+  nav_state_sub_ = actor_ns.subscribe("nav_state", 10, &ImuPreintegratorNode::navStateCallback, this);
+  in_water_sub_ = actor_ns.subscribe("in_water", 10, &ImuPreintegratorNode::inWaterCallback, this);
+  preint_srv_ = actor_ns.advertiseService("preintegrate_imu", &ImuPreintegratorNode::handlePreintegrate, this);
   // Load the noise parameters from the launch file
   double gyro_noise_sigma, gyro_bias_rw_sigma;
-  nh_.param("gyro_noise_sigma", gyro_noise_sigma, 4.12e-5); // 4.12e-5
-  nh_.param("gyro_bias_rw_sigma", gyro_bias_rw_sigma, 4.07e-5); // 4.07e-5
+  private_nh_.param("gyro_noise_sigma", gyro_noise_sigma, 4.12e-5); // 4.12e-5
+  private_nh_.param("gyro_bias_rw_sigma", gyro_bias_rw_sigma, 4.07e-5); // 4.07e-5
   // Set the noise covariance matrix for the gyroscope
   gyro_noise_ = gtsam::Matrix3::Identity() * std::pow(gyro_noise_sigma, 2);
   // print the gyro noise matrix
@@ -52,9 +56,9 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
   //          gyro_noise_(2, 0), gyro_noise_(2, 1), gyro_noise_(2, 2));
   // Load the bias values from the launch file
   double gyro_bias_x, gyro_bias_y, gyro_bias_z;
-  nh_.param("gyro_bias_x", gyro_bias_x, 0.0);
-  nh_.param("gyro_bias_y", gyro_bias_y, 0.0);
-  nh_.param("gyro_bias_z", gyro_bias_z, 0.0);
+  private_nh_.param("gyro_bias_x", gyro_bias_x, 0.0);
+  private_nh_.param("gyro_bias_y", gyro_bias_y, 0.0);
+  private_nh_.param("gyro_bias_z", gyro_bias_z, 0.0);
   bias_ = gtsam::Vector3(gyro_bias_x, gyro_bias_y, gyro_bias_z);
   ti_ = ros::Time(0); // Initialize the time to zero
   start_time_ = ros::Time::now(); // Initialize the start time
@@ -69,7 +73,7 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
   ROS_INFO("ImuPreintegratorNode initialized with gyro noise sigma: %f, gyro bias rw sigma: %f",
            gyro_noise_sigma, gyro_bias_rw_sigma);
   // After 10sec, handle the initial state
-  ros::Duration(10.0).sleep(); // Wait for 10 seconds to allow for initial setup
+  ros::Duration(1.0).sleep(); // Wait for 10 seconds to allow for initial setup
 }
 
 // imuCallback
@@ -114,6 +118,14 @@ void ImuPreintegratorNode::navStateCallback(const geometry_msgs::PoseStamped::Co
              last_nav_report_.translation().y(),
              last_nav_report_.translation().z());
   } else {
+    // Print the X, Y, Z, R. P, Y of the last NavState
+    gtsam::Vector3 last_nav_rpy = last_nav_report_.rotation().rpy() * (180.0 / M_PI); // Convert to degrees
+    ROS_INFO("Last NavState at time %f: Position [%f, %f, %f], Rotation [%f, %f, %f]",
+             current_time.toSec(),
+             last_nav_report_.translation().x(),
+             last_nav_report_.translation().y(),
+             last_nav_report_.translation().z(),
+             last_nav_rpy.x(), last_nav_rpy.y(), last_nav_rpy.z());
     // Call propogateState with the current time
     ImuPreintegratorNode::propogateState(current_time);
   }
@@ -239,10 +251,10 @@ std::tuple<double, gtsam::Rot3, gtsam::Matrix3> ImuPreintegratorNode::preintegra
   gtsam::Matrix3 gyro_noise_hz = gyro_noise_ * (1.0 / 80.0); // Convert to rad^2/s^2
   deltaRotCovij = H * gyro_noise_hz * H.transpose();
   // Log the H matrix
-  ROS_INFO("H matrix: [%f, %f, %f; %f, %f, %f; %f, %f, %f]",
-            H(0, 0), H(0, 1), H(0, 2),
-            H(1, 0), H(1, 1), H(1, 2),
-            H(2, 0), H(2, 1), H(2, 2));
+  // ROS_INFO("H matrix: [%f, %f, %f; %f, %f, %f; %f, %f, %f]",
+  //           H(0, 0), H(0, 1), H(0, 2),
+  //           H(1, 0), H(1, 1), H(1, 2),
+  //           H(2, 0), H(2, 1), H(2, 2));
   // Print the diagonals of the gyro noise hz matrix, with full precision
   // Extract the diagonal elements of the deltaRotCovij matrix
   // Print the diagonal elements with full precision
@@ -502,9 +514,55 @@ bool ImuPreintegratorNode::handlePreintegrate(
 
   return true;
 }
+
+// Write the maps to a .tum file
+void ImuPreintegratorNode::writePosesToTumFile(const std::string& directory) {
+  // Save to consistent filename with timestamp of first IMU message
+  ros::Time first_stamp;
+  if (nav_state_map_.empty() || nav_cov_map_.empty()) {
+    ROS_WARN("No NavState or NavCov data to write to file");
+    return;
+  } else {
+    // Get the first timestamp from the nav_state_map_
+    auto it = nav_state_map_.begin();
+    if (it == nav_state_map_.end()) {
+      ROS_WARN("NavState map is empty, cannot determine first timestamp");
+      return;
+    }
+    first_stamp = it->first;
+    ROS_INFO("Writing maps to file with first timestamp: %f", first_stamp.toSec());
+  }
+  std::ofstream file;
+  std::string filename = directory + "imu_preintegrator_" + std::to_string(first_stamp.toSec()) + ".tum";
+  file.open(filename, std::ios::out);
+  if (!file.is_open()) {
+    ROS_ERROR("Failed to open file %s for writing", filename.c_str());
+    return;
+  }
+  for (const auto& pair : nav_state_map_) {
+    //timestamp x y z q_x q_y q_z q_w
+    const ros::Time& time = pair.first;
+    const gtsam::NavState& state = pair.second;
+    gtsam::Quaternion q = state.attitude().toQuaternion();
+    file << time.toSec() << " "
+         << state.position().x() << " "
+         << state.position().y() << " "
+         << state.position().z() << " "
+          << q.x() << " "
+          << q.y() << " "
+          << q.z() << " "
+          << q.w() << "\n";
+  }
+  file.close();
+  ROS_INFO("Wrote maps to %s", filename.c_str());
+}
+
 int main(int argc, char** argv) {
   ros::init(argc, argv, "imu_preintegrator_node");
   ImuPreintegratorNode node;
   ros::spin();
+  // If the node shuts down, write the maps to a file
+  node.writePosesToTumFile("/ros/logs/"); // Change this to your desired directory
+  ROS_INFO("ImuPreintegratorNode shutting down, maps written to /tmp");
   return 0;
 }
