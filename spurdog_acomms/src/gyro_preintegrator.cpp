@@ -81,6 +81,7 @@ void ImuPreintegratorNode::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
   imu_buffer_.push_back(*msg);
   if (ti_ == ros::Time(0)) {
     ti_ = msg->header.stamp;
+    start_time_ = msg->header.stamp; // Set the start time to the first IMU message time
     ROS_WARN("First IMU message received at time: %f", ti_.toSec());
   }
 }
@@ -412,30 +413,13 @@ std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelativePoseBet
   std::map<ros::Time, gtsam::NavState>::iterator it_start;
   std::map<ros::Time, gtsam::NavState>::iterator it_end;
 
-  if (initial_time == ros::Time(0)) {  // When called for normal between factor generation
-    it_start = nav_state_map_.find(start_time_);
-    if (it_start == nav_state_map_.end()) {
-      ROS_WARN("No NavState found at start time %f, cannot compute relative pose", start_time_.toSec());
-      return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
-    }
-  } else {  // When called to get the relative pose from some time to now
-    it_start = nav_state_map_.lower_bound(initial_time);
-    if (it_start == nav_state_map_.begin()) {
-      ROS_WARN("Initial time %f is before the first NavState, cannot compute relative pose", initial_time.toSec());
-      return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
-    } else if (it_start == nav_state_map_.end()) {
-      ROS_WARN("Initial time %f occurs after last NavState, using last NavState", initial_time.toSec());
-      --it_start;  // Backtrack to last available
-    }
-  }
-
   if (initial_time == ros::Time(0)) { // When called for normal between factor generation
     // start_time_ is unique and held in the nav_state_map_ and nav_cov_map_ at the same indices
     it_start = nav_state_map_.find(start_time_);
     if (it_start == nav_state_map_.end()) {
-      ROS_WARN("No NavState found at start time %f, cannot compute relative pose",
+      ROS_WARN("No NavState found at start time %f, using oldest avail",
                 start_time_.toSec());
-      return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
+      ++it_start;
     };
   } else { // When called to get the relative pose from some time to now
     // Find the NavState closest to the initial_time

@@ -377,8 +377,17 @@ class CycleManager:
             if adv_pose:
                 x_ij = response.pose_delta
                 # pose_delta is a PoseWithCovarianceStamped message
-                position = np.array(x_ij.pose.pose.position)
-                orientation = np.array(x_ij.pose.pose.orientation)
+                position = np.array([
+                    x_ij.pose.pose.position.x,
+                    x_ij.pose.pose.position.y,
+                    x_ij.pose.pose.position.z
+                ])
+                orientation = np.array([
+                    x_ij.pose.pose.orientation.x,
+                    x_ij.pose.pose.orientation.y,
+                    x_ij.pose.pose.orientation.z,
+                    x_ij.pose.pose.orientation.w
+                ])
                 # Convert the covariance to a numpy array and reshape it to 6x6
                 covariance = np.array(x_ij.pose.covariance).reshape((6, 6))
                 sigmas = np.sqrt(np.diag(covariance))
@@ -417,8 +426,13 @@ class CycleManager:
         pose_factor_msg.header.frame_id = "modem"
         pose_factor_msg.key1 = key1
         pose_factor_msg.key2 = key2
-        pose_factor_msg.position = response.pose_delta.pose.pose.position
-        pose_factor_msg.orientation = response.pose_delta.pose.pose.orientation
+        pose_factor_msg.position.x = response.pose_delta.pose.pose.position.x
+        pose_factor_msg.position.y = response.pose_delta.pose.pose.position.y
+        pose_factor_msg.position.z = response.pose_delta.pose.pose.position.z
+        pose_factor_msg.orientation.x = response.pose_delta.pose.pose.orientation.x
+        pose_factor_msg.orientation.y = response.pose_delta.pose.pose.orientation.y
+        pose_factor_msg.orientation.z = response.pose_delta.pose.pose.orientation.z
+        pose_factor_msg.orientation.w = response.pose_delta.pose.pose.orientation.w
         pose_factor_msg.sigmas = np.sqrt(np.diag(np.array(response.pose_delta.pose.covariance).reshape((6, 6))))
         self.pose_factor_pub.publish(pose_factor_msg)
         # Advance the key indices and the time
