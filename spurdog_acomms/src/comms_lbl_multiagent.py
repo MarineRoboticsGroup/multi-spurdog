@@ -38,7 +38,8 @@ from spurdog_acomms_utils.nmea_utils import (
 class CycleManager:
     """This is a node to run the comms cycle for the vehicle.
         - This is a lightweight version designed to obtain the maximum amount of range data
-        - It is designed to run on a single agent with an arbitary number of landmarks
+        - It is designed to run on multiple agent with an arbitary number of landmarks
+        - Agents will observe tdma, and ping each other (and landmarks) in round-robin fashions
         - This is configured to ping one target, get a response and immediately ping the next target
     """
     def __init__(self):
@@ -55,6 +56,7 @@ class CycleManager:
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
+        self.planned_targets = []
         # Subscribed variables
         self.bar30_sound_speed = 0
         self.in_water = False
@@ -65,8 +67,10 @@ class CycleManager:
         self.ping_timeout = float(rospy.get_param("~ping_timeout", 5))
         self.sound_speed = float(rospy.get_param("~sound_speed", 1486))
         self.range_sigma = float(rospy.get_param("~sigma_range", 1)) # meters, this is the expected error in the range measurement
+        self.tdma_status = TdmaStatus()
         # Variables for Logging:
-        self.range_data = []
+        self.rcv_range_data = []
+        self.tx_range_data = []
         self.preintegration_data = []
         self.pose_time_lookup = {}
 
@@ -86,16 +90,19 @@ class CycleManager:
         self.in_water_sub = rospy.Subscriber("in_water", Bool, self.on_in_water)
         self.sound_speed_sub = rospy.Subscriber("bar30/sound_speed", Bar30SoundSpeed, self.on_sound_speed)
         self.nav_state_sub = rospy.Subscriber("nav_state",PoseStamped, self.on_nav_state)
+        self.tdma_status_sub = rospy.Subscriber("modem/tdma_status", TdmaStatus, self.on_tdma_from_modem)
+
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
+
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
         self.configure_comms_cycle()
         rospy.loginfo("[%s] Comms Cycle Configured" % rospy.Time.now())
         rospy.sleep(10) # allow for modem to configure
         rospy.loginfo("[%s] Starting Comms Cycle" % rospy.Time.now())
-        self.send_ping(self.modem_addresses["L0"][0])  # Send a ping to the first landmark
+        # self.send_ping(self.cycle_target_mapping[0][0])  # Start the ping cycle with the first target
 
     def configure_comms_cycle(self):
         """This function configures the comms cycle for the vehicle.
@@ -103,7 +110,13 @@ class CycleManager:
         # Get the modem addresses and cycle targets
         self.modem_addresses = configure_modem_addresses(self.num_agents, self.num_landmarks, self.local_address)
         self.address_to_name = {v[0]: k for k, v in self.modem_addresses.items()}
-        self.cycle_target_mapping = {"0": [self.modem_addresses["L0"][0], self.modem_addresses["L1"][0]],}
+        # make a list of modem addresses that don't include the local address
+        ping_addresses = [addr for addr in self.modem_addresses.keys() if addr != chr(ord("A") + self.local_address)]
+        # Configure a list of cycle targets to ping (the modem addresses that don't include the local address)
+        self.cycle_target_mapping = {
+            0: ping_addresses,
+            1: ping_addresses[::-1]
+        }
         local_chr = chr(ord("A") + self.local_address)
         self.pose_time_lookup[local_chr + str(0)] = rospy.Time.now()  # Initial pose at time of cycle start
         rospy.loginfo("[%s] Cycle Targets: %s" % (rospy.Time.now(), self.cycle_target_mapping))
@@ -129,6 +142,18 @@ class CycleManager:
             rcvd_stamp = rospy.Time.from_sec(recieved_ping_time)
             if data[1] == "PNG" and dest == self.local_address:
                 self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
+                # Log the ping event to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
+                # Check if there is an existin CST-based entry for this ping (CST time within 1sec and matching src/dest)
+                for entry in self.rcv_range_data:
+                    # If the entry has been filled, ignore
+                    if entry[1] is not None:
+                        continue
+                    # If the entry matches the src and dest, fill it
+                    elif entry[2] == src and entry[3] == dest:
+                        entry[0] = rcvd_stamp.to_sec()
+                    else: # Assume that the CST hasn't been recieved yet and make a new entry
+                        # Add a new entry with None for CST time
+                        self.rcv_range_data.append([rcvd_stamp.to_sec(), None, src, dest, None, None, None, None, None])
                 self.acomms_event_pub.publish("priority=2,pattern=([0.0.255.0]:1.0),cycles=1")
                 rospy.loginfo("[%s] Received Ping from %s" % (recieved_ping_time, chr(ord("A") + self.address_to_name[src])))
             elif data[1] == "PNG":
@@ -149,10 +174,23 @@ class CycleManager:
         elif nmea_type == "$CARFP" and data[5] == "-1": # Modem-to-host acknowledgement of a minipacket ping payload
             src, dest, recieved_msg_time, num_frames, payload = parse_nmea_carfp(data)
             if recieved_msg_time == None or not src == None or not dest == None:
-                rospy.logerr("[%s] CARFP message is missing required fields" % rospy.Time.now())
+                #rospy.logerr("[%s] CARFP message is missing required fields" % rospy.Time.now())
                 return
             elif dest == self.local_address:
                 rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, self.address_to_name[src], payload))
+                # Log the payload to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
+                # Check if there is an existing entry and update it
+                for entry in self.rcv_range_data:
+                    # If the entry has been filled, ignore
+                    if entry[4] is not None:
+                        continue
+                    # If the entry matches the src and dest, fill it
+                    elif entry[2] == src and entry[3] == dest:
+                        entry[0] = recieved_msg_time.to_sec()
+                        entry[4] = payload
+                    else:
+                        # Assume that the CARFP hasn't been recieved yet and make a new entry
+                        self.rcv_range_data.append([recieved_msg_time.to_sec(), None, src, dest, payload, None, None, None, None])
             elif dest != self.local_address:
                 rospy.logerr("[%s] Overheard Ping-related $CARFP from %s to %s with paylaod %s" % (recieved_msg_time, self.address_to_name[src], self.address_to_name[dest], payload))
             else:
@@ -168,12 +206,12 @@ class CycleManager:
 
         elif nmea_type == "$CAREV" and self.ping_method == None: # Modem-to-host $CAREV message to determine the firmware version
             firmware_version = parse_nmea_carev(data)
-            if firmware_version[0] == "3":
-                # New deckbox firmware
-                self.ping_method = "ping with payload"
-            else:
-                # Old deckbox firmware
-                self.ping_method = "no payload"
+            # if firmware_version[0] == "3":
+            #     # New deckbox firmware
+            #     self.ping_method = "ping with payload"
+            # else:
+            #     # Old deckbox firmware
+            #     self.ping_method = "no payload"
         elif nmea_type == "$CATXP": # Modem-to-host report of beginning transmission
             # This is a transmit report, we can ignore it for now
             #rospy.loginfo("[%s] Received $CATXP message: %s" % (rospy.Time.now(), data))
@@ -187,13 +225,40 @@ class CycleManager:
             return
         return
 
+    def on_tdma_from_modem(self, msg: TdmaStatus):
+        """This function receives the TDMA status from the modem
+        Args:
+            msg (TdmaStatus): The TDMA status message
+        """
+        # Get fields from the TDMA status message
+        status_time = msg.header.stamp
+        we_are_active = msg.we_are_active
+        remaining_slot_seconds = msg.remaining_slot_seconds
+        remaining_active_seconds = msg.remaining_active_seconds
+        time_to_next_active = msg.time_to_next_active
+        slot_duration_seconds = msg.slot_duration_seconds
+        # Check if we are active and were not previously
+        if we_are_active and not self.tdma_status.we_are_active:
+            rospy.loginfo("[%s] We are now active in the TDMA cycle" % status_time)
+            # Send a ping to the first target in the cycle
+            self.planned_targets = self.cycle_target_mapping["0"]
+            self.send_ping(self.planned_targets[0])  # Start the ping cycle with the first target
+        # Update the local tdma status
+        self.tdma_status = msg
+        return
+
     def send_ping(self, target_addr):
         """This function sends a ping to the modem
         Args:
             target_addr (int): the target address
             symbol (str): the local key "A1" to put in the payload
         """
-        first_tgt, second_tgt = self.cycle_target_mapping["0"]
+        # Remove the target address from the planned target
+        if target_addr not in self.planned_targets:
+            rospy.logwarn("[%s] Target address %s not in planned targets %s" % (rospy.Time.now(), self.address_to_name[target_addr], planned_targets))
+            return
+        else:
+            self.planned_targets.remove(target_addr)
         # Get the next symbol for the ping payload
         symbol = chr(ord("A") + self.local_address) + str(self.modem_addresses[chr(ord("A") + self.local_address)][1]+1)
         # Set the ping request parameters
@@ -217,11 +282,16 @@ class CycleManager:
             # Check if the ping timed out
             if ping_resp.timed_out:
                 rospy.logwarn("[%s] Ping to %s Timed Out" % (rospy.Time.now(), self.address_to_name[target_addr]))
-                if target_addr == first_tgt:
-                    self.send_ping(second_tgt)  # Attempt the second target
-                elif target_addr == second_tgt:
-                    self.send_ping(first_tgt)  # Attempt the first target
-                self.range_data.append([None, rospy.Time.now().to_sec()-self.ping_timeout/2, rospy.Time.now().to_sec(), self.local_address, target_addr, None, None, None, None, None, None])
+                # if target_addr == first_tgt:
+                #     self.send_ping(second_tgt)  # Attempt the second target
+                # elif target_addr == second_tgt:
+                #     self.send_ping(first_tgt)  # Attempt the first target
+                # Ping the next target in the list
+                next_tgt = self.planned_targets[0] if self.planned_targets else None
+                if next_tgt is not None:
+                    rospy.loginfo("[%s] Attempting next target: %s" % (rospy.Time.now(), self.address_to_name[next_tgt]))
+                    self.send_ping(next_tgt)
+                self.tx_range_data.append([None, rospy.Time.now().to_sec()-self.ping_timeout/2, rospy.Time.now().to_sec(), self.local_address, target_addr, None, None, None, None, None, None])
                 return
             else:
                 #rospy.loginfo("[%s] Ping Successful: "% (rospy.Time.now()))
@@ -247,13 +317,17 @@ class CycleManager:
                 # Log all the fields
                 rospy.loginfo("[%s] Ping Complete %s to %s: timestamp=%s, owtt=%.4f, tat= %.4f, measured_range=%.2f" % (
                     rospy.Time.now(), self.address_to_name[src], self.address_to_name[dest], timestamp_sec, owtt, tat, measured_range))
-                # self.range_data.append([timestamp_sec.to_sec(), src, dest, owtt, measured_range])
+                # self.tx_range_data.append([timestamp_sec.to_sec(), src, dest, owtt, measured_range])
                 # Request preintegration
                 self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
-                if target_addr == first_tgt:
-                    self.send_ping(second_tgt)  # Attempt the second target
-                elif target_addr == second_tgt:
-                    self.send_ping(first_tgt)  # Attempt the first target
+                # if target_addr == first_tgt:
+                #     self.send_ping(second_tgt)  # Attempt the second target
+                # elif target_addr == second_tgt:
+                #     self.send_ping(first_tgt)  # Attempt the first target
+                next_tgt = self.planned_targets[0] if self.planned_targets else None
+                if next_tgt is not None:
+                    rospy.loginfo("[%s] Attempting next target: %s" % (rospy.Time.now(), self.address_to_name[next_tgt]))
+                    self.send_ping(next_tgt)
                 return
         except rospy.ServiceException as e:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
@@ -402,6 +476,32 @@ class CycleManager:
         self.xst_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
         return
 
+    def on_cst(self, msg: CST):
+        """ This function only logs CST data if we are listening (i.e. not active)"""
+        # Get timestamp from header
+        cst_time = msg.time.to_sec()
+        src = msg.src
+        dest = msg.dest
+        dop = msg.dop
+        stddev_noise = msg.stddev_noise
+        snr_in = msg.snr_in
+        snr_out = msg.snr_out
+        # Find the corresponding recieved range data entry
+        for entry in self.rcv_range_data:
+            # If the entry has been filled, ignore
+            if entry[1] is not None:
+                continue
+            # If the entry matches the src and dest, fill it
+            elif entry[2] == src and entry[3] == dest:
+                entry[1] = cst_time
+                entry[5] = dop
+                entry[6] = stddev_noise
+                entry[7] = snr_in
+                entry[8] = snr_out
+            else: # Assume that the CACMA hasn't been recieved yet and make a new entry
+                self.rcv_range_data.append([None, cst_time, None, src, dest, None, dop, stddev_noise, snr_in, snr_out])
+        return
+
     def on_range_log(self, msg: PingReply):
         """This function logs the range data from the modem
         Args:
@@ -440,7 +540,7 @@ class CycleManager:
         dop = msg.cst.dop
         stddev_noise = msg.cst.stddev_noise
         # Add it to the existing XST-based data
-        for entry in self.range_data:
+        for entry in self.tx_range_data:
             # If the entry has been filled, ignore
             if entry[1] is not None:
                 continue
@@ -464,7 +564,7 @@ class CycleManager:
 
         # Report the number of completed ranges to each dest
         range_summary = {}
-        for entry in self.range_data:
+        for entry in self.tx_range_data:
             xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = entry
             if dest not in range_summary:
                 range_summary[dest] = []
@@ -479,7 +579,7 @@ class CycleManager:
                 #Check if there is an entry that includes a measured_range
                 has_measured_range = any(r[3] is not None for r in range_summary[dest])
                 if not has_measured_range:
-                    rospy.loginfo("[%s] Ranges to %s: 0 / %d valid" % (rospy.Time.now(), chr(ord("A") + dest), len(range_summary[dest])))
+                    rospy.loginfo("[%s] Ranges to %s: 0 / %d valid" % (rospy.Time.now(), self.address_to_name[dest], len(range_summary[dest])))
                 else:
                     # Extract valid entries (measured_range not None)
                     valid_range_set = [r for r in range_summary[dest] if r[3] is not None]
@@ -502,16 +602,16 @@ class CycleManager:
                     print(f"Valid Ranges: {num_valid}")
                     print(f"Min: {min_range}, Max: {max_range}, Mean: {mean_range}, Std Dev: {std_range}")
                     print(f"Time Span: {time_delta} seconds")
-                    rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), chr(ord("A") + dest), num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
+                    rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), self.address_to_name[dest], num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
         # Report the average time, min, max and std dev of the difference between cell[2] - cell[0]
-        if not self.range_data:
+        if not self.tx_range_data:
             rospy.logwarn("[%s] No Range Data Collected" % rospy.Time.now())
             return
         # Calculate the time differences
         time_diffs_xst_cst = []
         time_diffs_ri_rj = []
-        for i in range(len(self.range_data)):
-            xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.range_data[i]
+        for i in range(len(self.tx_range_data)):
+            xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.tx_range_data[i]
             if xst_timestamp is not None and cst_timestamp is not None:
                 time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
             if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
@@ -533,28 +633,62 @@ class CycleManager:
             std_time_ri_rj = np.std(time_diffs_ri_rj)
             rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
                 rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
+        # Report the number of ranges recieved (times in self.rcv_range_data) sorted by src
+        if not self.rcv_range_data:
+            rospy.logwarn("[%s] No Range Data Recieved" % rospy.Time.now())
+            return
+        range_counts = {}
+        for entry in self.rcv_range_data:
+            rcvd_timestamp, cst_timestamp, src, dest, dop, stddev_noise, snr_in, snr_out = entry
+            if src not in range_counts:
+                range_counts[src] = 0
+            range_counts[src] += 1
+        for src, count in range_counts.items():
+            rospy.loginfo("[%s] Ranges Recieved from %s: %d" % (rospy.Time.now(), self.address_to_name[src]), count)
         return
 
-    def log_ranges_to_csv(self):
+    def log_transmitted_ranges_to_csv(self):
         """ Log the range data to a csv file"""
-        if not self.range_data:
+        if not self.tx_range_data:
             rospy.logwarn("[%s] No Range Data" % rospy.Time.now())
             return
         else:
-            range_timestamp = self.range_data[0][0]
+            range_timestamp = self.tx_range_data[0][0]
 
         # Create the csv file:
         log_dir = "/ros/logs/"
         #log_dir = "/home/morrisjp/bags/June"
-        range_file = join(log_dir, f"range_data_{range_timestamp}.csv")
+        range_file = join(log_dir, f"transmitted_range_data_{range_timestamp}.csv")
         with open(range_file, mode='w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             # Write header
             writer.writerow(["xst_timestamp","range_timestamp", "cst_timestamp", "src", "dest", "owtt", "measured_range", "dop(m/s)", "stddev_noise", "snr_in", "snr_out"])
             # Write data rows
-            for entry in self.range_data:
+            for entry in self.tx_range_data:
                 writer.writerow(entry)
             rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(), range_file))
+        return
+
+    def log_recieved_ranges_to_csv(self):
+        """ Log the recieved range data to a csv file"""
+        if not self.rcv_range_data:
+            rospy.logwarn("[%s] No Recieved Range Data" % rospy.Time.now())
+            return
+        else:
+            rcvd_timestamp = self.rcv_range_data[0][0]
+
+        # Create the csv file:
+        log_dir = "/ros/logs/"
+        #log_dir = "/home/morrisjp/bags/June"
+        rcvd_range_file = join(log_dir, f"recieved_range_data_{rcvd_timestamp}.csv")
+        with open(rcvd_range_file, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            # Write header
+            writer.writerow(["rcvd_timestamp", "cst_timestamp", "src", "dest", "payload","dop(m/s)", "stddev_noise", "snr_in", "snr_out"])
+            # Write data rows
+            for entry in self.rcv_range_data:
+                writer.writerow(entry)
+            rospy.loginfo("[%s] Recieved Range Data Written to File at: %s" % (rospy.Time.now(), rcvd_range_file))
         return
 
     def legacy_log_ranges_to_csv(self):
@@ -576,7 +710,7 @@ class CycleManager:
             # Write header
             writer.writerow(["timestamp", "src", "dest", "owtt", "measured_range"])
             # Write data rows
-            for entry in self.range_data:
+            for entry in self.tx_range_data:
                 writer.writerow(entry)
             rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(),range_file))
         with open(cst_file, mode='w', newline='') as csvfile:
@@ -649,7 +783,8 @@ if __name__ == "__main__":
     finally:
         # Summarize the range data collected
         cycle_mgr.summarize_range_data()
-        cycle_mgr.log_ranges_to_csv()
+        cycle_mgr.log_transmitted_ranges_to_csv()
+        cycle_mgr.log_recieved_ranges_to_csv()
         cycle_mgr.log_pim_to_csv()
         rospy.loginfo("[%s] Comms Cycle Mgr Exiting" % rospy.Time.now())
         rospy.signal_shutdown("Comms Cycle Mgr Exiting")
