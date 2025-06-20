@@ -95,10 +95,12 @@ void ImuPreintegratorNode::navStateCallback(const geometry_msgs::PoseStamped::Co
   //ROS_INFO("Received nav state at time: %f", msg->header.stamp.toSec());
   // Skip the first 4 messages to allow for initial setup
   ros::Time current_time = msg->header.stamp;
-  last_nav_report_ = gtsam::Pose3(
-      gtsam::Rot3(msg->pose.orientation.w, msg->pose.orientation.x,
-                  msg->pose.orientation.y, msg->pose.orientation.z),
-      gtsam::Point3(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z));
+  last_nav_report_ = gtsam::Pose3::Identity();
+  // last_nav_report_ = gtsam::Pose3(
+      // gtsam::Rot3(msg->pose.orientation.w, msg->pose.orientation.x,
+      //             msg->pose.orientation.y, msg->pose.orientation.z),
+      // gtsam::Point3(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z));
+  //);
   // Check if the maps are empty
   if (nav_state_map_.empty() || nav_cov_map_.empty()) {
     // Add a new NavState and covariance to the maps
@@ -144,7 +146,11 @@ void ImuPreintegratorNode::inWaterCallback(const std_msgs::Bool::ConstPtr& msg) 
       ROS_WARN("IMU buffer is empty, cannot reset preintegration start time");
     }
     // Reset the Nav State
-    gtsam::NavState prevState(last_nav_report_.rotation(), last_nav_report_.translation(), gtsam::Vector3(0, 0, 0));
+    //gtsam::NavState prevState(last_nav_report_.rotation(), last_nav_report_.translation(), gtsam::Vector3(0, 0, 0));
+    gtsam::NavState prevState(
+        gtsam::Rot3(), // Default to identity rotation
+        gtsam::Point3(0, 0, 0), // Default to zero position
+        gtsam::Vector3(0, 0, 0)); // Default to zero velocity
     gtsam::Vector6 prevCovSigmas(0.1, 0.1, 0.1, 1.5, 1.5, 0.1); // Set a covariance based on GPS and depth
     gtsam::Matrix6 prevCov = prevCovSigmas.cwiseProduct(prevCovSigmas).asDiagonal();
     // /gtsam::Matrix6 prevCov(gtsam::Matrix6::Identity() * gtsam::Vector6(1.5, 1.5, 0.1, 0.1, 0.1, 0.1)); // Set a cov based on GPS and depth
@@ -154,17 +160,20 @@ void ImuPreintegratorNode::inWaterCallback(const std_msgs::Bool::ConstPtr& msg) 
   }
   in_water_ = msg->data; // Update the in-water status
 }
+// getVelocityModel
 std::pair<gtsam::Vector3, gtsam::Matrix3> ImuPreintegratorNode::getVelocityModel() const {
   gtsam::Vector3 vel_model(0.0, 0.0, 0.0);
   gtsam::Matrix3 vel_noise_model(gtsam::Matrix3::Identity());
   if (!in_water_) {
     ROS_WARN("Not in water, returning zero velocity model");
-    vel_noise_model = gtsam::Matrix3::Identity() * 0.1; // Set a small noise for the velocity model
+    vel_noise_model = gtsam::Matrix3::Identity() * 0.1; // Set a small noise for the velocity model sig=0.316m/s)
     return std::make_pair(vel_model, vel_noise_model);
   } else if (!dvl_vel_bw_.isApprox(gtsam::Vector3(0.0, 0.0, 0.0))) {
     // If DVL velocity is available, use it
     vel_model = dvl_vel_bw_;
-    vel_noise_model = gtsam::Matrix3::Identity() * 0.1; // Set a small noise for the velocity model
+    gtsam::Vector3 dvl_noise_sigmas(0.05, 0.05, 0.01); // Per Ray 1-5% of measured is reasonable
+    gtsam::Matrix3 vel_noise_model = dvl_noise_sigmas.cwiseProduct(dvl_noise_sigmas).asDiagonal();
+    //vel_noise_model = gtsam::Matrix3::Identity() * 0.1; // Set a small noise for the velocity model
     return std::make_pair(vel_model, vel_noise_model);
   } else if (in_water_) {
     // Get the last predicted NavState depth and velocity
@@ -179,7 +188,7 @@ std::pair<gtsam::Vector3, gtsam::Matrix3> ImuPreintegratorNode::getVelocityModel
       double vz = (last_nav_report_.translation().z() - last_depth) / dt_rel_nav_state; // Change in depth over time
       vel_model = gtsam::Vector3(0.75, 0.0, vz);
       //vel_model = gtsam::Vector3(last_velocity.x(), last_velocity.y(), vz);
-      gtsam::Vector3 vel_noise_sigmas(0.5, 0.5, 0.01) ; // Set a small noise for the velocity model
+      gtsam::Vector3 vel_noise_sigmas(0.5, 0.5, 0.1) ; // Set a small noise for the velocity model
       // convert sigmas to variance, then reformat as a diagonal matrix
       gtsam::Matrix3 vel_noise_model = vel_noise_sigmas.cwiseProduct(vel_noise_sigmas).asDiagonal();
       return std::make_pair(vel_model, vel_noise_model);
