@@ -55,16 +55,16 @@
         </group> -->
 
         <!-- Launch communication and graph managers-->
-        <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_lbl_devel.py" output="screen" />
+        <!-- <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_lbl_devel.py" output="log" /> -->
 
-        <node name="imu_preintegrator" pkg="spurdog_acomms" type="imu_preintegrator" output="screen">
-            <param name="accel_noise_sigma" value="0.05"/>
+        <node name="imu_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
+            <!-- <param name="accel_noise_sigma" value="0.05"/> -->
             <param name="gyro_noise_sigma" value="0.001"/>
-            <!-- <param name="accel_bias_rw_sigma" value="0.01"/>
-            <param name="gyro_bias_rw_sigma" value="0.01"/> -->
-            <param name="accel_bias_x" value="0.00065798"/>
+            <!-- <param name="accel_bias_rw_sigma" value="0.01"/> -->
+            <param name="gyro_bias_rw_sigma" value="0.01"/>
+            <!-- <param name="accel_bias_x" value="0.00065798"/>
             <param name="accel_bias_y" value="-0.0044168"/>
-            <param name="accel_bias_z" value="-0.01147435"/>
+            <param name="accel_bias_z" value="-0.01147435"/> -->
             <param name="gyro_bias_x" value="-0.002113"/>
             <param name="gyro_bias_y" value="-0.000075"/>
             <param name="gyro_bias_z" value="0.000314"/>
