@@ -58,7 +58,8 @@ public:
       const double deltaTij, const gtsam::NavState& predState,
       const gtsam::Matrix3& deltaRotCovij, const gtsam::Matrix3& vel_noise_model);
   void propogateState(ros::Time final_time);
-  std::pair<gtsam::Pose3, gtsam::Matrix6> getRelativePoseBetweenStates(ros::Time final_time);
+  std::pair<gtsam::Pose3, gtsam::Matrix6> getRelativePoseBetweenStates(
+      const ros::Time& initial_time, const ros::Time& final_time);
   bool handlePreintegrate(
       spurdog_acomms::PreintegrateImu::Request &req,
       spurdog_acomms::PreintegrateImu::Response &res);

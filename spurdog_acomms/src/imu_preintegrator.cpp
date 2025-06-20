@@ -260,7 +260,7 @@ bool ImuPreintegratorNode::handlePreintegrate(spurdog_acomms::PreintegrateImu::R
       rel_pose_msg.pose.covariance[i * 6 + j] = 1e-6; // Set a small covariance for simplicity
     }
   }
-  res.success = true;
+  //res.success = true;
   res.pose_delta = rel_pose_msg;
 
   return true;

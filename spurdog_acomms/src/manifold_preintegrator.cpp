@@ -452,7 +452,6 @@ bool ImuPreintegratorNode::handlePreintegration(
   gtsam::Values result = ImuPreintegratorNode::solveFactorGraph(start_idx, end_idx);
   // Get the results and build the response
   res.pose_delta = ImuPreintegratorNode::getResults(result, start_idx, end_idx);
-  res.success = true; // Indicate that the preintegration was successful
   ROS_INFO("Preintegration successful from time %f to %f", ti_.toSec(), end_time.toSec());
   return true; // Indicate that the service was handled successfully
 }

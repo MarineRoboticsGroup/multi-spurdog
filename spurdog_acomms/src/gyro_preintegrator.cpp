@@ -33,6 +33,7 @@
 
 
 ImuPreintegratorNode::ImuPreintegratorNode() {
+  ros::NodeHandle nh_("~");
   imu_sub_ = nh_.subscribe("cv7_ahrs", 10, &ImuPreintegratorNode::imuCallback, this);
   dvl_vel_sub_ = nh_.subscribe("dvl_pdx", 10, &ImuPreintegratorNode::dvlVelCallback, this);
   nav_state_sub_ = nh_.subscribe("nav_state", 10, &ImuPreintegratorNode::navStateCallback, this);
@@ -45,10 +46,10 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
   // Set the noise covariance matrix for the gyroscope
   gyro_noise_ = gtsam::Matrix3::Identity() * std::pow(gyro_noise_sigma, 2);
   // print the gyro noise matrix
-  ROS_INFO("Gyro noise matrix: [%f, %f, %f; %f, %f, %f; %f, %f, %f]",
-           gyro_noise_(0, 0), gyro_noise_(0, 1), gyro_noise_(0, 2),
-           gyro_noise_(1, 0), gyro_noise_(1, 1), gyro_noise_(1, 2),
-           gyro_noise_(2, 0), gyro_noise_(2, 1), gyro_noise_(2, 2));
+  // ROS_INFO("Gyro noise matrix: [%f, %f, %f; %f, %f, %f; %f, %f, %f]",
+  //          gyro_noise_(0, 0), gyro_noise_(0, 1), gyro_noise_(0, 2),
+  //          gyro_noise_(1, 0), gyro_noise_(1, 1), gyro_noise_(1, 2),
+  //          gyro_noise_(2, 0), gyro_noise_(2, 1), gyro_noise_(2, 2));
   // Load the bias values from the launch file
   double gyro_bias_x, gyro_bias_y, gyro_bias_z;
   nh_.param("gyro_bias_x", gyro_bias_x, 0.0);
@@ -386,17 +387,50 @@ void ImuPreintegratorNode::propogateState(ros::Time final_time) {
           covSigmas(3), covSigmas(4), covSigmas(5),
           covSigmas(0), covSigmas(1), covSigmas(2));
 }
-std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelativePoseBetweenStates(ros::Time final_time) {
-  // start_time_ is unique and held in the nav_state_map_ and nav_cov_map_
-  auto it_start = nav_state_map_.find(start_time_);
-  if (it_start == nav_state_map_.end()) {
-    ROS_WARN("No NavState found at start time %f, cannot compute relative pose",
-              start_time_.toSec());
-    return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
-  };
-  // final time should be less than the last time in the maps, but will not equal one of the times in the maps
+std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelativePoseBetweenStates(const ros::Time& initial_time, const ros::Time& final_time) {
+  std::map<ros::Time, gtsam::NavState>::iterator it_start;
+  std::map<ros::Time, gtsam::NavState>::iterator it_end;
+
+  if (initial_time == ros::Time(0)) {  // When called for normal between factor generation
+    it_start = nav_state_map_.find(start_time_);
+    if (it_start == nav_state_map_.end()) {
+      ROS_WARN("No NavState found at start time %f, cannot compute relative pose", start_time_.toSec());
+      return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
+    }
+  } else {  // When called to get the relative pose from some time to now
+    it_start = nav_state_map_.lower_bound(initial_time);
+    if (it_start == nav_state_map_.begin()) {
+      ROS_WARN("Initial time %f is before the first NavState, cannot compute relative pose", initial_time.toSec());
+      return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
+    } else if (it_start == nav_state_map_.end()) {
+      ROS_WARN("Initial time %f occurs after last NavState, using last NavState", initial_time.toSec());
+      --it_start;  // Backtrack to last available
+    }
+  }
+
+  if (initial_time == ros::Time(0)) { // When called for normal between factor generation
+    // start_time_ is unique and held in the nav_state_map_ and nav_cov_map_ at the same indices
+    it_start = nav_state_map_.find(start_time_);
+    if (it_start == nav_state_map_.end()) {
+      ROS_WARN("No NavState found at start time %f, cannot compute relative pose",
+                start_time_.toSec());
+      return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
+    };
+  } else { // When called to get the relative pose from some time to now
+    // Find the NavState closest to the initial_time
+    it_start = nav_state_map_.lower_bound(initial_time);
+    if (it_start == nav_state_map_.begin()) {
+      ROS_WARN("Initial time %f is before the first NavState, cannot compute relative pose",
+             initial_time.toSec());
+      return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
+    } else if (it_start == nav_state_map_.end()) {
+    // If the final time is after the states in the map, return the latest nav state
+    ROS_WARN("Initial time %f occurs after last NavState, using last NavState",
+             initial_time.toSec());
+    };
+  }
   // Find the closest time in the map that is less than final_time
-  auto it_end = nav_state_map_.lower_bound(final_time);
+  it_end = nav_state_map_.lower_bound(final_time);
   if (it_end == nav_state_map_.begin()) {
     ROS_WARN("Final time %f is before the first NavState, cannot compute relative pose",
              final_time.toSec());
@@ -414,24 +448,27 @@ std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelativePoseBet
   // Compute the relative pose and covariance
   gtsam::Pose3 startPose = gtsam::Pose3(startState.attitude(), startState.position());
   gtsam::Pose3 endPose = gtsam::Pose3(endState.attitude(), endState.position());
-  gtsam::Pose3 relativePose = startPose.between(endPose);
+  //gtsam::Pose3 relativePose = startPose.between(endPose);
+  // Get the relative pose jacobians
+  gtsam::Matrix6 H1, H2;
+  gtsam::Pose3 relativePose = gtsam::traits<gtsam::Pose3>::Between(startPose, endPose, H1, H2);
   // Compute the relative covariance
-  gtsam::Matrix6 relativeCov = gtsam::Matrix6::Zero();
-  // Assuming the covariance is propagated through the relative pose transformation
-  gtsam::Matrix6 adjointStart = startPose.AdjointMap();
-  gtsam::Matrix6 adjointEnd = endPose.AdjointMap();
-  relativeCov = adjointStart * startCov * adjointStart.transpose() +
-                adjointEnd * endCov * adjointEnd.transpose();
+  gtsam::Matrix6 relativeCov = H1 * startCov * H1.transpose() + H2 * endCov * H2.transpose();
+  // gtsam::Matrix6 relativeCov = gtsam::Matrix6::Zero();
+  // // Get the change in covariance between the two poses (the between factor noise model)
+  // gtsam::Matrix6 adjointStart = startPose.AdjointMap();
+  // gtsam::Matrix6 adjointEnd = endPose.AdjointMap();
+  // relativeCov = adjointStart * startCov * adjointStart.transpose() +
+  //               adjointEnd * endCov * adjointEnd.transpose();
   // Update the start time to the final time for the next call
   start_time_ = final_time;
-  // Return the relative pose and covariance
   return std::make_pair(relativePose, relativeCov);
 }
 bool ImuPreintegratorNode::handlePreintegrate(
     spurdog_acomms::PreintegrateImu::Request &req,
     spurdog_acomms::PreintegrateImu::Response &res) {
   // Call getRelativePoseBetweenStates to get the relative pose and covariance
-  auto relativePoseCov = getRelativePoseBetweenStates(req.final_time);
+  auto relativePoseCov = getRelativePoseBetweenStates(req.initial_time, req.final_time);
   gtsam::Pose3 relativePose = relativePoseCov.first;
   gtsam::Matrix6 relativeCov = relativePoseCov.second;
   // Fill the response message (a PoseWithCovarianceStamped)
