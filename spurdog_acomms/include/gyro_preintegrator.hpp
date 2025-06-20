@@ -1,5 +1,5 @@
-#ifndef IMU_PREINTEGRATOR_HPP
-#define IMU_PREINTEGRATOR_HPP
+#ifndef GYRO_PREINTEGRATOR_HPP
+#define GYRO_PREINTEGRATOR_HPP
 
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
@@ -64,4 +64,4 @@ public:
       spurdog_acomms::PreintegrateImu::Response &res);
 };
 
-#endif  // IMU_PREINTEGRATOR_HPP
+#endif  // GYRO_PREINTEGRATOR_HPP

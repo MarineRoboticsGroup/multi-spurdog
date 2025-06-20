@@ -177,7 +177,7 @@ add_executable(gyro_preintegrator src/gyro_preintegrator.cpp)
 # target_link_libraries(${PROJECT_NAME}_node
 #   ${catkin_LIBRARIES}
 # )
-
+# Some of these can be removed in the future:
 target_link_libraries(imu_preintegrator
   ${catkin_LIBRARIES}
   ${Boost_LIBRARIES}

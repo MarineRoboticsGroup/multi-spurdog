@@ -1,6 +1,7 @@
-// imu_preintegrator_node.cpp
+// gyro_preintegrator.cpp
 // This is a preintegration node which uses just the gyro measurements and orientation, not acceleration.
 // The velocity is provided by the DVL, assumed constant, or zero
+// Really just a well-informed dead reckoning node
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Header.h>
