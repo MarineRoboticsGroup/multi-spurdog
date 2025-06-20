@@ -44,15 +44,18 @@ class CycleManager:
     """
     def __init__(self):
         rospy.init_node('comms_cycle_manager', anonymous=True)
+        # Get current namespace, e.g. "/actor_0/comms_lbl"
+        full_ns = rospy.get_namespace()           # e.g., "/actor_0/comms_lbl/"
+        parent_ns = '/'.join(full_ns.strip('/').split('/')[:-1])  # "actor_0"
+        if parent_ns:
+            parent_ns = '/' + parent_ns + '/'
+        else:
+            parent_ns = '/'
         # Config:
-        self.local_address = int(rospy.get_param("modem_address", 0))
-        self.num_agents = int(rospy.get_param("num_agents", 1))
-        self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
-        # self.landmarks = {
-        #     "L0":[-74.5193539608157,-38.9298973079931,1.5],
-        #     "L1":[66.5150726324041,25.969767675496275,1.5]
-        # }
-        self.landmarks = rospy.get_param("landmarks")
+        self.local_address = int(rospy.get_param(parent_ns + "modem_address", 0))
+        self.num_agents = int(rospy.get_param(parent_ns + "num_agents", 1))
+        self.num_landmarks = int(rospy.get_param(parent_ns + "num_landmarks", 2))
+        self.landmarks = rospy.get_param(parent_ns + "landmarks")
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
