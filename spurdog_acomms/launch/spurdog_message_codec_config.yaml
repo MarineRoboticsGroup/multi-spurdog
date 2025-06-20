@@ -208,3 +208,23 @@
           codec: integer
           min_value: 0
           max_value: 500
+    - id: 3
+      message_codec: default
+      subscribe_topic: "to_acomms/test_data"
+      publish_topic: "from_acomms/test_datas"
+      ros_type: "spurdog_acomms/TestData"
+      default_dest: 0
+      queue_order: lifo
+      queue_maxsize: 1
+      is_active: true
+      allow fragmentation: false
+      priority: 40
+      fields:
+        seq_id:
+          codec: uint16
+        address:
+          codec: uint8
+        payload:
+          codec: fixed_len_array
+          element_type: int8
+          length: 86

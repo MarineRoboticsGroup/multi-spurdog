@@ -59,6 +59,13 @@
                 <param name="active_slots" value="$(arg active_slots)"/>
                 <param name="slot_duration_seconds" value="15" />
             </node>
+            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen">
+                <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
+            </node>
+
+            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen">
+                <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
+            </node>
         </group>
 
         <!-- Launch communication and graph managers-->

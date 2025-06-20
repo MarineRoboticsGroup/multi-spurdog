@@ -8,13 +8,13 @@ import numpy as np
 from std_msgs.msg import Header, String, Time, Float32, Bool
 from geometry_msgs.msg import Point, Quaternion, Pose, PoseStamped, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
-    TdmaStatus, QueueStatus, PingReply, CST, XST
+    TdmaStatus, QueueStatus, PingReply, CST, XST, ReceivedPacket
 )
 from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped
+    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, TestData
 )
 from spurdog_acomms.srv import(
     PreintegrateImu, PreintegrateImuResponse
@@ -70,8 +70,9 @@ class CycleManager:
         self.ping_timeout = float(rospy.get_param("~ping_timeout", 5))
         self.sound_speed = float(rospy.get_param("~sound_speed", 1486))
         self.range_sigma = float(rospy.get_param("~sigma_range", 1)) # meters, this is the expected error in the range measurement
-        self.send_data = False
+        self.send_data = rospy.get_param("~send_data", False)  # Whether to send data or not
         self.tdma_status = TdmaStatus()
+        self.active_slot_seq = 0
         # Variables for Logging:
         self.rcv_range_data = []
         self.tx_range_data = []
@@ -95,6 +96,11 @@ class CycleManager:
         self.sound_speed_sub = rospy.Subscriber("bar30/sound_speed", Bar30SoundSpeed, self.on_sound_speed)
         self.nav_state_sub = rospy.Subscriber("nav_state",PoseStamped, self.on_nav_state)
         self.tdma_status_sub = rospy.Subscriber("modem/tdma_status", TdmaStatus, self.on_tdma_from_modem)
+
+        self.queue_status_sub = rospy.Subscriber("modem/queue_status", QueueStatus, self.on_queue_status)
+        self.packet_rcv_sub = rospy.Subscriber("modem/packet_rx", ReceivedPacket, self.on_nmea_from_modem)
+        self.test_data_pub = rospy.Publisher("modem/to_acomms/test_data",TestData, queue_size=1)
+        self.test_data_sub = rospy.Subscriber("modem/from_acomms/test_data", TestData, self.on_test_data)
 
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
@@ -244,11 +250,35 @@ class CycleManager:
         # Check if we are active and were not previously
         if we_are_active and not self.tdma_status.we_are_active:
             rospy.loginfo("[%s] We are now active in the TDMA cycle" % status_time)
+            self.active_slot_seq += 1
             # Send a ping to the first target in the cycle
             self.planned_targets = self.cycle_target_mapping["0"]
             self.send_ping(self.planned_targets[0])  # Start the ping cycle with the first target
         # Update the local tdma status
         self.tdma_status = msg
+        return
+
+    def on_queue_status(self, msg: QueueStatus):
+        """This function receives the queue status from the modem
+        Args:
+            msg (QueueStatus): The queue status message
+        """
+        timestamp = msg.header.stamp
+        msg_in_queue = msg.total_message_count
+        if msg_in_queue > 1:
+            rospy.logwarn("[%s] %d messages in the modem queue" % (timestamp, msg_in_queue))
+        else:
+            pass
+        return
+
+    def on_test_data(self, msg: TestData):
+        """This function receives test data from the modem
+        Args:
+            msg (TestData): The test data message
+        """
+        # Log the test data
+        rospy.loginfo("[%s] Received Test Data: Seq ID: %d, Address: %d" % (
+            msg.header.stamp, msg.seq_id, msg.address))
         return
 
     def send_ping(self, target_addr):
@@ -302,7 +332,7 @@ class CycleManager:
                     rospy.loginfo("[%s] Attempting next target: %s" % (rospy.Time.now(), self.address_to_name[next_tgt]))
                     self.send_ping(next_tgt)
                 elif self.send_data:
-                    #TODO: Send a message
+                    self.send_test_data()
                     pass
                 else:
                     rospy.loginfo("[%s] No more targets to ping" % rospy.Time.now())
@@ -344,13 +374,26 @@ class CycleManager:
                     rospy.loginfo("[%s] Attempting next target: %s" % (rospy.Time.now(), self.address_to_name[next_tgt]))
                     self.send_ping(next_tgt)
                 elif self.send_data:
-                    #TODO: Send a message
-                    pass
+                    self.send_test_data()
                 else:
                     rospy.loginfo("[%s] No more targets to ping" % rospy.Time.now())
                 return
         except rospy.ServiceException as e:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
+        return
+
+    def send_test_data(self):
+        """This function sends test data to the modem
+        """
+        # Create a test data message
+        test_data_msg = TestData()
+        test_data_msg.seq_id = self.active_slot_seq  # Sequence ID for the test datas
+        test_data_msg.address = self.local_address
+        # Fill the payload with 86 bytes of integer data
+        test_data_msg.payload = bytearray(np.random.randint(0, 256, size=86, dtype=np.uint8).tolist())
+        # Publish the test data message
+        self.test_data_pub.publish(test_data_msg)
+        rospy.loginfo("[%s] Sent Test Data to Modem: %s" % (rospy.Time.now()))
         return
 
     # Sensor Callbacks:s

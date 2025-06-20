@@ -69,7 +69,8 @@ add_message_files(
   CycleGraph.msg
   CommsCycleStatus.msg
   PoseFactorStamped.msg
-  RangeFactorStamped.msg)
+  RangeFactorStamped.msg
+  TestData.msg)
 
 ## Generate services in the 'srv' folder
 add_service_files(
@@ -213,6 +214,7 @@ catkin_install_python(PROGRAMS
   src/factor_graph_mgr.py
   src/comms_ltwt.py
   src/comms_lbl.py
+  src/comms_multiagent.py
   src/comms_lbl_multiagent.py
   src/imu_sensor_handler.py
   src/imu_cal.py
