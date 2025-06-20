@@ -8,7 +8,7 @@ import numpy as np
 from std_msgs.msg import Header, String, Time, Float32, Bool
 from geometry_msgs.msg import Point, Quaternion, Pose, PoseStamped, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
-    TdmaStatus, QueueStatus, PingReply, CST
+    TdmaStatus, QueueStatus, PingReply, CST, XST
 )
 from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
@@ -64,7 +64,8 @@ class CycleManager:
         self.ping_timeout = 5 # seconds
         self.sound_speed = float(rospy.get_param("sound_speed", 1486))
         self.range_sigma = 1 # meters, this is the expected error in the range measurement
-        # Variables for Logging
+        # Variables for Logging:
+        self.cst_xst_data = []
         self.range_data = []
         self.preintegration_data = []
         self.pose_time_lookup = {}
@@ -80,6 +81,7 @@ class CycleManager:
         # Initialize topics
         self.nmea_from_modem = rospy.Subscriber("modem/nmea_from_modem", String, self.on_nmea_from_modem)
         self.range_logging_sub = rospy.Subscriber("modem/ping_reply",PingReply, self.on_range_log)
+        self.xst = rospy.Subscriber("modem/xst", XST, self.on_xst)
         self.gps = rospy.Subscriber("gps", PoseWithCovarianceStamped, self.on_gps)
         self.in_water_sub = rospy.Subscriber("in_water", Bool, self.on_in_water)
         self.sound_speed_sub = rospy.Subscriber("bar30/sound_speed", Bar30SoundSpeed, self.on_sound_speed)
@@ -219,7 +221,7 @@ class CycleManager:
                     self.send_ping(second_tgt)  # Attempt the second target
                 elif target_addr == second_tgt:
                     self.send_ping(first_tgt)  # Attempt the first target
-                self.range_data.append([rospy.Time.now().to_sec(),  rospy.Time.now().to_sec()-self.ping_timeout/2, self.local_address, target_addr, None, None, None, None, None, None])
+                self.range_data.append([None, rospy.Time.now().to_sec()-self.ping_timeout/2, rospy.Time.now().to_sec(), self.local_address, target_addr, None, None, None, None, None, None])
                 return
             else:
                 #rospy.loginfo("[%s] Ping Successful: "% (rospy.Time.now()))
@@ -387,6 +389,19 @@ class CycleManager:
         return
 
     # Logging Functions:
+    def on_xst(self, msg: XST):
+        """This function receives the XST data from the modem
+        Args:
+            msg (XST): The XST data from the modem
+        """
+        # Get timestamp from header
+        xst_time = msg.time.to_sec()
+        src = msg.src
+        dest = msg.dest
+        # Append to range data
+        self.xst_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
+        return
+
     def on_range_log(self, msg: PingReply):
         """This function logs the range data from the modem
         Args:
@@ -424,10 +439,23 @@ class CycleManager:
         # dqf = msg.cst.dqf
         dop = msg.cst.dop
         stddev_noise = msg.cst.stddev_noise
-        # Log the range data
-        self.range_data.append([message_timestamp.to_sec(), range_timestamp.to_sec(),
-                                src, dest, owtt, measured_range, dop,
-                                stddev_noise, snr_in, snr_out])
+        # Add it to the existing XST-based data
+        for entry in self.range_data:
+            # If the entry has been filled, ignore
+            if entry[1] is not None:
+                continue
+            # If the entry matches the src and dest, fill it
+            elif entry[3] == src and entry[4] == dest:
+                entry[1] = range_timestamp.to_sec()
+                entry[2] = message_timestamp.to_sec()
+                entry[5] = owtt
+                entry[6] = measured_range
+                entry[7] = dop
+                entry[8] = stddev_noise
+                entry[9] = snr_in
+                entry[10] = snr_out
+            else:
+                rospy.logwarn("[%s] Range Data Entry Mismatch: %s != %s" % (rospy.Time.now(), entry[3], src))
         return
 
     def summarize_range_data(self):
@@ -437,11 +465,11 @@ class CycleManager:
         # Report the number of completed ranges to each dest
         range_summary = {}
         for entry in self.range_data:
-            message_timestamp, range_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = entry
+            xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = entry
             if dest not in range_summary:
                 range_summary[dest] = []
             range_summary[dest].append(
-                (message_timestamp, range_timestamp, src, measured_range, owtt, dop, stddev_noise, snr_in, snr_out)
+                (xst_timestamp, range_timestamp, cst_timestamp, measured_range, owtt, dop, stddev_noise, snr_in, snr_out)
             )
         for dest in range_summary.keys():
             # if there are no ranges to this dest, skip it
@@ -475,6 +503,36 @@ class CycleManager:
                     print(f"Min: {min_range}, Max: {max_range}, Mean: {mean_range}, Std Dev: {std_range}")
                     print(f"Time Span: {time_delta} seconds")
                     rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), chr(ord("A") + dest), num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
+        # Report the average time, min, max and std dev of the difference between cell[2] - cell[0]
+        if not self.range_data:
+            rospy.logwarn("[%s] No Range Data Collected" % rospy.Time.now())
+            return
+        # Calculate the time differences
+        time_diffs_xst_cst = []
+        time_diffs_ri_rj = []
+        for i in range(len(self.range_data)):
+            xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.range_data[i]
+            if xst_timestamp is not None and cst_timestamp is not None:
+                time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
+            if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
+                time_diffs_ri_rj.append(range_timestamp[i+1] - range_timestamp[i])
+        # Calculate statistics
+        if time_diffs_xst_cst:
+            avg_time_xst_cst = np.mean(time_diffs_xst_cst)
+            min_time_xst_cst = np.min(time_diffs_xst_cst)
+            max_time_xst_cst = np.max(time_diffs_xst_cst)
+            std_time_xst_cst = np.std(time_diffs_xst_cst)
+            rospy.loginfo("[%s] Average Time XST to CST: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+                rospy.Time.now(), avg_time_xst_cst.to_sec(), min_time_xst_cst.to_sec(), max_time_xst_cst.to_sec(), std_time_xst_cst.to_sec()))
+        else:
+            rospy.logwarn("[%s] No valid time differences between XST and CST" % rospy.Time.now())
+        if time_diffs_ri_rj:
+            avg_time_ri_rj = np.mean(time_diffs_ri_rj)
+            min_time_ri_rj = np.min(time_diffs_ri_rj)
+            max_time_ri_rj = np.max(time_diffs_ri_rj)
+            std_time_ri_rj = np.std(time_diffs_ri_rj)
+            rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+                rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
         return
 
     def log_ranges_to_csv(self):
@@ -492,7 +550,7 @@ class CycleManager:
         with open(range_file, mode='w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             # Write header
-            writer.writerow(["message_timestamp", "range_timestamp", "src", "dest", "owtt", "measured_range", "dop(m/s)", "stddev_noise", "snr_in", "snr_out"])
+            writer.writerow(["xst_timestamp","range_timestamp", "cst_timestamp", "src", "dest", "owtt", "measured_range", "dop(m/s)", "stddev_noise", "snr_in", "snr_out"])
             # Write data rows
             for entry in self.range_data:
                 writer.writerow(entry)
