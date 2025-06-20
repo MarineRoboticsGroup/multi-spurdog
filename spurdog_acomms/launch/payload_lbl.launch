@@ -11,8 +11,8 @@
     <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
     <arg name="source_addr" default="0" doc="int"/>
     <arg name="num_agents" default="1" />
-    <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/>
-    <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/>
+    <!-- <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/> -->
+    <!-- <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/> -->
 
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
@@ -26,10 +26,11 @@
         <!-- <param name="source_addr" value="0" /> -->
         <param name="num_agents" value="$(arg num_agents)" />
         <param name="num_landmarks" value="2" />
-        <!-- <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" /> -->
         <!-- <param name="num_slots" value="$(eval 2 * num_agents)" /> -->
-        <param name="sigma_range" value="1" />
-        <param name="sound_speed" value="1486" />
+        <rosparam param="landmarks">
+            L0: [-74.5193539608157, -38.9298973079931, 1.5]
+            L1: [66.5150726324041, 25.969767675496275, 1.5]
+        </rosparam>
 
         <!-- Modem group -->
         <group ns="modem">
@@ -55,16 +56,14 @@
         </group>
 
         <!-- Launch communication and graph managers-->
-        <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_lbl.py" output="screen" />
-
-        <node name="imu_preintegrator" pkg="spurdog_acomms" type="imu_preintegrator" output="screen">
-            <param name="accel_noise_sigma" value="0.022"/>
-            <param name="gyro_noise_sigma" value="0.001"/>
-            <!-- <param name="accel_bias_rw_sigma" value="0.01"/>
+        <node name="comms_lbl" pkg="spurdog_acomms" type="comms_lbl.py" output="screen">
+            <param name="sound_speed" value="1486" />
+            <param name="sigma_range" value="1" />
+            <param name="ping_timeout" value="5" />
+        </node>
+        <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
+            <!-- <param name="gyro_noise_sigma" value="0.001"/>
             <param name="gyro_bias_rw_sigma" value="0.01"/> -->
-            <param name="accel_bias_x" value="0.0"/>
-            <param name="accel_bias_y" value="0.0"/>
-            <param name="accel_bias_z" value="0.0"/>
             <param name="gyro_bias_x" value="0.0"/>
             <param name="gyro_bias_y" value="0.0"/>
             <param name="gyro_bias_z" value="0.0"/>

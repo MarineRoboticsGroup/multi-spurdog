@@ -57,7 +57,7 @@
         <!-- Launch communication and graph managers-->
         <!-- <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_lbl_devel.py" output="log" /> -->
 
-        <node name="imu_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
+        <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
             <!-- <param name="accel_noise_sigma" value="0.05"/> -->
             <param name="gyro_noise_sigma" value="0.001"/>
             <!-- <param name="accel_bias_rw_sigma" value="0.01"/> -->

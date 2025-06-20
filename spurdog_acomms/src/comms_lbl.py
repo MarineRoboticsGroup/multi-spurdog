@@ -44,13 +44,14 @@ class CycleManager:
     def __init__(self):
         rospy.init_node('comms_cycle_manager', anonymous=True)
         # Config:
-        self.local_address = 0
-        self.num_agents = 1
+        self.local_address = int(rospy.get_param("modem_address", 0))
+        self.num_agents = int(rospy.get_param("num_agents", 1))
         self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
-        self.landmarks = {
-            "L0":[-74.5193539608157,-38.9298973079931,1.5],
-            "L1":[66.5150726324041,25.969767675496275,1.5]
-        }
+        # self.landmarks = {
+        #     "L0":[-74.5193539608157,-38.9298973079931,1.5],
+        #     "L1":[66.5150726324041,25.969767675496275,1.5]
+        # }
+        self.landmarks = rospy.get_param("landmarks")
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
@@ -61,9 +62,9 @@ class CycleManager:
         self.gps_fix = [[1,2,3],[0,0,0,1],[1.7,1.7,3.5,0.1,0.1,0.1]] # [position, orientation, covariance]
         # Variables for acomms:
         self.ping_method = "ping with payload"
-        self.ping_timeout = 5 # seconds
-        self.sound_speed = float(rospy.get_param("sound_speed", 1486))
-        self.range_sigma = 1 # meters, this is the expected error in the range measurement
+        self.ping_timeout = float(rospy.get_param("~ping_timeout", 5))
+        self.sound_speed = float(rospy.get_param("~sound_speed", 1486))
+        self.range_sigma = float(rospy.get_param("~sigma_range", 1)) # meters, this is the expected error in the range measurement
         # Variables for Logging:
         self.cst_xst_data = []
         self.range_data = []
