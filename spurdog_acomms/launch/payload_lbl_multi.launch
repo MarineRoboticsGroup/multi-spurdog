@@ -71,9 +71,9 @@
         <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
             <!-- <param name="gyro_noise_sigma" value="0.001"/>
             <param name="gyro_bias_rw_sigma" value="0.01"/> -->
-            <param name="gyro_bias_x" value="0.0"/>
-            <param name="gyro_bias_y" value="0.0"/>
-            <param name="gyro_bias_z" value="0.0"/>
+            <param name="gyro_bias_x" value="-0.000223"/>
+            <param name="gyro_bias_y" value="-0.0000675"/>
+            <param name="gyro_bias_z" value="0.0003616"/>
         </node>
 
         <!-- Launch the MOOS interface bridge -->
