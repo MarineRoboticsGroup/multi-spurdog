@@ -55,8 +55,8 @@ class CycleManager:
         self.num_agents = int(rospy.get_param(parent_ns + "num_agents", 1))
         self.num_landmarks = int(rospy.get_param(parent_ns + "num_landmarks", 2))
         self.landmarks = {
-            "L0": rospy.get_param(parent_ns + "landmarks/L0"),
-            "L1": rospy.get_param(parent_ns + "landmarks/L1"),
+            "L0": rospy.get_param("/actor_0/landmarks/L0"),
+            "L1": rospy.get_param("/actor_0/landmarks/L1"),
         }
         self.modem_addresses = {}
         self.address_to_name = {}
