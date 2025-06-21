@@ -416,7 +416,7 @@ class CycleManager:
         src = msg.src
         dest = msg.dest
         # Append to range data
-        self.xst_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
+        self.range_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
         return
 
     def on_range_log(self, msg: PingReply):
@@ -472,7 +472,20 @@ class CycleManager:
                 entry[9] = snr_in
                 entry[10] = snr_out
             else:
-                rospy.logwarn("[%s] Range Data Entry Mismatch: %s != %s" % (rospy.Time.now(), entry[3], src))
+                # Make a new entry if no match is found
+                self.range_data.append([
+                    None,  # xst_timestamp
+                    range_timestamp.to_sec(),  # range_timestamp
+                    message_timestamp.to_sec(),  # cst_timestamp
+                    src,  # src
+                    dest,  # dest
+                    owtt,  # owtt
+                    measured_range,  # measured_range
+                    dop,  # dop(m/s)
+                    stddev_noise,  # stddev_noise
+                    snr_in,  # snr_in
+                    snr_out  # snr_out
+                ])
         return
 
     def summarize_range_data(self):
@@ -574,45 +587,45 @@ class CycleManager:
             rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(), range_file))
         return
 
-    def legacy_log_ranges_to_csv(self):
-        """ Log ranges, cst and xst data to csv"""
-        if not self.xst_data:
-            rospy.logwarn("[%s] No Signals Transmitted" % rospy.Time.now())
-            return
-        else:
-            xst_timestamp = self.xst_data[0][0]
+    # def legacy_log_ranges_to_csv(self):
+    #     """ Log ranges, cst and xst data to csv"""
+    #     if not self.xst_data:
+    #         rospy.logwarn("[%s] No Signals Transmitted" % rospy.Time.now())
+    #         return
+    #     else:
+    #         xst_timestamp = self.xst_data[0][0]
 
-        # Create the csv files:
-        log_dir = "/ros/logs/"
-        #log_dir = "/home/morrisjp/bags/June"
-        range_file = join(log_dir, f"range_data_{xst_timestamp}.csv")
-        cst_file = join(log_dir, f"cst_data_{xst_timestamp}.csv")
-        xst_file = join(log_dir, f"xst_data_{xst_timestamp}.csv")
-        with open(range_file, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            # Write header
-            writer.writerow(["timestamp", "src", "dest", "owtt", "measured_range"])
-            # Write data rows
-            for entry in self.range_data:
-                writer.writerow(entry)
-            rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(),range_file))
-        with open(cst_file, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            # Write header
-            writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "snr_rss", "snr_in", "snr_out", "dop(m/s)", "stddev_noise"])
-            # Write data rows
-            for entry in self.cst_data:
-                writer.writerow(entry)
-            rospy.loginfo("[%s] CACST Data Written to File at: %s" % (rospy.Time.now(),cst_file))
-        with open(xst_file, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            # Write header
-            writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "nbytes"])
-            # Write data rows
-            for entry in self.xst_data:
-                writer.writerow(entry)
-            rospy.loginfo("[%s] CAXST Data Written to File at: %s" % (rospy.Time.now(),xst_file))
-        return
+    #     # Create the csv files:
+    #     log_dir = "/ros/logs/"
+    #     #log_dir = "/home/morrisjp/bags/June"
+    #     range_file = join(log_dir, f"range_data_{xst_timestamp}.csv")
+    #     cst_file = join(log_dir, f"cst_data_{xst_timestamp}.csv")
+    #     xst_file = join(log_dir, f"xst_data_{xst_timestamp}.csv")
+    #     with open(range_file, mode='w', newline='') as csvfile:
+    #         writer = csv.writer(csvfile)
+    #         # Write header
+    #         writer.writerow(["timestamp", "src", "dest", "owtt", "measured_range"])
+    #         # Write data rows
+    #         for entry in self.range_data:
+    #             writer.writerow(entry)
+    #         rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(),range_file))
+    #     with open(cst_file, mode='w', newline='') as csvfile:
+    #         writer = csv.writer(csvfile)
+    #         # Write header
+    #         writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "snr_rss", "snr_in", "snr_out", "dop(m/s)", "stddev_noise"])
+    #         # Write data rows
+    #         for entry in self.cst_data:
+    #             writer.writerow(entry)
+    #         rospy.loginfo("[%s] CACST Data Written to File at: %s" % (rospy.Time.now(),cst_file))
+    #     with open(xst_file, mode='w', newline='') as csvfile:
+    #         writer = csv.writer(csvfile)
+    #         # Write header
+    #         writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "nbytes"])
+    #         # Write data rows
+    #         for entry in self.xst_data:
+    #             writer.writerow(entry)
+    #         rospy.loginfo("[%s] CAXST Data Written to File at: %s" % (rospy.Time.now(),xst_file))
+    #     return
 
     def log_pim_to_csv(self):
         """Log the preintegration data to a csv file"""
