@@ -109,7 +109,8 @@ void ImuPreintegratorNode::navStateCallback(const geometry_msgs::PoseStamped::Co
         last_nav_report_.rotation(), // Default to identity rotation
         last_nav_report_.translation(), // Use the baro depth as the initial position
         gtsam::Vector3(0, 0, 0)); // Default to zero velocity
-    gtsam::Vector6 initial_cov_sigmas(0.1, 0.1, 0.1, 1.5, 1.5, 0.1); // Set a covariance based on GPS and depth
+    //gtsam::Vector6 initial_cov_sigmas(0.1, 0.1, 0.1, 1.5, 1.5, 0.1); // Set a covariance based on GPS and depth
+    gtsam::Vector6 initial_cov_sigmas = (gtsam::Vector6() << 0.1, 0.1, 0.1, 1.5, 1.5, 0.1).finished();
     gtsam::Matrix6 initial_cov = initial_cov_sigmas.cwiseProduct(initial_cov_sigmas).asDiagonal();
     ti_ = msg->header.stamp; // Set the initial time to the message time
     nav_state_map_[ti_] = initial_state;
@@ -152,7 +153,8 @@ void ImuPreintegratorNode::inWaterCallback(const std_msgs::Bool::ConstPtr& msg) 
         gtsam::Rot3(), // Default to identity rotation
         gtsam::Point3(0, 0, 0), // Default to zero position
         gtsam::Vector3(0, 0, 0)); // Default to zero velocity
-    gtsam::Vector6 prevCovSigmas(0.1, 0.1, 0.1, 1.5, 1.5, 0.1); // Set a covariance based on GPS and depth
+    //gtsam::Vector6 prevCovSigmas(0.1, 0.1, 0.1, 1.5, 1.5, 0.1); // Set a covariance based on GPS and depth
+    gtsam::Vector6 prevCovSigmas = (gtsam::Vector6() << 0.1, 0.1, 0.1, 1.5, 1.5, 0.1).finished();
     gtsam::Matrix6 prevCov = prevCovSigmas.cwiseProduct(prevCovSigmas).asDiagonal();
     // /gtsam::Matrix6 prevCov(gtsam::Matrix6::Identity() * gtsam::Vector6(1.5, 1.5, 0.1, 0.1, 0.1, 0.1)); // Set a cov based on GPS and depth
     nav_state_map_[ti_] = prevState;
@@ -314,7 +316,8 @@ gtsam::Matrix6 ImuPreintegratorNode::getPredictedCovariance(
   auto it_cov = nav_cov_map_.find(ti_);
   if (it_cov == nav_cov_map_.end()) {
     ROS_WARN("No previous covariance found at time %f, returning default covariance", ti_.toSec());
-    gtsam::Vector6 prevCovSigmas(1.5, 1.5, 0.1, 0.1, 0.1, 0.1); // Set a covariance based on GPS and depth
+    gtsam::Vector6 prevCovSigmas = (gtsam::Vector6() << 0.1, 0.1, 0.1, 1.5, 1.5, 0.1).finished();
+    //gtsam::Vector6 prevCovSigmas(1.5, 1.5, 0.1, 0.1, 0.1, 0.1); // Set a covariance based on GPS and depth
     gtsam::Matrix6 prevCov(prevCovSigmas.asDiagonal()); // Create a diagonal covariance matrix
     return prevCov;
   }
