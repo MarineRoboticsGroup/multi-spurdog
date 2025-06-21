@@ -418,7 +418,7 @@ std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelativePoseBet
 
   if (initial_time == ros::Time(0)) { // When called for normal between factor generation
     // start_time_ is unique and held in the nav_state_map_ and nav_cov_map_ at the same indices
-    it_start = nav_state_map_.find(start_time_);
+    it_start = nav_state_map_.lower_bound(start_time_);
     if (it_start == nav_state_map_.end()) {
       ROS_WARN("No NavState found at start time %f, using oldest avail",
                 start_time_.toSec());
