@@ -246,7 +246,7 @@ class CycleManager:
                 range_factor_msg.header.frame_id = "modem"
                 range_factor_msg.key1 = chr(ord("A") + self.local_address) + str(self.modem_addresses[chr(ord("A") + self.local_address)][1])
                 range_factor_msg.key2 = self.address_to_name[target_addr]
-                range_factor_msg.measured_range = measured_range
+                range_factor_msg.meas_range = measured_range
                 range_factor_msg.range_sigma = self.range_sigma
                 range_factor_msg.depth = self.depth
                 self.range_factor_pub.publish(range_factor_msg)
@@ -284,7 +284,7 @@ class CycleManager:
         ti = self.pose_time_lookup[local_chr + str(key1_index)]
         try:
             rospy.loginfo(f"Attempting to preintegrate between {ti} and {tj}")
-            response = self.preintegrate_imu(tj)
+            response = self.preintegrate_imu(rospy.Time(0), tj)
             rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
             if adv_pose:
                 x_ij = response.pose_delta
@@ -338,14 +338,16 @@ class CycleManager:
         pose_factor_msg.header.frame_id = "modem"
         pose_factor_msg.key1 = key1
         pose_factor_msg.key2 = key2
-        pose_factor_msg.position.x = response.pose_delta.pose.pose.position.x
-        pose_factor_msg.position.y = response.pose_delta.pose.pose.position.y
-        pose_factor_msg.position.z = response.pose_delta.pose.pose.position.z
-        pose_factor_msg.orientation.x = response.pose_delta.pose.pose.orientation.x
-        pose_factor_msg.orientation.y = response.pose_delta.pose.pose.orientation.y
-        pose_factor_msg.orientation.z = response.pose_delta.pose.pose.orientation.z
-        pose_factor_msg.orientation.w = response.pose_delta.pose.pose.orientation.w
-        pose_factor_msg.sigmas = np.sqrt(np.diag(np.array(response.pose_delta.pose.covariance).reshape((6, 6))))
+        # pose PoseWithCovariance
+        pose_factor_msg.pose.pose.position.x = response.pose_delta.pose.pose.position.x
+        pose_factor_msg.pose.pose.position.y = response.pose_delta.pose.pose.position.y
+        pose_factor_msg.pose.pose.position.z = response.pose_delta.pose.pose.position.z
+        pose_factor_msg.pose.pose.orientation.x = response.pose_delta.pose.pose.orientation.x
+        pose_factor_msg.pose.pose.orientation.y = response.pose_delta.pose.pose.orientation.y
+        pose_factor_msg.pose.pose.orientation.z = response.pose_delta.pose.pose.orientation.z
+        pose_factor_msg.pose.pose.orientation.w = response.pose_delta.pose.pose.orientation.w
+        # pose sigmas
+        pose_factor_msg.pose.covariance = np.array(response.pose_delta.pose.covariance).reshape((6, 6)).flatten().tolist()
         self.pose_factor_pub.publish(pose_factor_msg)
         # Advance the key indices and the time
         self.modem_addresses[local_chr][1] = key2_index
@@ -428,11 +430,11 @@ class CycleManager:
             msg (PingReply): The range data from the modem
         """
         # Get timestamp from header
-        message_timestamp = msg.header.stamp
-        range_timestamp = msg.timestamp
+        message_timestamp = msg.header.stamp.to_sec()
+        range_timestamp = rospy.Time.from_sec(msg.timestamp).to_sec()
         src = msg.dest #NOTE: inverted due to ping reply
         dest = msg.src
-        owtt = msg.one_way_travel_time
+        owtt = msg.owtt
         measured_range = owtt * self.sound_speed if owtt is not None else None
         #tat = msg.tat
         snr_in = msg.snr_in
@@ -454,11 +456,10 @@ class CycleManager:
         # num_frames = msg.cst.num_frames
         # bad_frames = msg.cst.bad_frames_num
         # snr_rss = msg.cst.snr_rss
-        stddev_noise = msg.cst.stddev_noise
+        stddev_noise = msg.cst.noise
         # mse_error = msg.cst.mse
         # dqf = msg.cst.dqf
         dop = msg.cst.dop
-        stddev_noise = msg.cst.stddev_noise
         # Add it to the existing XST-based data
         for entry in self.range_data:
             # If the entry has been filled, ignore
@@ -466,8 +467,8 @@ class CycleManager:
                 continue
             # If the entry matches the src and dest, fill it
             elif entry[3] == src and entry[4] == dest:
-                entry[1] = range_timestamp.to_sec()
-                entry[2] = message_timestamp.to_sec()
+                entry[1] = range_timestamp
+                entry[2] = message_timestamp
                 entry[5] = owtt
                 entry[6] = measured_range
                 entry[7] = dop
@@ -478,8 +479,8 @@ class CycleManager:
                 # Make a new entry if no match is found
                 self.range_data.append([
                     None,  # xst_timestamp
-                    range_timestamp.to_sec(),  # range_timestamp
-                    message_timestamp.to_sec(),  # cst_timestamp
+                    range_timestamp,  # range_timestamp
+                    message_timestamp,  # cst_timestamp
                     src,  # src
                     dest,  # dest
                     owtt,  # owtt
