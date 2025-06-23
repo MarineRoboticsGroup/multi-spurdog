@@ -67,6 +67,7 @@
             <param name="gyro_bias_x" value="-0.000223"/>
             <param name="gyro_bias_y" value="-0.0000675"/>
             <param name="gyro_bias_z" value="0.0003616"/>
+            <param name="velocity_source" value="dvl"
         </node>
         -->
 
