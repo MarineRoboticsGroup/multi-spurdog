@@ -441,7 +441,7 @@ class CycleManager:
         """
         # Get timestamp from header
         message_timestamp = msg.header.stamp.to_sec()
-        range_timestamp = rospy.Time.from_sec(msg.timestamp).to_sec()
+        range_timestamp = rospy.Time(msg.cst.toa.secs, msg.cst.toa.nsecs).to_sec(),
         src = msg.dest #NOTE: inverted due to ping reply
         dest = msg.src
         owtt = msg.owtt

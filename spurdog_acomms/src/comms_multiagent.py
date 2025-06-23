@@ -86,8 +86,8 @@ class CycleManager:
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
         self.ping_client = rospy.ServiceProxy("modem/ping_modem", PingModem)
-        rospy.wait_for_service("preintegrate_imu")
-        self.preintegrate_imu = rospy.ServiceProxy("preintegrate_imu", PreintegrateImu)
+        #rospy.wait_for_service("preintegrate_imu")
+        #self.preintegrate_imu = rospy.ServiceProxy("preintegrate_imu", PreintegrateImu)
         rospy.loginfo("[%s] Services ready, initializing topics" % rospy.Time.now())
 
         # Initialize topics
@@ -154,7 +154,7 @@ class CycleManager:
             # Convert time (ROS Time in sec) to ROS Time in nsec
             rcvd_stamp = rospy.Time.from_sec(recieved_ping_time)
             if data[1] == "PNG" and dest == self.local_address:
-                self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
+                #self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
                 # Log the ping event to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
                 # Check if there is an existin CST-based entry for this ping (CST time within 1sec and matching src/dest)
                 for entry in self.rcv_range_data:
@@ -368,7 +368,7 @@ class CycleManager:
                     rospy.Time.now(), self.address_to_name[src], self.address_to_name[dest], timestamp_sec, owtt, tat, measured_range))
                 # self.tx_range_data.append([timestamp_sec.to_sec(), src, dest, owtt, measured_range])
                 # Request preintegration
-                self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
+                #self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
                 # if target_addr == first_tgt:
                 #     self.send_ping(second_tgt)  # Attempt the second target
                 # elif target_addr == second_tgt:
@@ -518,7 +518,7 @@ class CycleManager:
             self.modem_addresses[local_chr][1] = 0
             self.pose_time_lookup[local_chr + str(0)] = rospy.Time.now()
             # Request preintegration to clear the queue, but don't advance the pose index
-            self.request_preintegration(rospy.Time.now(), adv_pose=False)
+            #self.request_preintegration(rospy.Time.now(), adv_pose=False)
         elif msg.data == False and self.in_water:
             rospy.loginfo("[%s] Vehicle has left the water" % rospy.Time.now())
         else:
@@ -563,7 +563,7 @@ class CycleManager:
     def on_cst(self, msg: CST):
         """ This function only logs CST data if we are listening (i.e. not active)"""
         # Get timestamp from header
-        cst_time = msg.time.to_sec()
+        cst_time = rospy.Time(msg.toa.secs, msg.toa.nsecs).to_sec()
         src = msg.src
         dest = msg.dest
         dop = msg.dop
@@ -597,7 +597,7 @@ class CycleManager:
         """
         # Get timestamp from header
         message_timestamp = msg.header.stamp.to_sec()
-        range_timestamp = rospy.Time.from_sec(msg.timestamp).to_sec()
+        range_timestamp = rospy.Time(msg.cst.toa.secs, msg.cst.toa.nsecs).to_sec(),
         src = msg.dest #NOTE: inverted due to ping reply
         dest = msg.src
         owtt = msg.owtt
@@ -778,45 +778,45 @@ class CycleManager:
             rospy.loginfo("[%s] Recieved Range Data Written to File at: %s" % (rospy.Time.now(), rcvd_range_file))
         return
 
-    def legacy_log_ranges_to_csv(self):
-        """ Log ranges, cst and xst data to csv"""
-        if not self.xst_data:
-            rospy.logwarn("[%s] No Signals Transmitted" % rospy.Time.now())
-            return
-        else:
-            xst_timestamp = self.xst_data[0][0]
+    # def legacy_log_ranges_to_csv(self):
+    #     """ Log ranges, cst and xst data to csv"""
+    #     if not self.xst_data:
+    #         rospy.logwarn("[%s] No Signals Transmitted" % rospy.Time.now())
+    #         return
+    #     else:
+    #         xst_timestamp = self.xst_data[0][0]
 
-        # Create the csv files:
-        log_dir = "/ros/logs/"
-        #log_dir = "/home/morrisjp/bags/June"
-        range_file = join(log_dir, f"range_data_{xst_timestamp}.csv")
-        cst_file = join(log_dir, f"cst_data_{xst_timestamp}.csv")
-        xst_file = join(log_dir, f"xst_data_{xst_timestamp}.csv")
-        with open(range_file, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            # Write header
-            writer.writerow(["timestamp", "src", "dest", "owtt", "measured_range"])
-            # Write data rows
-            for entry in self.tx_range_data:
-                writer.writerow(entry)
-            rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(),range_file))
-        with open(cst_file, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            # Write header
-            writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "snr_rss", "snr_in", "snr_out", "dop(m/s)", "stddev_noise"])
-            # Write data rows
-            for entry in self.cst_data:
-                writer.writerow(entry)
-            rospy.loginfo("[%s] CACST Data Written to File at: %s" % (rospy.Time.now(),cst_file))
-        with open(xst_file, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            # Write header
-            writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "nbytes"])
-            # Write data rows
-            for entry in self.xst_data:
-                writer.writerow(entry)
-            rospy.loginfo("[%s] CAXST Data Written to File at: %s" % (rospy.Time.now(),xst_file))
-        return
+    #     # Create the csv files:
+    #     log_dir = "/ros/logs/"
+    #     #log_dir = "/home/morrisjp/bags/June"
+    #     range_file = join(log_dir, f"range_data_{xst_timestamp}.csv")
+    #     cst_file = join(log_dir, f"cst_data_{xst_timestamp}.csv")
+    #     xst_file = join(log_dir, f"xst_data_{xst_timestamp}.csv")
+    #     with open(range_file, mode='w', newline='') as csvfile:
+    #         writer = csv.writer(csvfile)
+    #         # Write header
+    #         writer.writerow(["timestamp", "src", "dest", "owtt", "measured_range"])
+    #         # Write data rows
+    #         for entry in self.tx_range_data:
+    #             writer.writerow(entry)
+    #         rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(),range_file))
+    #     with open(cst_file, mode='w', newline='') as csvfile:
+    #         writer = csv.writer(csvfile)
+    #         # Write header
+    #         writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "snr_rss", "snr_in", "snr_out", "dop(m/s)", "stddev_noise"])
+    #         # Write data rows
+    #         for entry in self.cst_data:
+    #             writer.writerow(entry)
+    #         rospy.loginfo("[%s] CACST Data Written to File at: %s" % (rospy.Time.now(),cst_file))
+    #     with open(xst_file, mode='w', newline='') as csvfile:
+    #         writer = csv.writer(csvfile)
+    #         # Write header
+    #         writer.writerow(["timestamp", "src", "dest", "msg_type", "nframes", "nbytes"])
+    #         # Write data rows
+    #         for entry in self.xst_data:
+    #             writer.writerow(entry)
+    #         rospy.loginfo("[%s] CAXST Data Written to File at: %s" % (rospy.Time.now(),xst_file))
+    #     return
 
     def log_pim_to_csv(self):
         """Log the preintegration data to a csv file"""
