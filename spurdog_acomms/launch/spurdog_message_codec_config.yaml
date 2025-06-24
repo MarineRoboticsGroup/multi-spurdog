@@ -226,5 +226,5 @@
           codec: uint8
         payload:
           codec: fixed_len_array
-          element_type: int8
+          element_type: uint8
           length: 86

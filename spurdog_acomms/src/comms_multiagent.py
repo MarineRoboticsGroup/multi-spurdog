@@ -136,6 +136,9 @@ class CycleManager:
     def on_nmea_from_modem(self, msg):
         """This function receives NMEA messages from the modem
         """
+        if isinstance(msg, ReceivedPacket):
+            rospy.loginfo("[%s] Recieved Packet from %s."%(rospy.Time.now(), msg.packet.src))
+            return
         nmea_type, data = parse_nmea_sentence(msg.data)
         # Rekey the modem addesses to be {address: [Name, index]}
         # Process the NMEA data by field
@@ -397,10 +400,10 @@ class CycleManager:
         test_data_msg.seq_id = self.active_slot_seq  # Sequence ID for the test datas
         test_data_msg.address = self.local_address
         # Fill the payload with 86 bytes of integer data
-        test_data_msg.payload = bytearray(np.random.randint(0, 256, size=86, dtype=np.uint8).tolist())
+        test_data_msg.payload = bytearray(np.random.randint(0, 255,size=86, dtype=np.uint8).tolist())
         # Publish the test data message
         self.test_data_pub.publish(test_data_msg)
-        rospy.loginfo("[%s] Sent Test Data to Modem: %s" % (rospy.Time.now()))
+        rospy.loginfo("[%s] Sent Test Data" % (rospy.Time.now()))
         return
 
     # Sensor Callbacks:s
@@ -559,7 +562,7 @@ class CycleManager:
         src = msg.src
         dest = msg.dest
         # Append to range data
-        self.xst_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
+        self.tx_range_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
         return
 
     def on_cst(self, msg: CST):
@@ -685,7 +688,7 @@ class CycleManager:
                     std_range = np.std(valid_ranges)
 
                     # Compute time delta (assumes timestamps are rospy.Time
-                    time_delta = rospy.Time.from_sec(max(valid_timestamps)) - rospy.Time.from_sec(min(valid_timestamps))
+                    #time_delta = rospy.Time.from_sec(max(valid_timestamps)) - rospy.Time.from_sec(min(valid_timestamps))
 
                     ## Compute time delta (assumes timestamps are rospy.Time
                     time_delta = max(valid_timestamps)[0] - min(valid_timestamps)[0]
