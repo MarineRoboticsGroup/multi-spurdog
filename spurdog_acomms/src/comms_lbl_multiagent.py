@@ -46,18 +46,14 @@ class CycleManager:
         rospy.init_node('comms_cycle_manager', anonymous=True)
         # Get current namespace, e.g. "/actor_0/comms_lbl"
         full_ns = rospy.get_namespace()           # e.g., "/actor_0/comms_lbl/"
-        parent_ns = '/'.join(full_ns.strip('/').split('/')[:-1])  # "actor_0"
-        if parent_ns:
-            parent_ns = '/' + parent_ns + '/'
-        else:
-            parent_ns = '/'
+        rospy.loginfo("[%s] Full Namespace as %s"%(rospy.Time.now(), full_ns))
         # Config:
-        self.local_address = int(rospy.get_param(parent_ns + "modem_address", 0))
-        self.num_agents = int(rospy.get_param(parent_ns + "num_agents", 1))
-        self.num_landmarks = int(rospy.get_param(parent_ns + "num_landmarks", 2))
+        self.local_address = int(rospy.get_param(full_ns + "modem_address", 1))
+        self.num_agents = int(rospy.get_param(full_ns + "num_agents", 2))
+        self.num_landmarks = int(rospy.get_param(full_ns + "num_landmarks", 2))
         self.landmarks = {
-            "L0": rospy.get_param("/actor_0/landmarks/L0"),
-            "L1": rospy.get_param("/actor_0/landmarks/L1"),
+            "L0": rospy.get_param(full_ns + "landmarks/L0"),
+            "L1": rospy.get_param(full_ns + "landmarks/L1")
         }
         self.modem_addresses = {}
         self.address_to_name = {}
@@ -117,12 +113,13 @@ class CycleManager:
         # Get the modem addresses and cycle targets
         self.modem_addresses = configure_modem_addresses(self.num_agents, self.num_landmarks, self.local_address)
         self.address_to_name = {v[0]: k for k, v in self.modem_addresses.items()}
-        # make a list of modem addresses that don't include the local address
-        ping_addresses = [addr for addr in self.modem_addresses.keys() if addr != chr(ord("A") + self.local_address)]
+        rospy.loginfo("[%s] Address to name: %s" % (rospy.Time.now(), self.address_to_name))
+        # make a list of modem addresses that don't include the local address (the int address, not the name)
+        ping_addresses = [value[0] for value in self.modem_addresses.values() if value[0] != self.local_address]
         # Configure a list of cycle targets to ping (the modem addresses that don't include the local address)
         self.cycle_target_mapping = {
-            0: ping_addresses,
-            1: ping_addresses[::-1]
+            "0": ping_addresses,
+            "1": ping_addresses[::-1]
         }
         local_chr = chr(ord("A") + self.local_address)
         self.pose_time_lookup[local_chr + str(0)] = rospy.Time.now()  # Initial pose at time of cycle start
@@ -239,19 +236,23 @@ class CycleManager:
         """
         # Get fields from the TDMA status message
         status_time = msg.header.stamp
+        current_slot = msg.current_slot
         we_are_active = msg.we_are_active
         remaining_slot_seconds = msg.remaining_slot_seconds
         remaining_active_seconds = msg.remaining_active_seconds
         time_to_next_active = msg.time_to_next_active
+        time_to_next_dedicated_slot = msg.time_to_next_dedicated_slot
         slot_duration_seconds = msg.slot_duration_seconds
         # Check if we are active and were not previously
-        if we_are_active and not self.tdma_status.we_are_active:
+        if we_are_active ==True and self.tdma_status.we_are_active == False:
             rospy.loginfo("[%s] We are now active in the TDMA cycle" % status_time)
             # Send a ping to the first target in the cycle
-            self.planned_targets = self.cycle_target_mapping["0"]
-            self.send_ping(self.planned_targets[0])  # Start the ping cycle with the first target
-        # Update the local tdma status
-        self.tdma_status = msg
+            self.planned_targets = list(self.cycle_target_mapping["0"].copy())
+            rospy.loginfo("Planned Targets: %s" % self.planned_targets)
+            self.tdma_status = msg #NOTE: This must be here for send_ping to execute properly
+            self.send_ping(self.planned_targets[0])
+        else:
+            self.tdma_status = msg
         return
 
     def send_ping(self, target_addr):
@@ -270,6 +271,8 @@ class CycleManager:
         if self.tdma_status.remaining_active_seconds < self.ping_timeout:
             rospy.logwarn("[%s] Aborting ping to %s, remaining active seconds: %.2f timeout: %.2f" % (rospy.Time.now(),
                 self.address_to_name[target_addr], self.tdma_status.remaining_active_seconds, self.ping_timeout))
+            self.planned_targets.clear()
+            return
         else:
             pass
         # Get the next symbol for the ping payload
@@ -286,7 +289,7 @@ class CycleManager:
             # TODO: Add the capability to pass the hex data as a separate packet
             rospy.logwarn("[%s] Old deckbox firmware detected, sending ping without payload" % rospy.Time.now())
         ping_req.timeout_sec = self.ping_timeout
-
+        #rospy.loginfo("[%s] Ping Request: %s" % ping_req)
         # Attempt the ping:
         try:
             #rospy.loginfo("[%s] One Ping Only Vasily." % (rospy.Time.now()))
@@ -344,7 +347,7 @@ class CycleManager:
                 #     self.send_ping(first_tgt)  # Attempt the first target
                 next_tgt = self.planned_targets[0] if self.planned_targets else None
                 if next_tgt is not None:
-                    rospy.loginfo("[%s] Attempting next target: %s" % (rospy.Time.now(), self.address_to_name[next_tgt]))
+                    #rospy.loginfo("[%s] Attempting next target: %s" % (rospy.Time.now(), self.address_to_name[next_tgt]))
                     self.send_ping(next_tgt)
                 elif self.send_data:
                     #TODO: Send a message
@@ -597,7 +600,7 @@ class CycleManager:
                 entry[9] = snr_in
                 entry[10] = snr_out
             else:
-                rospy.logwarn("[%s] Range Data Entry Mismatch: %s != %s" % (rospy.Time.now(), entry[3], src))
+                self.tx_range_data.append([None, range_timestamp, message_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out])
         return
 
     def summarize_range_data(self):
@@ -638,43 +641,43 @@ class CycleManager:
                     std_range = np.std(valid_ranges)
 
                     # Compute time delta (assumes timestamps are rospy.Time
-                    time_delta = rospy.Time.from_sec(max(valid_timestamps)) - rospy.Time.from_sec(min(valid_timestamps))
+                    time_delta = max(valid_timestamps)[0] - min(valid_timestamps)[0]
 
                     # Log or return as needed
-                    print(f"Valid Ranges: {num_valid}")
-                    print(f"Min: {min_range}, Max: {max_range}, Mean: {mean_range}, Std Dev: {std_range}")
-                    print(f"Time Span: {time_delta} seconds")
-                    rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), self.address_to_name[dest], num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
+                    if num_valid > 0:
+                        rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), self.address_to_name[dest], num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
+                    else:
+                        rospy.loginfo("[%s] Ranges to %s: 0 / %d valid"%(rospy.Time.now(), self.address_to_name[dest], len(range_summary[dest])))
         # Report the average time, min, max and std dev of the difference between cell[2] - cell[0]
         if not self.tx_range_data:
             rospy.logwarn("[%s] No Range Data Collected" % rospy.Time.now())
             return
         # Calculate the time differences
-        time_diffs_xst_cst = []
-        time_diffs_ri_rj = []
-        for i in range(len(self.tx_range_data)):
-            xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.tx_range_data[i]
-            if xst_timestamp is not None and cst_timestamp is not None:
-                time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
-            if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
-                time_diffs_ri_rj.append(range_timestamp[i+1] - range_timestamp[i])
-        # Calculate statistics
-        if time_diffs_xst_cst:
-            avg_time_xst_cst = np.mean(time_diffs_xst_cst)
-            min_time_xst_cst = np.min(time_diffs_xst_cst)
-            max_time_xst_cst = np.max(time_diffs_xst_cst)
-            std_time_xst_cst = np.std(time_diffs_xst_cst)
-            rospy.loginfo("[%s] Average Time XST to CST: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
-                rospy.Time.now(), avg_time_xst_cst.to_sec(), min_time_xst_cst.to_sec(), max_time_xst_cst.to_sec(), std_time_xst_cst.to_sec()))
-        else:
-            rospy.logwarn("[%s] No valid time differences between XST and CST" % rospy.Time.now())
-        if time_diffs_ri_rj:
-            avg_time_ri_rj = np.mean(time_diffs_ri_rj)
-            min_time_ri_rj = np.min(time_diffs_ri_rj)
-            max_time_ri_rj = np.max(time_diffs_ri_rj)
-            std_time_ri_rj = np.std(time_diffs_ri_rj)
-            rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
-                rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
+        # time_diffs_xst_cst = []
+        # time_diffs_ri_rj = []
+        # for i in range(len(self.tx_range_data)):
+        #     xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.tx_range_data[i]
+        #     if xst_timestamp is not None and cst_timestamp is not None:
+        #         time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
+        #     # if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
+        #     #     time_diffs_ri_rj.append(range_timestamp[i+1] - range_timestamp[i])
+        # # Calculate statistics
+        # if time_diffs_xst_cst:
+        #     avg_time_xst_cst = np.mean(time_diffs_xst_cst)
+        #     min_time_xst_cst = np.min(time_diffs_xst_cst)
+        #     max_time_xst_cst = np.max(time_diffs_xst_cst)
+        #     std_time_xst_cst = np.std(time_diffs_xst_cst)
+        #     rospy.loginfo("[%s] Average Time XST to CST: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+        #         rospy.Time.now(), avg_time_xst_cst, min_time_xst_cst, max_time_xst_cst, std_time_xst_cst))
+        # else:
+        #     rospy.logwarn("[%s] No valid time differences between XST and CST" % rospy.Time.now())
+        # if time_diffs_ri_rj:
+        #     avg_time_ri_rj = np.mean(time_diffs_ri_rj)
+        #     min_time_ri_rj = np.min(time_diffs_ri_rj)
+        #     max_time_ri_rj = np.max(time_diffs_ri_rj)
+        #     std_time_ri_rj = np.std(time_diffs_ri_rj)
+        #     rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+        #         rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
         # Report the number of ranges recieved (times in self.rcv_range_data) sorted by src
         if not self.rcv_range_data:
             rospy.logwarn("[%s] No Range Data Recieved" % rospy.Time.now())
