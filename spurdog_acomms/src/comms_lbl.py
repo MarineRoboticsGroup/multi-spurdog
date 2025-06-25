@@ -45,22 +45,19 @@ class CycleManager:
         rospy.init_node('comms_cycle_manager', anonymous=True)
         # Get current namespace, e.g. "/actor_0/comms_lbl"
         full_ns = rospy.get_namespace()           # e.g., "/actor_0/comms_lbl/"
-        parent_ns = '/'.join(full_ns.strip('/').split('/')[:-1])  # "actor_0"
-        if parent_ns:
-            parent_ns = '/' + parent_ns + '/'
-        else:
-            parent_ns = '/'
+        rospy.loginfo("[%s] Full Namespace as %s"%(rospy.Time.now(), full_ns))
         # Config:
-        self.local_address = int(rospy.get_param(parent_ns + "modem_address", 0))
-        self.num_agents = int(rospy.get_param(parent_ns + "num_agents", 1))
-        self.num_landmarks = int(rospy.get_param(parent_ns + "num_landmarks", 2))
+        self.local_address = int(rospy.get_param(full_ns + "modem_address", 0))
+        self.num_agents = int(rospy.get_param(full_ns + "num_agents", 1))
+        self.num_landmarks = int(rospy.get_param(full_ns + "num_landmarks", 2))
         self.landmarks = {
-            "L0": rospy.get_param("/actor_0/landmarks/L0"),
-            "L1": rospy.get_param("/actor_0/landmarks/L1"),
+            "L0": rospy.get_param(full_ns + "landmarks/L0"),
+            "L1": rospy.get_param(full_ns + "landmarks/L1")
         }
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
+        self.planned_targets = []
         # Subscribed variables
         self.bar30_sound_speed = 0
         self.in_water = False
@@ -92,6 +89,7 @@ class CycleManager:
         self.in_water_sub = rospy.Subscriber("in_water", Bool, self.on_in_water)
         self.sound_speed_sub = rospy.Subscriber("bar30/sound_speed", Bar30SoundSpeed, self.on_sound_speed)
         self.nav_state_sub = rospy.Subscriber("nav_state",PoseStamped, self.on_nav_state)
+
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
@@ -109,7 +107,14 @@ class CycleManager:
         # Get the modem addresses and cycle targets
         self.modem_addresses = configure_modem_addresses(self.num_agents, self.num_landmarks, self.local_address)
         self.address_to_name = {v[0]: k for k, v in self.modem_addresses.items()}
-        self.cycle_target_mapping = {"0": [self.modem_addresses["L0"][0], self.modem_addresses["L1"][0]],}
+        rospy.loginfo("[%s] Address to name: %s" % (rospy.Time.now(), self.address_to_name))
+        # make a list of modem addresses that don't include the local address (the int address, not the name)
+        ping_addresses = [value[0] for value in self.modem_addresses.values() if value[0] != self.local_address]
+        # Configure a list of cycle targets to ping (the modem addresses that don't include the local address)
+        self.cycle_target_mapping = {
+            "0": ping_addresses,
+            "1": ping_addresses[::-1]
+        }
         local_chr = chr(ord("A") + self.local_address)
         self.pose_time_lookup[local_chr + str(0)] = rospy.Time.now()  # Initial pose at time of cycle start
         rospy.loginfo("[%s] Cycle Targets: %s" % (rospy.Time.now(), self.cycle_target_mapping))
@@ -547,36 +552,36 @@ class CycleManager:
                     print(f"Min: {min_range}, Max: {max_range}, Mean: {mean_range}, Std Dev: {std_range}")
                     print(f"Time Span: {time_delta} seconds")
                     rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), chr(ord("A") + dest), num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
-        # Report the average time, min, max and std dev of the difference between cell[2] - cell[0]
-        if not self.range_data:
-            rospy.logwarn("[%s] No Range Data Collected" % rospy.Time.now())
-            return
-        # Calculate the time differences
-        time_diffs_xst_cst = []
-        time_diffs_ri_rj = []
-        for i in range(len(self.range_data)):
-            xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.range_data[i]
-            if xst_timestamp is not None and cst_timestamp is not None:
-                time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
-            if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
-                time_diffs_ri_rj.append(range_timestamp[i+1] - range_timestamp[i])
-        # Calculate statistics
-        if time_diffs_xst_cst:
-            avg_time_xst_cst = np.mean(time_diffs_xst_cst)
-            min_time_xst_cst = np.min(time_diffs_xst_cst)
-            max_time_xst_cst = np.max(time_diffs_xst_cst)
-            std_time_xst_cst = np.std(time_diffs_xst_cst)
-            rospy.loginfo("[%s] Average Time XST to CST: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
-                rospy.Time.now(), avg_time_xst_cst.to_sec(), min_time_xst_cst.to_sec(), max_time_xst_cst.to_sec(), std_time_xst_cst.to_sec()))
-        else:
-            rospy.logwarn("[%s] No valid time differences between XST and CST" % rospy.Time.now())
-        if time_diffs_ri_rj:
-            avg_time_ri_rj = np.mean(time_diffs_ri_rj)
-            min_time_ri_rj = np.min(time_diffs_ri_rj)
-            max_time_ri_rj = np.max(time_diffs_ri_rj)
-            std_time_ri_rj = np.std(time_diffs_ri_rj)
-            rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
-                rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
+        # # Report the average time, min, max and std dev of the difference between cell[2] - cell[0]
+        # if not self.range_data:
+        #     rospy.logwarn("[%s] No Range Data Collected" % rospy.Time.now())
+        #     return
+        # # Calculate the time differences
+        # time_diffs_xst_cst = []
+        # time_diffs_ri_rj = []
+        # for i in range(len(self.range_data)):
+        #     xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.range_data[i]
+        #     if xst_timestamp is not None and cst_timestamp is not None:
+        #         time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
+        #     if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
+        #         time_diffs_ri_rj.append(range_timestamp[i+1] - range_timestamp[i])
+        # # Calculate statistics
+        # if time_diffs_xst_cst:
+        #     avg_time_xst_cst = np.mean(time_diffs_xst_cst)
+        #     min_time_xst_cst = np.min(time_diffs_xst_cst)
+        #     max_time_xst_cst = np.max(time_diffs_xst_cst)
+        #     std_time_xst_cst = np.std(time_diffs_xst_cst)
+        #     rospy.loginfo("[%s] Average Time XST to CST: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+        #         rospy.Time.now(), avg_time_xst_cst.to_sec(), min_time_xst_cst.to_sec(), max_time_xst_cst.to_sec(), std_time_xst_cst.to_sec()))
+        # else:
+        #     rospy.logwarn("[%s] No valid time differences between XST and CST" % rospy.Time.now())
+        # if time_diffs_ri_rj:
+        #     avg_time_ri_rj = np.mean(time_diffs_ri_rj)
+        #     min_time_ri_rj = np.min(time_diffs_ri_rj)
+        #     max_time_ri_rj = np.max(time_diffs_ri_rj)
+        #     std_time_ri_rj = np.std(time_diffs_ri_rj)
+        #     rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+        #         rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
         return
 
     def log_ranges_to_csv(self):
