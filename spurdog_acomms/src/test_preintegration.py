@@ -60,6 +60,7 @@ class CycleManager:
         self.cst_data = []
         self.xst_data = []
         self.preintegration_data = []
+        self.nav_state_data = {}
         self.pose_time_lookup = {}
         self.in_water = False
         # Check services
@@ -109,6 +110,11 @@ class CycleManager:
         self.nav_state_time = msg.header.stamp
         if self.initial_ti == rospy.Time(0):
             self.initial_ti = self.nav_state_time
+        # Log the nav state data
+        self.nav_state_data[self.nav_state_time] = {
+            "position": np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z]),
+            "orientation": np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w]),
+        }
         return
     # Sensor data handling
     def request_preintegration(self, tj, adv_pose: bool = True):
@@ -124,18 +130,21 @@ class CycleManager:
         local_chr = chr(ord("A") + self.local_address)
         key1_index = self.modem_addresses[local_chr][1]
         ti = self.initial_ti
+        if ti == tj:
+            rospy.logwarn(f"Attempted to preintegrate at the same time {ti.to_sec()}, skipping preintegration.")
+            return
         try:
-            rospy.loginfo(f"Attempting to preintegrate between {ti} and {tj}")
-            response = self.preintegrate_imu(rospy.Time(0),tj)
-
+            #rospy.loginfo(f"Attempting to preintegrate between {ti.to_sec()} and {tj.to_sec()}")
+            response = self.preintegrate_imu(ti,tj)
             if adv_pose:
                 # Advance the key indices and the time
                 key1 = local_chr + str(key1_index)
                 key2 = local_chr + str(key1_index+1)
                 self.modem_addresses[local_chr][1] = key1_index + 1
                 self.pose_time_lookup[key2] = tj
+                #rospy.loginfo(f"Advancing pose from {key1} to {key2} at {tj.to_sec()}")
                 x_ij = response.pose_delta
-                # pose_delta is a PoseWithCovarianceStamped message
+                # pose_delta is a PoseWithCovariance
                 position = np.array([
                     x_ij.pose.pose.position.x,
                     x_ij.pose.pose.position.y,
@@ -158,27 +167,41 @@ class CycleManager:
                     "key2": key2,
                     "position": position,
                     "orientation": orientation,
-                    "sigmas": sigmas
+                    "sigmas": sigmas,
                 })
+                # Convetr orienation and dr_orientation to rpy
+                orientation_rpy = spt.Rotation.from_quat(orientation).as_euler('xyz', degrees=True)
+                # Log the preintegrated pose
                 # Log thepreintegrated pose
-                rospy.loginfo(f"Preintegrated pose from {key1} to {key2} at {tj}: position={position}, orientation={orientation}, sigmas={sigmas}")
+                # rospy.loginfo(
+                #     f"Preintegrated pose from {key1} to {key2} at {tj.to_sec():.2f}: "
+                #     f"position={[f'{x:.4f}' for x in position]}, "
+                #     f"orientation={[f'{r:.2f}' for r in orientation_rpy]},\n "
+                #     f"sigmas={[f'{s:.4f}' for s in sigmas]}"
+                # )
                 # Publish the pose factor
                 pose_factor_msg = PoseFactorStamped()
                 pose_factor_msg.header.stamp = tj
                 pose_factor_msg.header.frame_id = "modem"
                 pose_factor_msg.key1 = key1
                 pose_factor_msg.key2 = key2
-                pose_factor_msg.position.x = response.pose_delta.pose.pose.position.x
-                pose_factor_msg.position.y = response.pose_delta.pose.pose.position.y
-                pose_factor_msg.position.z = response.pose_delta.pose.pose.position.z
-                pose_factor_msg.orientation.x = response.pose_delta.pose.pose.orientation.x
-                pose_factor_msg.orientation.y = response.pose_delta.pose.pose.orientation.y
-                pose_factor_msg.orientation.z = response.pose_delta.pose.pose.orientation.z
-                pose_factor_msg.orientation.w = response.pose_delta.pose.pose.orientation.w
-                pose_factor_msg.sigmas = np.sqrt(np.diag(np.array(response.pose_delta.pose.covariance).reshape((6, 6))))
+                pose_factor_msg.pose = PoseWithCovariance()
+                pose_factor_msg.pose.pose.position = Point(
+                    x=x_ij.pose.pose.position.x,
+                    y=x_ij.pose.pose.position.y,
+                    z=x_ij.pose.pose.position.z
+                )
+                pose_factor_msg.pose.pose.orientation = Quaternion(
+                    x=x_ij.pose.pose.orientation.x,
+                    y=x_ij.pose.pose.orientation.y,
+                    z=x_ij.pose.pose.orientation.z,
+                    w=x_ij.pose.pose.orientation.w
+                )
+                pose_factor_msg.pose.covariance = np.array(x_ij.pose.covariance).reshape((6, 6)).flatten().tolist()
                 self.pose_factor_pub.publish(pose_factor_msg)
                 #rospy.loginfo(f"Published pose factor: {pose_factor_msg}")
                 # This allows for calling preintegration to clear the queue without advancing the pos
+            self.initial_ti = tj  # Update the initial time to the current time
         except rospy.ServiceException as e:
             rospy.logerr(f"Preintegration failed: {response.error_message}") # Generate a placeholder response for comms testing
             response = PreintegrateImuResponse(
@@ -187,11 +210,13 @@ class CycleManager:
                         stamp=tj,
                         frame_id="imu"
                     ),
-                    pose=Pose(
-                        position=Point(x=0.0, y=0.0, z=0.0),
-                        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-                    ),
-                    covariance=[1.0] * 36  # Placeholder covariance
+                    pose=PoseWithCovariance(
+                        pose=Pose(
+                            position=Point(x=0.0, y=0.0, z=0.0),
+                            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+                        ),
+                        covariance= np.zeros((6, 6)).flatten().tolist()
+                    )
                 )
             )
         return
@@ -199,8 +224,6 @@ class CycleManager:
     def routine_preintegration(self):
         """This function is called to preintegrate the imu data at a regular interval.
         """
-        # Get the current time
-        tj = rospy.Time.now()
         # Call the preintegration service
         self.request_preintegration(self.nav_state_time, adv_pose=True)
 
