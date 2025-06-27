@@ -70,7 +70,7 @@
 
         <!-- Launch communication and graph managers-->
         <node name="comms_lbl" pkg="spurdog_acomms" type="comms_lbl_multiagent.py" output="screen">
-            <param name="sound_speed" value="1490.6" />
+            <param name="sound_speed" value="1506" />
             <param name="sigma_range" value="1" />
             <param name="ping_timeout" value="3" />
             <param name="send_data" value="false" />

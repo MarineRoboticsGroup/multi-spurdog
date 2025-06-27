@@ -8,11 +8,11 @@
 
 <launch>
     <!-- Args that we would change at agent-to-agent level-->
-    <arg name="agent_name" default="actor_1" doc="format: actor_0 or beacon_0"/>
-    <arg name="source_addr" default="1" doc="int"/>
+    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
+    <arg name="source_addr" default="0" doc="int"/>
     <arg name="num_agents" default="2" />
     <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/>
-    <arg name="active_slots" default="1" doc="comma-separated list of active TDMA slots"/>
+    <arg name="active_slots" default="0" doc="comma-separated list of active TDMA slots"/>
 
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
@@ -46,7 +46,7 @@
                     CST: 1
                     FC0: 25000
                     BW0: 5000
-                    SRC: 1
+                    SRC: 0
                     XST: 1
                     TAT: 50
                     pwramp.txlevel: 0
@@ -70,7 +70,7 @@
 
         <!-- Launch communication and graph managers-->
         <node name="comms_lbl" pkg="spurdog_acomms" type="comms_multiagent.py" output="screen">
-            <param name="sound_speed" value="1490.6" />
+            <param name="sound_speed" value="1506" />
             <param name="sigma_range" value="1" />
             <param name="ping_timeout" value="4" />
             <param name="send_data" value="true" />
