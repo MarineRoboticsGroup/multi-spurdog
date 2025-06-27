@@ -63,7 +63,7 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
   private_nh_.param("velocity_source", velocity_source, std::string("constant"));
   if (velocity_source == "dvl") {
     dvl_vel_sub_ = actor_ns.subscribe("dvl_pdx", 10, &ImuPreintegratorNode::dvlVelCallback, this);
-    gtsam::Vector3 dvl_noise_sigmas(0.1, 0.1, 0.1); // Per Ray
+    gtsam::Vector3 dvl_noise_sigmas(0.5, 0.5, 0.5); // This is a guess
     dvl_noise_model_ = dvl_noise_sigmas.cwiseProduct(dvl_noise_sigmas).asDiagonal();
   } else {
     ROS_WARN("Velocity source not set to DVL, using default constant velocity");
@@ -170,20 +170,16 @@ gtsam::Matrix6 ImuPreintegratorNode::makePSD(const gtsam::Matrix6& input) {
 }
 
 gtsam::Rot3 ImuPreintegratorNode::convertVehicleNEDToWorldENU(const gtsam::Rot3& R_ahrs) {
-    gtsam::Rot3 R_decl = gtsam::Rot3::Rz((-M_PI * 14.1 / 180.0)); // declination correction 14.1degW
+    //gtsam::Rot3 R_decl = gtsam::Rot3::Rz((-M_PI * 14.1 / 180.0)); // declination correction 14.1degW
     // Get the vehicle rotation in NED frame for debugging
-    gtsam::Rot3 R_ned_to_body = R_decl * R_ahrs; // Rotation from NED to Body
-    gtsam::Vector3 vehicle_rpy_ned = R_ned_to_body.rpy() * 180.0 / M_PI; // Convert to degrees for logigng
+    // gtsam::Rot3 R_ned_to_body = R_decl * R_ahrs; // Rotation from NED to Body
+    //gtsam::Vector3 vehicle_rpy_ned = R_ned_to_body.rpy() * 180.0 / M_PI; // Convert to degrees for logigng
+    gtsam::Rot3 R_ned_to_body = R_ahrs; // Rotation from NED to Body
     gtsam::Rot3 R_body_to_ned = R_ned_to_body.inverse(); // Rotation from Body to NED
     gtsam::Rot3 R_flip_z = gtsam::Rot3::Rx(M_PI); // Flip Z axis
     gtsam::Rot3 R_north_to_east = gtsam::Rot3::Rz(-M_PI / 2); // North to East rotation
     gtsam::Rot3 R_ned_enu = R_north_to_east * R_flip_z; // NED to ENU rotation
     gtsam::Rot3 Ri_wb_enu = R_ned_enu * R_body_to_ned; // Convert from NED to ENU
-    // Log the conversion
-    gtsam::Vector3 rpy = Ri_wb_enu.rpy() * 180.0 / M_PI; // Convert to degrees
-    // ROS_INFO("Converted rotation from NED [%f, %f, %f] to ENU [%f, %f, %f]",
-    //          vehicle_rpy_ned.x(), vehicle_rpy_ned.y(), vehicle_rpy_ned.z(),
-    //          rpy.x(), rpy.y(), rpy.z());
     return Ri_wb_enu;
 }
 
@@ -228,7 +224,6 @@ std::tuple<double, gtsam::Rot3, gtsam::Matrix3, gtsam::Rot3> ImuPreintegratorNod
                                        imu_msg.orientation.z);
         // Convert the vehicle NED to world ENU
         Ri_wb = convertVehicleNEDToWorldENU(Ri_wb); // Convert from NED to ENU
-        // Notes: -decl is good, -z, +x looks good for first 200sec, then breaks down
         imu_buffer_.pop_front(); // Skip the first one (no dt)
         continue;
       }
@@ -274,11 +269,8 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6, gtsam::Rot3> ImuPreintegratorNo
   deltaTransij = gtsam::Vector3(velocity.x() * deltaTij,
                                 velocity.y() * deltaTij,
                                 velocity.z() * deltaTij);
-  deltaTransCovij = vel_noise_model * deltaTij;
-  // Convert the translation into ENU
-  // deltaTransij = Ri_wb.rotate(deltaTransij); // Rotate the translation into the world frame
-  // Build the complete preintegrated pose
-  //gtsam::Pose3 Tij_b = gtsam::Pose3(Ri_wb, deltaTransij); // Pose in body frame
+  deltaTransCovij = vel_noise_model * deltaTij* deltaTij; // Covariance of the translation
+  // Build the pose in the body frame
   gtsam::Pose3 Tij_b = gtsam::Pose3(deltaRij, deltaTransij); // Pose in body frame
   // Build the complete preintegrated covariance
   gtsam::Matrix6 Covij_b = gtsam::Matrix6::Zero();
@@ -286,6 +278,7 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6, gtsam::Rot3> ImuPreintegratorNo
   Covij_b.block<3, 3>(0, 3) = gtsam::Matrix3::Zero(); // Cross-covariance
   Covij_b.block<3, 3>(3, 0) = gtsam::Matrix3::Zero(); // Cross-covariance
   Covij_b.block<3, 3>(3, 3) = deltaTransCovij; // Covariance of the translation
+  // Rotate the covariance from body to world frame
   return std::make_tuple(deltaTij, Tij_b, Covij_b, Ri_wb);
 }
 // getRelativePoseBetweenStates
@@ -351,18 +344,14 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelati
         }
         actual_deltaTij += std::get<0>(preintegrated_pose);
         // Compose the new preintegrated pose with the previous one
-        gtsam::Pose3 new_relPose;
-        gtsam::Matrix6 new_relCov;
-        //gtsam::Matrix3 Ji, Jj; // Jacobians for composing the poses
-        //new_relPose = relPose.compose(std::get<1>(preintegrated_pose), Ji, Jj);
         gtsam::Matrix66 Ji, Jj;
-        gtsam::Pose3 new_pose = relPose.compose(std::get<1>(preintegrated_pose),
+        gtsam::Pose3 new_relPose = relPose.compose(std::get<1>(preintegrated_pose),
                                              gtsam::OptionalJacobian<6,6>(Ji),
                                              gtsam::OptionalJacobian<6,6>(Jj));
-        new_relCov = Ji * relCov * Ji.transpose() +
+        gtsam::Matrix6 new_relCov = Ji * relCov * Ji.transpose() +
                                     Jj * std::get<2>(preintegrated_pose) * Jj.transpose();
         // Re-write the relative pose and covariance
-        relPose = new_pose;
+        relPose = new_relPose;
         relCov = new_relCov;
         last_dvl_time = t;
         dvl_buffer_.pop_front();
@@ -372,24 +361,16 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelati
   // Rotate the relative pose and covariance from body to world frame
   gtsam::Rot3 Rij_b = relPose.rotation();
   gtsam::Point3 tij_b = relPose.translation();
-  // ROS_INFO("Relative pose in body frame: rotation [%f, %f, %f], translation [%f, %f, %f]",
-  //          Rij_b.rpy().x()*(180/M_PI), Rij_b.rpy().y()*(180/M_PI), Rij_b.rpy().z()*(180/M_PI),
-  //          tij_b.x(), tij_b.y(), tij_b.z());
   gtsam::Pose3 T_wb(Ri_wb, gtsam::Point3(0.0, 0.0, 0.0)); // Pose from world to body
-  gtsam::Pose3 Tij_w = T_wb * relPose * T_wb.inverse(); // Relative pose in world frame
-  ROS_INFO("Relative pose in world frame: rotation [%f, %f, %f], translation [%f, %f, %f]",
-           Tij_w.rotation().rpy().x()*(180/M_PI), Tij_w.rotation().rpy().y()*(180/M_PI), Tij_w.rotation().rpy().z()*(180/M_PI),
-           Tij_w.translation().x(), Tij_w.translation().y(), Tij_w.translation().z());
-  // gtsam::Rot3 Rij_w = relPose.rotation();
-  // gtsam::Point3 tij_w = relPose.translation();
-  gtsam::Matrix6 Covij_b = relCov; // Covariance in body frame
-  //gtsam::Rot3 Rij_w = Ri_wb * Rij_b * Ri_wb.inverse(); // Rotate the delta rotation into the world frame
-  //gtsam::Point3 tij_w = Ri_wb.rotate(tij_b); // Rotate the translation into the world frame
-  //gtsam::Pose3 Tij_w(Rij_w, tij_w); // Create the pose in world frame
-  // Rotate the covariance from body to world frame
-  //gtsam::Matrix6 Ad_wb = gtsam::Pose3(Ri_wb, gtsam::Point3()).AdjointMap(); // Adjoint map for the rotation
-  gtsam::Matrix6 Ad_wb = T_wb.AdjointMap(); // Adjoint map for the rotation
+  gtsam::Pose3 Tij_w = T_wb * relPose * T_wb.inverse();   // Relative pose in world frame
+  gtsam::Matrix6 Covij_b = relCov;                        // Covariance in body frame
+  gtsam::Matrix6 Ad_wb = T_wb.AdjointMap();               // Adjoint map for the rotation
   gtsam::Matrix6 Covij_w = Ad_wb * Covij_b * Ad_wb.transpose(); // Rotate the covariance
+  // std::stringstream ss;
+  // ss << "Preintegrated Pose: " << Tij_w << std::endl;
+  // ss << "Preintegrated Covariance: \n" << Covij_w << std::endl;
+  // // Log the preintegrated pose and covariance
+  // ROS_INFO_STREAM(ss.str());
   // Ensure the covariance is positive semi-definite
   Covij_w = makePSD(Covij_w);
   return std::make_tuple(actual_deltaTij, Tij_w, Covij_w);
@@ -424,6 +405,9 @@ bool ImuPreintegratorNode::handlePreintegrate(
   //          last_nav_report_.second.rotation().toQuaternion().y(),
   //          last_nav_report_.second.rotation().toQuaternion().z());
   // Log the covariance
+  // std::stringstream ss4;
+  // ss4 << "Preintegrated Covariance:\n" << relativeCov;
+  // ROS_INFO_STREAM(ss4.str());
   // std::stringstream ss5;
   // ss5 << "Dead Reckoned Covariance:\n" << dr_cov;
   // ROS_INFO_STREAM(ss5.str());
@@ -571,7 +555,7 @@ int main(int argc, char** argv) {
   ros::init(argc, argv, "imu_preintegrator_node");
   ImuPreintegratorNode node;
   g_node_ptr = &node;
-  signal(SIGINT, onShutdownCallback);  // Catch Ctrl+C and cleanly shutdown
+  //signal(SIGINT, onShutdownCallback);  // Catch Ctrl+C and cleanly shutdown
   ros::spin();
   return 0;
 }
