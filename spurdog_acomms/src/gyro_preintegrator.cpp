@@ -310,6 +310,7 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelati
     ros::Time last_dvl_time = initial_time;
     bool initialized = false;
     bool Rwb_initialized = false;
+    gtsam::Vector3 v = constant_vel_model_; // Default to constant velocity
     while (!dvl_buffer_.empty()) {
       const auto& dvl_msg = dvl_buffer_.front();
       ros::Time t = dvl_msg.header.stamp;
@@ -333,9 +334,8 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelati
           continue;
         }
         // Integrate the Rotation between the last_dvl_time and t
-        gtsam::Vector3 v(dvl_msg.twist.linear.x,
-                          dvl_msg.twist.linear.y,
-                          dvl_msg.twist.linear.z);
+        v = gtsam::Vector3(
+            dvl_msg.twist.linear.x, dvl_msg.twist.linear.y, dvl_msg.twist.linear.z);
         auto preintegrated_pose = getPreintegratedPose(
             v, dvl_noise_model_, last_dvl_time, t);
         if (!Rwb_initialized) {
