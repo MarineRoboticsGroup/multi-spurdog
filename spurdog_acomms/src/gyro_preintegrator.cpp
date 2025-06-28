@@ -24,7 +24,6 @@
 #include <gtsam/navigation/PreintegrationBase.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/ImuBias.h>
-#include <gtsam/navigation/NavState.h>
 
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Rot3.h>
@@ -33,6 +32,7 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/base/Matrix.h>
 #include <gtsam/base/Vector.h>
+#include <Eigen/Eigenvalues>
 
 ImuPreintegratorNode* g_node_ptr = nullptr;
 
@@ -56,35 +56,30 @@ ImuPreintegratorNode::ImuPreintegratorNode() {
   private_nh_.param("gyro_bias_x", gyro_bias_x, 0.0);
   private_nh_.param("gyro_bias_y", gyro_bias_y, 0.0);
   private_nh_.param("gyro_bias_z", gyro_bias_z, 0.0);
-  bias_ = gtsam::Vector3(gyro_bias_x, gyro_bias_y, gyro_bias_z);
+  gyro_bias_ = gtsam::Vector3(gyro_bias_x, gyro_bias_y, gyro_bias_z);
 
   // Set the velocity source
   std::string velocity_source;
   private_nh_.param("velocity_source", velocity_source, std::string("constant"));
   if (velocity_source == "dvl") {
     dvl_vel_sub_ = actor_ns.subscribe("dvl_pdx", 10, &ImuPreintegratorNode::dvlVelCallback, this);
-    gtsam::Vector3 dvl_noise_sigmas(0.1, 0.1, 0.1); // m/s, in body frame For single measurement
-    vel_noise_model_ = dvl_noise_sigmas.cwiseProduct(dvl_noise_sigmas).asDiagonal();
+    gtsam::Vector3 dvl_noise_sigmas(0.5, 0.5, 0.5); // This is a guess
+    dvl_noise_model_ = dvl_noise_sigmas.cwiseProduct(dvl_noise_sigmas).asDiagonal();
   } else {
     ROS_WARN("Velocity source not set to DVL, using default constant velocity");
-    vel_model_ = gtsam::Vector3(0.8, 0.0, 0.0); // Default to typical velocity
+    constant_vel_model_ = gtsam::Vector3(0.8, 0.0, 0.0); // Default to typical velocity
     gtsam::Vector3 constant_vel_noise_sigmas(0.5, 0.25, 0.1); // Cautiously set to 5x DVL
-    vel_noise_model_ = constant_vel_noise_sigmas.cwiseProduct(constant_vel_noise_sigmas).asDiagonal();
+    constant_vel_noise_model_ = constant_vel_noise_sigmas.cwiseProduct(constant_vel_noise_sigmas).asDiagonal();
   }
 
   // Initialize the buffers
   ti_ = ros::Time(0); // Initialize the time to zero
   in_water_ = false; // Initialize the in-water status
-  current_orientation_ = gtsam::Rot3::Identity(); // Initialize the current orientation
-  R_wb_i_ = gtsam::Rot3::Identity(); // Initialize the rotation from body to world frame
   imu_buffer_ = std::deque<sensor_msgs::Imu>();
   dvl_buffer_ = std::deque<geometry_msgs::TwistStamped>();
   dr_state_and_cov_ = std::make_tuple(ros::Time(0), gtsam::Pose3(), gtsam::Matrix6::Identity().eval());
-  last_nav_report_ = std::make_pair(ros::Time(0), gtsam::Pose3());
 
-  // After 10sec, handle the initial state
-  ros::Duration(1.0).sleep(); // Wait for 10 seconds to allow for initial setup
-
+  ros::Duration(1.0).sleep(); // Wait  to allow for initial setup
 }
 
 // imuCallback
@@ -93,15 +88,7 @@ void ImuPreintegratorNode::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
   if (ti_ == ros::Time(0)) {
     ti_ = msg->header.stamp;
     ROS_WARN("First IMU message received at time: %f", ti_.toSec());
-    R_wb_i_ = gtsam::Rot3::Quaternion(
-        msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
   }
-  // Convert the quaternion to RPY angles (degrees)
-  // gtsam::Vector3 rpy = gtsam::Rot3(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z).rpy();
-  // ROS_INFO("IMU Orientation (RPY): [%f, %f, %f]", rpy.x() * 180.0 / M_PI, rpy.y() * 180.0 / M_PI, rpy.z() * 180.0 / M_PI);
-  // Update the current orientation based on the IMU message
-  current_orientation_ = gtsam::Rot3::Quaternion(
-      msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
 }
 
 // navStateCallback
@@ -110,74 +97,49 @@ void ImuPreintegratorNode::navStateCallback(const geometry_msgs::PoseStamped::Co
   ros::Time t = std::get<0>(dr_state_and_cov_);
   gtsam::Pose3 pose = std::get<1>(dr_state_and_cov_);
   gtsam::Matrix6 cov = std::get<2>(dr_state_and_cov_);
+  // Get the pose from the message
+  gtsam::Pose3 reported_pose = gtsam::Pose3(
+      gtsam::Rot3::Quaternion(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z),
+      gtsam::Point3(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z));
+  // Rotate the reported pose from NED to ENU
+  gtsam::Rot3 R_enu = convertVehicleNEDToWorldENU(reported_pose.rotation());
+  reported_pose = gtsam::Pose3(R_enu, reported_pose.translation()); // Translation is in ENU, but rotation is NED?
   if (t == ros::Time(0) &&
       pose.equals(gtsam::Pose3()) &&  // Pose3 provides an equals() method
       cov.isApprox(gtsam::Matrix6::Identity())) {
     // Initialize the initial state and covariance
-    gtsam::Pose3 initial_pose(
-        gtsam::Rot3::Quaternion(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z),
-        gtsam::Point3(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z));
     gtsam::Vector6 initial_cov_sigmas = (gtsam::Vector6() << 1e-6, 1e-6, 1e-6, 1.5, 1.5, 0.1).finished();
     gtsam::Matrix6 initial_cov = initial_cov_sigmas.cwiseProduct(initial_cov_sigmas).asDiagonal();
-    dr_state_and_cov_ = std::make_tuple(msg->header.stamp, initial_pose, initial_cov);
+    dr_state_and_cov_ = std::make_tuple(msg->header.stamp, reported_pose, initial_cov);
     ROS_INFO("Initial state set at time: %f", msg->header.stamp.toSec());
   }
-  // Update the last nav report
-  last_nav_report_ = std::make_pair(msg->header.stamp,
-      gtsam::Pose3(gtsam::Rot3::Quaternion(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z),
-                    gtsam::Point3(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z)));
+  last_nav_report_ = std::make_pair(msg->header.stamp, reported_pose);
 }
 
 // dvlVelCallback
 void ImuPreintegratorNode::dvlVelCallback(const geometry_msgs::TwistStamped::ConstPtr& msg) {
   // Rotate the DVL from body to world frame using the current orientation
-  gtsam::Rot3 R_wb = current_orientation_;
   gtsam::Vector3 dvl_velocity(
       msg->twist.linear.x, msg->twist.linear.y, msg->twist.linear.z);
-  // Transform the DVL velocity to the world frame
-  gtsam::Vector3 dvl_velocity_world = R_wb.rotate(dvl_velocity);
-  // Create a new TwistStamped message with the transformed velocity
-  geometry_msgs::TwistStamped transformed_msg;
-  transformed_msg.header = msg->header; // Copy the header
-  transformed_msg.twist.linear.x = dvl_velocity_world.x();
-  transformed_msg.twist.linear.y = dvl_velocity_world.y();
-  transformed_msg.twist.linear.z = dvl_velocity_world.z();
-  dvl_buffer_.push_back(transformed_msg);
+  dvl_buffer_.push_back(*msg);
 }
 
 // inWaterCallback
 void ImuPreintegratorNode::inWaterCallback(const std_msgs::Bool::ConstPtr& msg) {
   if (!in_water_) {
     // Set the dr_pose and covariance to the last nav report
-    if (last_nav_report_.first != ros::Time(0)) {
-      gtsam::Pose3 last_pose = last_nav_report_.second;
-      gtsam::Vector6 last_cov_sigmas = (gtsam::Vector6() << 1e-6, 1e-6, 1e-6, 1.5, 1.5, 0.1).finished();
-      gtsam::Matrix6 last_cov = last_cov_sigmas.cwiseProduct(last_cov_sigmas).asDiagonal();
-      dr_state_and_cov_ = std::make_tuple(ti_, last_pose, last_cov);
-      ROS_INFO("Reset preintegration start time to %f with pose [%f, %f, %f]",
-                ti_.toSec(), last_pose.translation().x(), last_pose.translation().y(), last_pose.translation().z());
-    } else {
-      ROS_WARN("Last nav report is not set, cannot reset preintegration start time");
-    }
+    gtsam::Vector6 last_cov_sigmas = (gtsam::Vector6() << 1e-6, 1e-6, 1e-6, 1.5, 1.5, 0.1).finished();
+    gtsam::Matrix6 last_cov = last_cov_sigmas.cwiseProduct(last_cov_sigmas).asDiagonal();
+    dr_state_and_cov_ = std::make_tuple(last_nav_report_.first, last_nav_report_.second, last_cov);
   } else if (!in_water_ && msg->data==true) { // Entering the water
     if (!imu_buffer_.empty()) {
       const sensor_msgs::Imu& last_msg = imu_buffer_.back();
       ti_ = last_msg.header.stamp;
       imu_buffer_.clear(); // Clear the IMU buffer to start fresh
       dvl_buffer_.clear(); // Clear the DVL velocity buffer as well
+      ROS_WARN("Entering water, reset preintegration start time to %f", ti_.toSec());
     }else {
       ROS_WARN("IMU buffer is empty, cannot reset preintegration start time");
-    }
-    // Set the dr_pose and covariance to the last nav report
-    if (last_nav_report_.first != ros::Time(0)) {
-      gtsam::Pose3 last_pose = last_nav_report_.second;
-      gtsam::Vector6 last_cov_sigmas = (gtsam::Vector6() << 1e-6, 1e-6, 1e-6, 1.5, 1.5, 0.1).finished();
-      gtsam::Matrix6 last_cov = last_cov_sigmas.cwiseProduct(last_cov_sigmas).asDiagonal();
-      dr_state_and_cov_ = std::make_tuple(ti_, last_pose, last_cov);
-      ROS_INFO("Reset preintegration start time to %f with pose [%f, %f, %f]",
-                ti_.toSec(), last_pose.translation().x(), last_pose.translation().y(), last_pose.translation().z());
-    } else {
-      ROS_WARN("Last nav report is not set, cannot reset preintegration start time");
     }
   } else {
     // IN the water, do nothing
@@ -185,269 +147,233 @@ void ImuPreintegratorNode::inWaterCallback(const std_msgs::Bool::ConstPtr& msg) 
   in_water_ = msg->data; // Update the in-water status
 }
 
-// initStateAndCovariance
-std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::initStateAndCovariance()
-{
-  // Initialize the NavState and covariance maps
-    gtsam::Pose3 initial_pose(
-        gtsam::Rot3::Identity(), gtsam::Point3(0.0, 0.0, 0.0)); // Initial pose at origin
-    gtsam::Vector6 initial_cov_sigmas = (gtsam::Vector6() << 1e-6, 1e-6, 1e-6, 1e-2, 1e-2, 1e-2).finished();
-    gtsam::Matrix6 initial_cov = initial_cov_sigmas.cwiseProduct(initial_cov_sigmas).asDiagonal();
-    //Return the initial state and covariance
-    return std::make_pair(initial_pose, initial_cov);
+gtsam::Matrix6 ImuPreintegratorNode::makePSD(const gtsam::Matrix6& input) {
+    // Step 1: Force symmetry
+    gtsam::Matrix6 sym = 0.5 * (input + input.transpose());
+
+    // Step 2: Eigen decomposition
+    Eigen::SelfAdjointEigenSolver<gtsam::Matrix6> eigensolver(sym);
+    if (eigensolver.info() != Eigen::Success) {
+        throw std::runtime_error("Eigen decomposition failed in makePSD");
+    }
+
+    // Step 3: Clamp eigenvalues to a minimum threshold
+    Eigen::Matrix<double, 6, 1> eigvals = eigensolver.eigenvalues();
+    gtsam::Matrix6 eigvecs = eigensolver.eigenvectors();
+    double min_eigval = 1e-9;
+    Eigen::Matrix<double, 6, 1> clamped = eigvals.cwiseMax(min_eigval);
+
+    // Step 4: Reconstruct matrix
+    gtsam::Matrix6 psd = eigvecs * clamped.asDiagonal() * eigvecs.transpose();
+
+    return psd;
 }
 
-// getAverageVelocityBetweenTimes
-std::pair<gtsam::Vector3, gtsam::Matrix3> ImuPreintegratorNode::getPreintegratedTranslation(
+gtsam::Rot3 ImuPreintegratorNode::convertVehicleNEDToWorldENU(const gtsam::Rot3& R_ahrs) {
+    //gtsam::Rot3 R_decl = gtsam::Rot3::Rz((-M_PI * 14.1 / 180.0)); // declination correction 14.1degW
+    // Get the vehicle rotation in NED frame for debugging
+    // gtsam::Rot3 R_ned_to_body = R_decl * R_ahrs; // Rotation from NED to Body
+    //gtsam::Vector3 vehicle_rpy_ned = R_ned_to_body.rpy() * 180.0 / M_PI; // Convert to degrees for logigng
+    gtsam::Rot3 R_ned_to_body = R_ahrs; // Rotation from NED to Body
+    gtsam::Rot3 R_body_to_ned = R_ned_to_body.inverse(); // Rotation from Body to NED
+    gtsam::Rot3 R_flip_z = gtsam::Rot3::Rx(M_PI); // Flip Z axis
+    gtsam::Rot3 R_north_to_east = gtsam::Rot3::Rz(-M_PI / 2); // North to East rotation
+    gtsam::Rot3 R_ned_enu = R_north_to_east * R_flip_z; // NED to ENU rotation
+    gtsam::Rot3 Ri_wb_enu = R_ned_enu * R_body_to_ned; // Convert from NED to ENU
+    return Ri_wb_enu;
+}
+
+//getPreintegratedRotation
+std::tuple<double, gtsam::Rot3, gtsam::Matrix3, gtsam::Rot3> ImuPreintegratorNode::getPreintegratedRotation(
+  const ros::Time& imu_ti, const ros::Time& imu_tj) {
+  // Check if the IMU buffer is empty
+  if (imu_buffer_.empty()) {
+    ROS_WARN("IMU buffer is empty, cannot preintegrate rotation");
+    return std::make_tuple(0.0, gtsam::Rot3::Identity(), gtsam::Matrix3::Zero(), gtsam::Rot3::Identity());
+  }
+  // Create the preintegration parameters
+  auto preint_rotation_params = boost::make_shared<gtsam::PreintegratedRotationParams>(
+      gyro_noise_, gyro_bias_);
+  // Create the preintegrated rotation object
+  gtsam::PreintegratedRotation preint_rotation(preint_rotation_params);
+  // Iterate through the IMU buffer and integrate the measurements
+  ros::Time last_imu_time = imu_ti;
+  gtsam::Matrix3 deltaRotCovij = gtsam::Matrix3::Zero();
+  gtsam::Rot3 Ri_wb; // Initial rotation in world frame
+  bool initialized = false;
+  double count = 0.0; // Initialize mean dt
+  // While imu buffer is not empty
+  while (!imu_buffer_.empty()) {
+    const auto& imu_msg = imu_buffer_.front();
+    ros::Time t = imu_msg.header.stamp;
+    // if (t < imu_ti) {
+    //   ROS_WARN("IMU message at time %f is before the initial time %f, ignoring", t.toSec(), imu_ti.toSec());
+    //   imu_buffer_.pop_front(); // Remove this message
+    //   continue; // Skip this message
+    if (t > imu_tj){
+    //} else if (t > imu_tj) {
+      break; // Stop integrating if we exceed the final time
+    } else {
+      if (!initialized) {
+        last_imu_time = t;
+        initialized = true;
+        // Set the Rwb to the initial orientation
+        Ri_wb = gtsam::Rot3::Quaternion(imu_msg.orientation.w,
+                                       imu_msg.orientation.x,
+                                       imu_msg.orientation.y,
+                                       imu_msg.orientation.z);
+        // Convert the vehicle NED to world ENU
+        Ri_wb = convertVehicleNEDToWorldENU(Ri_wb); // Convert from NED to ENU
+        imu_buffer_.pop_front(); // Skip the first one (no dt)
+        continue;
+      }
+      double dt = (t - last_imu_time).toSec();
+      if (dt <= 0.0) {
+        ROS_WARN("Non-positive dt (%f), skipping IMU message", dt);
+        imu_buffer_.pop_front();
+        continue;
+      }
+      gtsam::Vector3 omega(imu_msg.angular_velocity.x,
+                           imu_msg.angular_velocity.y,
+                           imu_msg.angular_velocity.z);
+      preint_rotation.integrateMeasurement(omega, gyro_bias_, dt);
+      count += 1;
+      last_imu_time = t;
+      imu_buffer_.pop_front();
+    }
+  }
+  // Get the integrated rotation and covariance
+  double deltaTij = preint_rotation.deltaTij();
+  double mean_dt = count > 0 ? deltaTij / count : 0.0; // Calculate the mean dt
+  gtsam::Matrix3 H; // H is dR/db
+  gtsam::Rot3 deltaRij = preint_rotation.biascorrectedDeltaRij(gyro_bias_, &H);
+  gtsam::Matrix3 gyro_noise_hz = gyro_noise_ * mean_dt; // Convert to rad^2/s^2
+  deltaRotCovij = H * gyro_noise_hz * H.transpose();
+  preint_rotation.resetIntegration();
+  return std::make_tuple(deltaTij, deltaRij, deltaRotCovij, Ri_wb);
+}
+
+std::tuple<double, gtsam::Pose3, gtsam::Matrix6, gtsam::Rot3> ImuPreintegratorNode::getPreintegratedPose(
+  const gtsam::Vector3& velocity, const gtsam::Matrix3& vel_noise_model,
+  const ros::Time& vel_ti, const ros::Time& vel_tj) {
+  // Get the preintegrated rotation/cov in the body frame:
+  std::tuple<double, gtsam::Rot3, gtsam::Matrix3, gtsam::Rot3> preintegrated_rotation;
+  preintegrated_rotation = getPreintegratedRotation(vel_ti, vel_tj);
+  double deltaTij = std::get<0>(preintegrated_rotation);
+  gtsam::Rot3 deltaRij = std::get<1>(preintegrated_rotation);
+  gtsam::Matrix3 deltaRotCovij = std::get<2>(preintegrated_rotation);
+  gtsam::Rot3 Ri_wb = std::get<3>(preintegrated_rotation); // Initial rotation in world frame
+  // Get the preintegrated translation/cov in the world frame:
+  gtsam::Vector3 deltaTransij;
+  gtsam::Matrix3 deltaTransCovij;
+  deltaTransij = gtsam::Vector3(velocity.x() * deltaTij,
+                                velocity.y() * deltaTij,
+                                velocity.z() * deltaTij);
+  deltaTransCovij = vel_noise_model * deltaTij* deltaTij; // Covariance of the translation
+  // Build the pose in the body frame
+  gtsam::Pose3 Tij_b = gtsam::Pose3(deltaRij, deltaTransij); // Pose in body frame
+  // Build the complete preintegrated covariance
+  gtsam::Matrix6 Covij_b = gtsam::Matrix6::Zero();
+  Covij_b.block<3, 3>(0, 0) = deltaRotCovij; // Covariance of the rotation
+  Covij_b.block<3, 3>(0, 3) = gtsam::Matrix3::Zero(); // Cross-covariance
+  Covij_b.block<3, 3>(3, 0) = gtsam::Matrix3::Zero(); // Cross-covariance
+  Covij_b.block<3, 3>(3, 3) = deltaTransCovij; // Covariance of the translation
+  // Rotate the covariance from body to world frame
+  return std::make_tuple(deltaTij, Tij_b, Covij_b, Ri_wb);
+}
+// getRelativePoseBetweenStates
+std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelativePoseBetween(
     const ros::Time& initial_time, const ros::Time& final_time) {
-  // Applies the desried velocity model over tij to return the preintegrated translation (world frame) and its covariance
+  double requested_deltaTij = ros::Duration(final_time - initial_time).toSec();
+  double actual_deltaTij = 0.0;
+  gtsam::Pose3 relPose = gtsam::Pose3();
+  gtsam::Matrix6 relCov = gtsam::Matrix6::Zero();
+  gtsam::Rot3 Ri_wb = gtsam::Rot3::Identity(); // Initial orientation in world frame
   // Check the velocity source
-  if (!in_water_){
-    ROS_WARN("Not in water, returning zero velocity model");
-    return std::make_pair(gtsam::Vector3(0.0, 0.0, 0.0), gtsam::Matrix3::Identity() * 0.1);
+  if (!in_water_) {
+    gtsam::Vector6 surface_cov_sigmas = (gtsam::Vector6() << 1e-6, 1e-6, 1e-6, 1.5, 1.5, 0.1).finished();
+    gtsam::Matrix6 surface_cov = surface_cov_sigmas.cwiseProduct(surface_cov_sigmas).asDiagonal();
+    // Not in water, return zero velocity model
+    actual_deltaTij = requested_deltaTij;
+    relPose = gtsam::Pose3(gtsam::Rot3::Identity(), gtsam::Point3(0.0, 0.0, 0.0));
+    relCov = surface_cov; // Use the surface covariance
   } else if (dvl_buffer_.empty()) {
-    //ROS_WARN("DVL buffer is empty, returning constant velocity model");
-    ros::Duration duration = final_time - initial_time;
-    // Rotate the constant velocity model from body to world frame using the orientation
-    gtsam::Rot3 R_wb = current_orientation_;
-    gtsam::Vector3 constant_velocity_world = R_wb.rotate(vel_model_);
-    // Get Translation and scale the covariance
-    gtsam::Vector3 translation = constant_velocity_world * duration.toSec();
-    gtsam::Matrix3 scaled_cov = vel_noise_model_ * duration.toSec() * duration.toSec();
-    // ROS_INFO("Tij between %f: [%f, %f, %f]",
-    //     ros::Duration(final_time.toSec()-initial_time.toSec()).toSec(),
-    //     translation.x(), translation.y(), translation.z());
-    return std::make_pair(translation, scaled_cov); // Use the constant velocity model
+    // Integrate between the initial and final times using the constant velocity model
+    auto preintegrated_pose = getPreintegratedPose(
+        constant_vel_model_, constant_vel_noise_model_, initial_time, final_time);
+    actual_deltaTij = std::get<0>(preintegrated_pose);
+    relPose = std::get<1>(preintegrated_pose);
+    relCov = std::get<2>(preintegrated_pose);
+    Ri_wb = std::get<3>(preintegrated_pose);
   } else {
     // Take the average velocity from the DVL buffer
-    gtsam::Vector3 delta_position = gtsam::Vector3::Zero();
-    gtsam::Matrix3 delta_position_cov = gtsam::Matrix3::Zero();
-    ros::Time last_measurement_time = initial_time;
+    ros::Time last_dvl_time = initial_time;
     bool initialized = false;
+    bool Rwb_initialized = false;
+    gtsam::Vector3 v = constant_vel_model_; // Default to constant velocity
     while (!dvl_buffer_.empty()) {
       const auto& dvl_msg = dvl_buffer_.front();
       ros::Time t = dvl_msg.header.stamp;
       if (t < initial_time) {
+        ROS_WARN("DVL message at time %f is before the initial time %f, ignoring", t.toSec(), initial_time.toSec());
         dvl_buffer_.pop_front(); // Remove old messages
         continue;
       } else if (t > final_time) {
         break; // Stop processing if we exceed the final time
       } else {
         if (!initialized) {
-          last_measurement_time = t;
+          last_dvl_time = t;
           initialized = true;
           dvl_buffer_.pop_front(); // Skip the first one (no dt)
           continue;
-      }
-      double dt = (t - last_measurement_time).toSec();
-      if (dt <= 0.0) {
-        ROS_WARN("Non-positive dt (%f), skipping DVL message", dt);
+        }
+        double dt = (t - last_dvl_time).toSec();
+        if (dt <= 0.0) {
+          ROS_WARN("Non-positive dt (%f), skipping DVL message", dt);
+          dvl_buffer_.pop_front();
+          continue;
+        }
+        // Integrate the Rotation between the last_dvl_time and t
+        v = gtsam::Vector3(
+            dvl_msg.twist.linear.x, dvl_msg.twist.linear.y, dvl_msg.twist.linear.z);
+        auto preintegrated_pose = getPreintegratedPose(
+            v, dvl_noise_model_, last_dvl_time, t);
+        if (!Rwb_initialized) {
+          Ri_wb = std::get<3>(preintegrated_pose); // Set the initial orientation in world frame
+          Rwb_initialized = true; // Mark the initial orientation as set
+        }
+        actual_deltaTij += std::get<0>(preintegrated_pose);
+        // Compose the new preintegrated pose with the previous one
+        gtsam::Matrix66 Ji, Jj;
+        gtsam::Pose3 new_relPose = relPose.compose(std::get<1>(preintegrated_pose),
+                                             gtsam::OptionalJacobian<6,6>(Ji),
+                                             gtsam::OptionalJacobian<6,6>(Jj));
+        gtsam::Matrix6 new_relCov = Ji * relCov * Ji.transpose() +
+                                    Jj * std::get<2>(preintegrated_pose) * Jj.transpose();
+        // Re-write the relative pose and covariance
+        relPose = new_relPose;
+        relCov = new_relCov;
+        last_dvl_time = t;
         dvl_buffer_.pop_front();
-        continue;
       }
-      gtsam::Vector3 v(dvl_msg.twist.linear.x,
-                       dvl_msg.twist.linear.y,
-                       dvl_msg.twist.linear.z);
-      delta_position += v * dt;
-      delta_position_cov += vel_noise_model_ * dt * dt;
-      last_measurement_time = t;
-      dvl_buffer_.pop_front();
     }
   }
-  if (initialized) {
-      // Return the position delta and covariance
-      // ROS_INFO("Tij between %f: [%f, %f, %f]",
-      //         ros::Duration(final_time.toSec()-initial_time.toSec()).toSec(),
-      //         delta_position.x(), delta_position.y(), delta_position.z());
-      return std::make_pair(delta_position, delta_position_cov);
-    } else {
-      ROS_WARN("No valid DVL messages found between %f and %f, returning zero delta position",
-              initial_time.toSec(), final_time.toSec());
-      return std::make_pair(gtsam::Vector3::Zero(), gtsam::Matrix3::Identity() * 0.1);
-    }
-  }
-
-}
-// getPreintegratedRotation
-std::tuple<double, gtsam::Rot3, gtsam::Matrix3> ImuPreintegratorNode::getPreintegratedRotation(
-    const ros::Time& initial_time, const ros::Time& final_time) {
-  // Check if the IMU buffer is empty
-  if (imu_buffer_.empty()) {
-    ROS_WARN("IMU buffer is empty, cannot preintegrate rotation");
-    return std::make_tuple(0.0, gtsam::Rot3::Identity(), gtsam::Matrix3::Zero());
-  }
-  // Create the preintegration parameters
-  auto preint_rotation_params = boost::make_shared<gtsam::PreintegratedRotationParams>(
-      gyro_noise_, bias_);
-  // Create the preintegrated rotation object
-  gtsam::PreintegratedRotation preint_rotation(preint_rotation_params);
-  // Iterate through the IMU buffer and integrate the measurements
-  ros::Time last_time = initial_time;
-  double count = 0.0; // Initialize mean dt
-  gtsam::Matrix3 deltaRotCovij = gtsam::Matrix3::Zero();
-  // While imu buffer is not empty
-  while (!imu_buffer_.empty()) {
-    const auto& imu_msg = imu_buffer_.front();
-    ros::Time t = imu_msg.header.stamp;
-    if (t < initial_time) {
-      ROS_WARN("IMU message at time %f is before the initial time %f, ignoring", t.toSec(), initial_time.toSec());
-      imu_buffer_.pop_front(); // Remove this message
-      continue; // Skip this message
-    } else if (t > final_time) {
-      break; // Stop integrating if we exceed the final time
-    } else {
-      // Calculate the time difference
-      double dt = (imu_msg.header.stamp - last_time).toSec();
-      if (dt < 0) {
-        ROS_WARN("Non-positive time difference: %f, skipping IMU message", dt);
-        imu_buffer_.pop_front(); // Remove this message
-        continue; // Skip this message
-      }
-      count += 1;
-      // Extract the gyro measurement
-      gtsam::Vector3 gyro(imu_msg.angular_velocity.x, imu_msg.angular_velocity.y, imu_msg.angular_velocity.z);
-      gtsam::Matrix3 J_k;
-      preint_rotation.integrateMeasurement(gyro, bias_, dt, J_k, boost::none); // Returns a Jacobian if need for debugging
-      last_time = imu_msg.header.stamp; // Update the last time
-      imu_buffer_.pop_front(); // Remove this message after processing
-    }
-  }
-  // Get the final rotation and covariance
-  double deltaTij = preint_rotation.deltaTij();
-  double mean_dt = count > 0 ? deltaTij / count : 0.0; // Calculate the mean dt
-  gtsam::Matrix3 H; // H is dR/db
-  gtsam::Rot3 deltaRij = preint_rotation.biascorrectedDeltaRij(bias_, &H);
-  gtsam::Matrix3 gyro_noise_hz = gyro_noise_ * mean_dt; // Convert to rad^2/s^2
-  deltaRotCovij = H * gyro_noise_hz * H.transpose();
-  preint_rotation.resetIntegration();
-  // Log the preintegration results
-  gtsam::Vector3 rpy = deltaRij.rpy();
-  // ROS_INFO("Preintegrated rotation: deltaTij = %f, deltaRij (RPY) = [%f, %f, %f]",
-  //          deltaTij,
-  //          rpy.x() * 180.0 / M_PI,
-  //          rpy.y() * 180.0 / M_PI,
-  //          rpy.z() * 180.0 / M_PI);
-  return std::make_tuple(deltaTij, deltaRij, deltaRotCovij);
-}
-
-// propagateState
-std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::propagateState(
-    const std::pair<gtsam::Pose3, gtsam::Matrix6>& initial_state_and_cov,
-    double deltaTij,                      // Time difference between the initial and final states
-    const gtsam::Rot3& deltaRij,          // Rotation, in body frame
-    const gtsam::Matrix3& deltaRotCovij,  // Covariance of the rotation
-    const gtsam::Vector3& deltaTransij,   // Translation, in world frame
-    const gtsam::Matrix3& deltaTransCovij // Covariance of the translation
-  ) {
-  //gtsam::Rot3 R_ij_w = deltaRij; // Rotation in world frame
-  gtsam::Rot3 R_ij_w = R_wb_i_ * deltaRij * R_wb_i_.inverse(); // Rotate the delta rotation into the world frame
-  // Log the delta rotation in world frame
-  gtsam::Vector3 rpy = R_ij_w.rpy();
-  // ROS_INFO("Delta rotation in world frame (RPY): [%f, %f, %f]",
-  //          rpy.x() * 180.0 / M_PI,
-  //          rpy.y() * 180.0 / M_PI,
-  //          rpy.z() * 180.0 / M_PI);
-  gtsam::Pose3 T_ij_w(R_ij_w, deltaTransij); // Create the pose in world frame
-  gtsam::Matrix3 RotCovij_w = R_wb_i_.matrix() * deltaRotCovij * R_wb_i_.matrix().transpose(); // Rotate the covariance into the world frame
-
-  // Extract the initial state and covariance
-  // gtsam::Pose3 initial_pose= initial_state_and_cov.first;
-  // gtsam::Matrix6 initial_cov = initial_state_and_cov.second;
-  // Calculate the new pose, given the initial state
-  // gtsam::Pose3 initial_pose = gtsam::Pose3(initial_state.attitude(), initial_state.position());
-  // Calculate the new pose after applying the delta rotation and model velocity
-
-  // Rotate the translation into the rotation frame
-  // gtsam::Rot3 R_ij = initial_pose.rotation().between(deltaRij);
-  // gtsam::Vector3 deltaTransij_rotated = R_ij.rotate(deltaTransij);
-  // gtsam::Pose3 predicted_pose = initial_pose.compose(gtsam::Pose3(deltaRij, deltaTransij_rotated));
-
-  // Log the predicted pose
-  // ROS_INFO("Predicted pose: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
-  //          predicted_pose.translation().x(), predicted_pose.translation().y(), predicted_pose.translation().z(),
-  //          predicted_pose.rotation().toQuaternion().w(), predicted_pose.rotation().toQuaternion().x(),
-  //          predicted_pose  .rotation().toQuaternion().y(), predicted_pose.rotation().toQuaternion().z());
-  // gtsam::Pose3 predicted_state(predicted_pose.rotation(), predicted_pose.translation());
-  // Calculate the relative pose
-  // gtsam::Pose3 rel_pose = initial_pose.between(predicted_pose);
-  gtsam::Matrix6 Ad_T_ij_w = T_ij_w.AdjointMap();
-  // Compute the covariance of the predicted state
-  gtsam::Matrix6 initial_cov = gtsam::Matrix6::Zero();
-  gtsam::Matrix6 Q = gtsam::Matrix6::Zero();
-  Q.block<3, 3>(0, 0) = deltaRotCovij;
-  Q.block<3, 3>(0, 3) = gtsam::Matrix3::Zero();
-  Q.block<3, 3>(3, 0) = gtsam::Matrix3::Zero();
-  Q.block<3, 3>(3, 3) = deltaTransCovij;
-  gtsam::Matrix6 predicted_cov = Ad_T_ij_w * initial_cov * Ad_T_ij_w.transpose() + Q;
-  // Then set the R_wb_i_ to the current orientation
-  R_wb_i_ = current_orientation_;
-  // std::stringstream ss5;
-  // ss5 << "Covariance Q:\n" << Q;
-  // ROS_INFO_STREAM(ss5.str());
-  // gtsam::Matrix6 predicted_cov = rel_adjoint * initial_cov * rel_adjoint.transpose() + Q;
-  // std::stringstream ss6;
-  // ss6 << "Predicted Covariance:\n" << predicted_cov;
-  // ROS_INFO_STREAM(ss6.str());
-  return std::make_pair(T_ij_w, predicted_cov);
-}
-
-// getRelativePoseBetweenStates
-std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getRelativePoseBetweenStates(
-    const ros::Time& initial_time, const ros::Time& final_time) {
-  // Check if the initial and final times are valid
-  if (initial_time.isZero() || final_time.isZero()) {
-    ROS_ERROR("Invalid initial or final time for preintegration");
-    return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
-  } else if (initial_time >= final_time) {
-    ROS_ERROR("Initial time must be less than final time for preintegration");
-    return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
-  } else if (imu_buffer_.empty()) {
-    ROS_ERROR("IMU buffer is empty, cannot preintegrate");
-    return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
-  } else {
-    //ROS_INFO("Preintegrating IMU data from %f to %f", initial_time.toSec(), final_time.toSec());
-    // Get the initial NavState and covariance
-    auto initial_state_and_cov = initStateAndCovariance();
-    gtsam::Pose3 initial_state = initial_state_and_cov.first;
-    gtsam::Matrix6 initial_cov = initial_state_and_cov.second;
-    // ROS_INFO("Initial state: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
-    //          initial_state.position().x(), initial_state.position().y(), initial_state.position().z(),
-    //          initial_state.attitude().toQuaternion().w(), initial_state.attitude().toQuaternion().x(),
-    //          initial_state.attitude().toQuaternion().y(), initial_state.attitude().toQuaternion().z());
-    // std::stringstream ss1;
-    // ss1 << "Initial Covariance:\n" << initial_cov;
-    // ROS_INFO_STREAM(ss1.str());
-    // Get the average velocity between the initial and final times from the DVL buffer
-    auto preint_translation_and_cov = getPreintegratedTranslation(initial_time, final_time);
-    gtsam::Vector3 deltaTransij = preint_translation_and_cov.first;
-    gtsam::Matrix3 deltaTransCovij = preint_translation_and_cov.second;
-    // ROS_INFO("Average velocity: [%f, %f, %f]",
-    //          avg_velocity.x(), avg_velocity.y(), avg_velocity.z());
-    // std::stringstream ss2;
-    // ss2 << "Velocity Covariance:\n" << avg_velocity_cov;
-    // ROS_INFO_STREAM(ss2.str());
-    // Get the preintegrated rotation and covariance
-    auto preint_results = getPreintegratedRotation(initial_time, final_time);
-    double deltaTij = std::get<0>(preint_results);
-    gtsam::Rot3 deltaRij = std::get<1>(preint_results);
-    // std::stringstream ss3;
-    // ss3 << "Preintegrated Rotation:\n" << deltaRij.matrix();
-    // ROS_INFO_STREAM(ss3.str());
-    gtsam::Matrix3 deltaRotCovij = std::get<2>(preint_results);
-    // ROS_INFO("Preintegrated rotation: deltaTij = %f", deltaTij);
-    // std::stringstream ss4;
-    // ss4 << "Delta Rotation Covariance:\n" << deltaRotCovij;
-    // ROS_INFO_STREAM(ss4.str());
-    // Get the predicted NavState and covariance
-    std::pair<gtsam::Pose3, gtsam::Matrix6> predicted_state_and_cov;
-    predicted_state_and_cov = propagateState(
-        initial_state_and_cov, deltaTij, deltaRij, deltaRotCovij, deltaTransij, deltaTransCovij);
-    return std::make_pair(
-        predicted_state_and_cov.first, predicted_state_and_cov.second);
-  }
-  // // If we reach here, something went wrong
-  // ROS_ERROR("Failed to compute relative pose between states");
-  // return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
+  // Rotate the relative pose and covariance from body to world frame
+  gtsam::Rot3 Rij_b = relPose.rotation();
+  gtsam::Point3 tij_b = relPose.translation();
+  gtsam::Pose3 T_wb(Ri_wb, gtsam::Point3(0.0, 0.0, 0.0)); // Pose from world to body
+  gtsam::Pose3 Tij_w = T_wb * relPose * T_wb.inverse();   // Relative pose in world frame
+  gtsam::Matrix6 Covij_b = relCov;                        // Covariance in body frame
+  gtsam::Matrix6 Ad_wb = T_wb.AdjointMap();               // Adjoint map for the rotation
+  gtsam::Matrix6 Covij_w = Ad_wb * Covij_b * Ad_wb.transpose(); // Rotate the covariance
+  // std::stringstream ss;
+  // ss << "Preintegrated Pose: " << Tij_w << std::endl;
+  // ss << "Preintegrated Covariance: \n" << Covij_w << std::endl;
+  // // Log the preintegrated pose and covariance
+  // ROS_INFO_STREAM(ss.str());
+  // Ensure the covariance is positive semi-definite
+  Covij_w = makePSD(Covij_w);
+  return std::make_tuple(actual_deltaTij, Tij_w, Covij_w);
 }
 
 // handlePreintegrate
@@ -455,54 +381,39 @@ bool ImuPreintegratorNode::handlePreintegrate(
     spurdog_acomms::PreintegrateImu::Request &req,
     spurdog_acomms::PreintegrateImu::Response &res) {
   // Call getRelativePoseBetweenStates to get the relative pose and covariance
-  auto relativePoseCov = getRelativePoseBetweenStates(req.initial_time, req.final_time);
-  gtsam::Pose3 relativePose = relativePoseCov.first;
-  gtsam::Matrix6 relativeCov = relativePoseCov.second;
-  // get the relative rotation in the world frame in rpy angles
+  auto relativePoseCov = getRelativePoseBetween(req.initial_time, req.final_time);
+  double deltaTij = std::get<0>(relativePoseCov);
+  gtsam::Pose3 relativePose = std::get<1>(relativePoseCov);
+  gtsam::Matrix6 relativeCov = std::get<2>(relativePoseCov);
+  // Log the preintegration results
   gtsam::Vector3 rpy = relativePose.rotation().rpy();
-  // Log the relative pose and covariance
-  // ROS_INFO("Relative pose:  position [%f, %f, %f], orientation [%f, %f, %f]",
-  //          relativePose.translation().x(), relativePose.translation().y(), relativePose.translation().z(),
-  //          rpy.x() * 180.0 / M_PI,
-  //          rpy.y() * 180.0 / M_PI,
-  //          rpy.z() * 180.0 / M_PI);
-  // Get the dead reckoning state and covariance
-  gtsam::Pose3 initialPose = std::get<1>(dr_state_and_cov_);
-  gtsam::Matrix6 initialCov = std::get<2>(dr_state_and_cov_);
-  // ROS_INFO("Initial dead reckoning pose: position [%f, %f, %
-  auto predicted_state_and_cov = deadReckonFromPreintegrate(req.final_time, relativePose, relativeCov, initialPose, initialCov);
-  dr_state_and_cov_ = std::make_tuple(req.final_time, predicted_state_and_cov.first, predicted_state_and_cov.second);
-  gtsam::Pose3 finalPose = std::get<1>(dr_state_and_cov_);
-  gtsam::Matrix6 finalCov = std::get<2>(dr_state_and_cov_);
-  // ROS_INFO("Last MOOSNav report: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
+  // Attempt to DR
+  auto predicted_state_and_cov = deadReckonFromPreintegrate(req.final_time, relativePose, relativeCov);
+  // Log the new state
+  gtsam::Pose3 finalPose = std::get<0>(predicted_state_and_cov);
+  gtsam::Matrix6 dr_cov = std::get<1>(predicted_state_and_cov);
+  gtsam::Vector3 final_rpy = finalPose.rotation().rpy();
+  // ROS_INFO("Final reckoned pose: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
+  //          finalPose.translation().x(), finalPose.translation().y(), finalPose.translation().z(),
+  //          finalPose.rotation().toQuaternion().w(), finalPose.rotation().toQuaternion().x(),
+  //          finalPose.rotation().toQuaternion().y(), finalPose.rotation().toQuaternion().z());
+  // ROS_INFO("Last Nav Report: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
   //          last_nav_report_.second.translation().x(), last_nav_report_.second.translation().y(),
   //          last_nav_report_.second.translation().z(),
-  //          last_nav_report_.second.rotation().toQuaternion().w(), last_nav_report_.second.rotation().toQuaternion().x(),
-  //          last_nav_report_.second.rotation().toQuaternion().y(), last_nav_report_.second.rotation().toQuaternion().z());
-  // ROS_INFO("Initial reckoned pose: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
-  //          initialPose.translation().x(), initialPose.translation().y(), initialPose.translation().z(),
-  //          initialPose.rotation().toQuaternion().w(), initialPose.rotation().toQuaternion().x(),
-  //          initialPose.rotation().toQuaternion().y(), initialPose.rotation().toQuaternion().z());
-  ROS_INFO("Final reckoned pose: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
-           finalPose.translation().x(), finalPose.translation().y(), finalPose.translation().z(),
-           finalPose.rotation().toQuaternion().w(), finalPose.rotation().toQuaternion().x(),
-           finalPose.rotation().toQuaternion().y(), finalPose.rotation().toQuaternion().z());
-  // Log the relative pose and covariance
-  // ROS_INFO("Relative pose between last nav report and dead reckoned pose: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
-  //          relposeNavDR.translation().x(), relposeNavDR.translation().y(), relposeNavDR.translation().z(),
-  //          relposeNavDR.rotation().toQuaternion().w(), relposeNavDR.rotation().toQuaternion().x(),
-  //          relposeNavDR.rotation().toQuaternion().y(), relposeNavDR.rotation().toQuaternion().z());
-  // Calculate the relative pose between the dead reckoned pose and the last nav report
-  // gtsam::Pose3 relativePoseToNav = last_nav_report_.second.between(dr_pose);
-  //   ROS_INFO("Pose Error: position [%f, %f, %f], orientation [%f, %f, %f, %f]",
-  //          relativePoseToNav.translation().x(), relativePoseToNav.translation().y(), relativePoseToNav.translation().z(),
-  //          relativePoseToNav.rotation().toQuaternion().w(), relativePoseToNav.rotation().toQuaternion().x(),
-  //          relativePoseToNav.rotation().toQuaternion().y(), relativePoseToNav.rotation().toQuaternion().z());
-  // Log the relative pose and covariance
+  //          last_nav_report_.second.rotation().toQuaternion().w(),
+  //          last_nav_report_.second.rotation().toQuaternion().x(),
+  //          last_nav_report_.second.rotation().toQuaternion().y(),
+  //          last_nav_report_.second.rotation().toQuaternion().z());
+  // Log the covariance
+  // std::stringstream ss4;
+  // ss4 << "Preintegrated Covariance:\n" << relativeCov;
+  // ROS_INFO_STREAM(ss4.str());
   // std::stringstream ss5;
   // ss5 << "Dead Reckoned Covariance:\n" << dr_cov;
   // ROS_INFO_STREAM(ss5.str());
 
+  // Update the last nav report with the final pose
+  // Get the final pose and covariance
   // Add pose results to the map
   dead_reckon_map_[req.final_time] = finalPose;
   nav_state_map_[last_nav_report_.first] = last_nav_report_.second;
@@ -540,15 +451,29 @@ bool ImuPreintegratorNode::handlePreintegrate(
 
 // Dead reckoning from preintegrated state
 std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::deadReckonFromPreintegrate(
-    const ros::Time& final_time, const gtsam::Pose3& preint_pose, const gtsam::Matrix6& preint_cov,
-    const gtsam::Pose3& initial_pose, const gtsam::Matrix6& initial_cov) {
-
+    const ros::Time& final_time, const gtsam::Pose3& preint_pose, const gtsam::Matrix6& preint_cov) {
+  // Get the intial pose and covariance from the dr_state_and_cov_
+  gtsam::Pose3 initial_pose = std::get<1>(dr_state_and_cov_);
+  gtsam::Matrix6 initial_cov = std::get<2>(dr_state_and_cov_);
   // Compose the preintegrated pose with the dr_state_and_cov_ pose
-  gtsam::Pose3 new_pose = initial_pose.compose(preint_pose);
-  // Propogate the covariance
-  gtsam::Matrix6 adjoint = preint_pose.AdjointMap();
-  gtsam::Matrix6 new_cov = adjoint * initial_cov * adjoint.transpose() + preint_cov;
-  // Log the final time
+  gtsam::Matrix66 Ji, Jj;
+  gtsam::Pose3 new_pose = initial_pose.compose(preint_pose,
+                                        gtsam::OptionalJacobian<6,6>(Ji),
+                                        gtsam::OptionalJacobian<6,6>(Jj));
+  gtsam::Matrix6 new_cov = Ji * initial_cov * Ji.transpose() +
+                                  Jj * preint_cov * Jj.transpose();
+  // std::stringstream ssInitCov;
+  // ssInitCov << "Initial Covariance:\n" << initial_cov;
+  // ROS_INFO_STREAM(ssInitCov.str());
+  // std::stringstream ssPreintCov;
+  // ssPreintCov << "Preintegrated Covariance:\n" << preint_cov;
+  // ROS_INFO_STREAM(ssPreintCov.str());
+  // std::stringstream ssNewCov;
+  // ssNewCov << "New Covariance:\n" << new_cov;
+  // ROS_INFO_STREAM(ssNewCov.str());
+
+  // Update DR state and covariance
+  dr_state_and_cov_ = std::make_tuple(final_time, new_pose, new_cov);
   return std::make_pair(new_pose, new_cov);
 }
 
@@ -630,7 +555,7 @@ int main(int argc, char** argv) {
   ros::init(argc, argv, "imu_preintegrator_node");
   ImuPreintegratorNode node;
   g_node_ptr = &node;
-  signal(SIGINT, onShutdownCallback);  // Catch Ctrl+C and cleanly shutdown
+  //signal(SIGINT, onShutdownCallback);  // Catch Ctrl+C and cleanly shutdown
   ros::spin();
   return 0;
 }

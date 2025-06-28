@@ -13,7 +13,6 @@
 #include <mutex>
 
 // GTSAM headers
-#include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/PreintegrationParams.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/PreintegratedRotation.h>
@@ -22,73 +21,57 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/base/Matrix.h>
 #include <gtsam/base/Vector.h>
-#include <gtsam/navigation/NavState.h>
+#include <Eigen/Eigenvalues>
 
 class ImuPreintegratorNode {
 private:
   ros::NodeHandle nh_;
   ros::Subscriber imu_sub_;
-  ros::ServiceServer preint_srv_;
   ros::Subscriber dvl_vel_sub_;
   ros::Subscriber nav_state_sub_;
   ros::Subscriber in_water_sub_;
+  ros::ServiceServer preint_srv_;
 
   ros::Time ti_;
-  //ros::Time start_time_;
   gtsam::Matrix3 gyro_noise_;
-  gtsam::Vector3 bias_;
-  //gtsam::Vector3 dvl_vel_bw_;
-  gtsam::Vector3 vel_model_;
-  gtsam::Matrix3 vel_noise_model_;
-  std::pair<ros::Time, gtsam::Pose3> last_nav_report_;
+  gtsam::Vector3 gyro_bias_;
+  gtsam::Vector3 constant_vel_model_;
+  gtsam::Matrix3 constant_vel_noise_model_;
+  gtsam::Matrix3 dvl_noise_model_;
   bool in_water_;
-  gtsam::Rot3 current_orientation_;
-  gtsam::Rot3 R_wb_i_;
-  //std::map<ros::Time, gtsam::NavState> nav_state_map_;
-  //std::map<ros::Time, gtsam::Matrix6> nav_cov_map_;
   std::deque<sensor_msgs::Imu> imu_buffer_;
   std::deque<geometry_msgs::TwistStamped> dvl_buffer_;
-  // std::pair<gtsam::NavState, gtsam::Matrix6> initial_state_and_cov_;
   std::tuple<ros::Time, gtsam::Pose3, gtsam::Matrix6> dr_state_and_cov_;
+  std::pair<ros::Time, gtsam::Pose3> last_nav_report_;
   std::map<ros::Time, gtsam::Pose3> dead_reckon_map_;
   std::map<ros::Time, gtsam::Pose3> nav_state_map_;
 
 public:
   ImuPreintegratorNode();
-
+  // Callbacks
   void imuCallback(const sensor_msgs::Imu::ConstPtr& msg);
   void dvlVelCallback(const geometry_msgs::TwistStamped::ConstPtr& msg);
   void navStateCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
   void inWaterCallback(const std_msgs::Bool::ConstPtr& msg);
-  std::pair<gtsam::Pose3, gtsam::Matrix6> initStateAndCovariance();
-  // std::pair<gtsam::Vector3, gtsam::Matrix3> getVelocityModel() const;
-  std::pair<gtsam::Vector3, gtsam::Matrix3> getPreintegratedTranslation(
+  void onShutdownCallback();
+
+  // Integration methods
+  std::tuple<double, gtsam::Rot3, gtsam::Matrix3, gtsam::Rot3> getPreintegratedRotation(
+    const ros::Time& imu_ti, const ros::Time& imu_tj);
+  std::tuple<double, gtsam::Pose3, gtsam::Matrix6, gtsam::Rot3> getPreintegratedPose(
+      const gtsam::Vector3& velocity, const gtsam::Matrix3& vel_noise_model,
+      const ros::Time& vel_ti, const ros::Time& vel_tj);
+  std::tuple<double, gtsam::Pose3, gtsam::Matrix6> getRelativePoseBetween(
       const ros::Time& initial_time, const ros::Time& final_time);
-  std::tuple<double, gtsam::Rot3, gtsam::Matrix3> getPreintegratedRotation(
-    const ros::Time& initial_time, const ros::Time& final_time);
-  std::pair<gtsam::Pose3, gtsam::Matrix6> propagateState(
-      const std::pair<gtsam::Pose3, gtsam::Matrix6>& initial_state_and_cov,
-      const double deltaTij, const gtsam::Rot3& deltaRij,
-      const gtsam::Matrix3& deltaRotCovij, const gtsam::Vector3& deltaTransij,
-      const gtsam::Matrix3& deltaTransCovij);
-  std::pair<gtsam::Pose3, gtsam::Matrix6> getRelativePoseBetweenStates(
-      const ros::Time& initial_time, const ros::Time& final_time);
-  // gtsam::NavState getPredictedNavState(
-  //     const double deltaTij, const gtsam::Rot3& deltaRij, const gtsam::Vector3& model_velocity);
-  // gtsam::Matrix6 getPredictedCovariance(
-  //     const double deltaTij, const gtsam::NavState& predState,
-  //     const gtsam::Matrix3& deltaRotCovij, const gtsam::Matrix3& vel_noise_model);
-  // void propogateState(ros::Time final_time);
-  // std::pair<gtsam::Pose3, gtsam::Matrix6> getRelativePoseBetweenStates(
-  //     const ros::Time& initial_time, const ros::Time& final_time);
+  // State propagation methods
   bool handlePreintegrate(
       spurdog_acomms::PreintegrateImu::Request &req,
       spurdog_acomms::PreintegrateImu::Response &res);
   std::pair<gtsam::Pose3, gtsam::Matrix6> deadReckonFromPreintegrate(
-      const ros::Time& final_time, const gtsam::Pose3& preint_pose, const gtsam::Matrix6& preint_cov,
-      const gtsam::Pose3& last_pose, const gtsam::Matrix6& last_cov);
+      const ros::Time& final_time, const gtsam::Pose3& preint_pose, const gtsam::Matrix6& preint_cov);
   void writePoseResultsToTum(const std::string& filename);
-  void onShutdownCallback();
+  gtsam::Matrix6 makePSD(const gtsam::Matrix6& input);
+  gtsam::Rot3 convertVehicleNEDToWorldENU(const gtsam::Rot3& input);
 };
 
 #endif  // GYRO_PREINTEGRATOR_HPP

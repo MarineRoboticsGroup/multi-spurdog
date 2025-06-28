@@ -58,6 +58,7 @@
         <node name="preintegration_test" pkg="spurdog_acomms" type="test_preintegration.py" output="screen" />
 
         <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
+            <param name="velocity_source" value="dvl" />
             <!-- <param name="accel_noise_sigma" value="0.05"/> -->
             <!-- <param name="gyro_noise_sigma" value="0.001"/> -->
             <!-- <param name="accel_bias_rw_sigma" value="0.01"/> -->
@@ -65,9 +66,12 @@
             <!-- <param name="accel_bias_x" value="0.00065798"/>
             <param name="accel_bias_y" value="-0.0044168"/>
             <param name="accel_bias_z" value="-0.01147435"/> -->
-            <param name="gyro_bias_x" value="-0.002113"/>
+            <!-- <param name="gyro_bias_x" value="-0.002113"/>
             <param name="gyro_bias_y" value="-0.000075"/>
-            <param name="gyro_bias_z" value="0.000314"/>
+            <param name="gyro_bias_z" value="0.000314"/> -->
+            <!-- <param name="gyro_bias_x" value="-0.005"/>
+            <param name="gyro_bias_y" value="0.0"/> -->
+            <!-- <param name="gyro_bias_z" value="-0.0025"/> -->
         </node>
 
         <!-- Launch the MOOS interface bridge -->

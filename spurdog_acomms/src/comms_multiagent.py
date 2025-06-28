@@ -154,7 +154,7 @@ class CycleManager:
             # Convert time (ROS Time in sec) to ROS Time in nsec
             rcvd_stamp = rospy.Time.from_sec(recieved_ping_time)
             if data[1] == "PNG" and dest == self.local_address:
-                #self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
+                self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
                 # Log the ping event to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
                 # Check if there is an existin CST-based entry for this ping (CST time within 1sec and matching src/dest)
                 for entry in self.rcv_range_data:
@@ -373,7 +373,7 @@ class CycleManager:
                     rospy.Time.now(), self.address_to_name[src], self.address_to_name[dest], timestamp_sec, owtt, tat, measured_range))
                 # self.tx_range_data.append([timestamp_sec.to_sec(), src, dest, owtt, measured_range])
                 # Request preintegration
-                #self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
+                self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
                 # if target_addr == first_tgt:
                 #     self.send_ping(second_tgt)  # Attempt the second target
                 # elif target_addr == second_tgt:
@@ -523,7 +523,7 @@ class CycleManager:
             self.modem_addresses[local_chr][1] = 0
             self.pose_time_lookup[local_chr + str(0)] = rospy.Time.now()
             # Request preintegration to clear the queue, but don't advance the pose index
-            #self.request_preintegration(rospy.Time.now(), adv_pose=False)
+            #sself.request_preintegration(rospy.Time.now(), adv_pose=False)
         elif msg.data == False and self.in_water:
             rospy.loginfo("[%s] Vehicle has left the water" % rospy.Time.now())
         else:

@@ -28,8 +28,8 @@
         <param name="num_landmarks" value="2" />
         <!-- <param name="num_slots" value="$(eval 2 * num_agents)" /> -->
         <rosparam param="landmarks">
-            L0: [-74.5193539608157, -38.9298973079931, 1.83]
-            L1: [66.5150726324041, 25.969767675496275, 1.83]
+            L0: [-74.5193539608157, -38.9298973079931, -1.83]
+            L1: [66.5150726324041, 25.969767675496275, -1.83]
         </rosparam>
 
         <!-- Modem group -->
@@ -70,18 +70,19 @@
 
         <!-- Launch communication and graph managers-->
         <node name="comms_lbl" pkg="spurdog_acomms" type="comms_multiagent.py" output="screen">
-            <param name="sound_speed" value="1506" />
+            <param name="sound_speed" value="1504" />
             <param name="sigma_range" value="1" />
             <param name="ping_timeout" value="4" />
             <param name="send_data" value="true" />
         </node>
-        <!-- <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
-            <param name="gyro_noise_sigma" value="0.001"/>
-            <param name="gyro_bias_rw_sigma" value="0.01"/>
-            <param name="gyro_bias_x" value="-0.000223"/>
+        <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="log">
+            <!-- <param name="gyro_noise_sigma" value="0.001"/>
+            <param name="gyro_bias_rw_sigma" value="0.01"/> -->
+            <!-- <param name="gyro_bias_x" value="-0.000223"/>
             <param name="gyro_bias_y" value="-0.0000675"/>
-            <param name="gyro_bias_z" value="0.0003616"/>
-        </node> -->
+            <param name="gyro_bias_z" value="0.0003616"/> -->
+            <param name="velocity_source" value="dvl"/>
+        </node>
 
         <!-- Launch the MOOS interface bridge -->
         <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="log" />
