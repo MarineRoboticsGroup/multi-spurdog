@@ -14,7 +14,7 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped
+    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, AcommsCycleStatus
 )
 from spurdog_acomms.srv import(
     PreintegrateImu, PreintegrateImuResponse
@@ -72,13 +72,23 @@ class CycleManager:
         self.range_data = []
         self.preintegration_data = []
         self.pose_time_lookup = {}
+        self.cycle_status = {
+            "pings_attempted": 0,
+            "pings_successful": 0,
+            "min_range": 1000.0,
+            "max_range": -1000.0,
+            "last_range_timestamp": rospy.Time.now(),
+            "last_range_interval": 0.0,
+            "last_range_target": None,
+            "last_range_distance": None
+        }
 
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
         self.ping_client = rospy.ServiceProxy("modem/ping_modem", PingModem)
-        # rospy.wait_for_service("preintegrate_imu")
-        # self.preintegrate_imu = rospy.ServiceProxy("preintegrate_imu", PreintegrateImu)
+        rospy.wait_for_service("preintegrate_imu")
+        self.preintegrate_imu = rospy.ServiceProxy("preintegrate_imu", PreintegrateImu)
         rospy.loginfo("[%s] Services ready, initializing topics" % rospy.Time.now())
 
         # Initialize topics
@@ -93,12 +103,15 @@ class CycleManager:
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
+        self.cycle_status_pub = rospy.Publisher("comms_cycle_status", AcommsCycleStatus, queue_size=1)
+
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
         self.configure_comms_cycle()
         rospy.loginfo("[%s] Comms Cycle Configured" % rospy.Time.now())
         rospy.sleep(10) # allow for modem to configure
         rospy.loginfo("[%s] Starting Comms Cycle" % rospy.Time.now())
+        rospy.Timer(rospy.Duration(1.0), self.send_acomms_status)
         self.send_ping(self.modem_addresses["L0"][0])  # Send a ping to the first landmark
 
     def configure_comms_cycle(self):
@@ -224,6 +237,7 @@ class CycleManager:
         try:
             #rospy.loginfo("[%s] One Ping Only Vasily." % (rospy.Time.now()))
             rospy.loginfo("[%s] Sending Ping to %s with payload %s" % (rospy.Time.now(), self.address_to_name[target_addr], symbol))
+            self.cycle_status["pings_attempted"] += 1
             ping_resp = self.ping_client(ping_req)
             # Check if the ping timed out
             if ping_resp.timed_out:
@@ -475,6 +489,18 @@ class CycleManager:
         # mse_error = msg.cst.mse
         # dqf = msg.cst.dqf
         dop = msg.cst.dop
+        # Update the cycle status
+        self.cycle_status["pings_successful"] += 1
+        self.cycle_status["last_range_interval"] = range_timestamp - self.cycle_status["last_range_timestamp"]
+        self.cycle_status["last_range_timestamp"] = range_timestamp
+        self.cycle_status["last_range_target"] = dest
+        self.cycle_status["last_range_distance"] = np.round(measured_range,4)
+        if measured_range > self.cycle_status["max_range"]:
+            self.cycle_status["max_range"] = np.round(measured_range,4)
+        elif measured_range < self.cycle_status["min_range"]:
+            self.cycle_status["min_range"] = np.round(measured_range,4)
+        else:
+            pass
         # Add it to the existing XST-based data
         for entry in self.range_data:
             # If the entry has been filled, ignore
@@ -684,6 +710,24 @@ class CycleManager:
                         sigmas[0], sigmas[1], sigmas[2], sigmas[3], sigmas[4], sigmas[5]
                     ])
             rospy.loginfo("[%s] Preintegration Data Written to File at: %s" % (rospy.Time.now(), preintegration_file))
+        return
+
+    def send_acomms_status(self):
+        """This function sends the ACOMMS status to the modem"""
+        # Create the ACOMMS event message
+        acomms_cycle_status = AcommsCycleStatus()
+        acomms_cycle_status.header.stamp = rospy.Time.now()
+        acomms_cycle_status.header.frame_id = "modem"
+        acomms_cycle_status.pings_attempted = self.cycle_status["pings_attempted"]
+        acomms_cycle_status.pings_successful = self.cycle_status["pings_successful"]
+        acomms_cycle_status.pings_pct_successful = np.round(100*self.cycle_status["pings_successful"]/self.cycle_status["pings_attempted"], 2) if self.cycle_status["pings_attempted"] > 0 else 0.0
+        acomms_cycle_status.min_range = self.cycle_status["min_range"]
+        acomms_cycle_status.max_range = self.cycle_status["max_range"]
+        acomms_cycle_status.last_range_timestamp = self.cycle_status["last_range_timestamp"]
+        acomms_cycle_status.last_range_interval = self.cycle_status["last_range_interval"]
+        acomms_cycle_status.last_range_target = self.cycle_status["last_range_target"]
+        acomms_cycle_status.last_range_distance = self.cycle_status["last_range_distance"]
+        self.cycle_status_pub.publish(acomms_cycle_status)
         return
 
 if __name__ == "__main__":

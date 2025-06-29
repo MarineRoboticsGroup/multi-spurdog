@@ -68,6 +68,7 @@ add_message_files(
   PartialGraph.msg
   CycleGraph.msg
   CommsCycleStatus.msg
+  AcommsCycleStatus.msg
   PoseFactorStamped.msg
   RangeFactorStamped.msg
   TestData.msg)
