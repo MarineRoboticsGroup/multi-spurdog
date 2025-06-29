@@ -73,10 +73,11 @@ add_message_files(
   TestData.msg
   AdvancedGraphUpdate.msg
   BasicGraphUpdate.msg
-  #BetweenFactor.msg
-  #RangeFactor.msg
   ReceivedSignalStats.msg
-)
+  GraphUpdate.msg
+  BetweenFactor.msg
+  RangeFactor.msg
+ )
 
 ## Generate services in the 'srv' folder
 add_service_files(
