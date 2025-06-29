@@ -698,8 +698,8 @@ if __name__ == "__main__":
     finally:
         # Summarize the range data collected
         cycle_mgr.summarize_range_data()
-        cycle_mgr.log_ranges_to_csv()
-        cycle_mgr.log_pim_to_csv()
+        #cycle_mgr.log_ranges_to_csv()
+        #cycle_mgr.log_pim_to_csv()
         rospy.loginfo("[%s] Comms Cycle Mgr Exiting" % rospy.Time.now())
         rospy.signal_shutdown("Comms Cycle Mgr Exiting")
         exit(0)
