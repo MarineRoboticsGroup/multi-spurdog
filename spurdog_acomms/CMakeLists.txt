@@ -71,7 +71,11 @@ add_message_files(
   AcommsCycleStatus.msg
   PoseFactorStamped.msg
   RangeFactorStamped.msg
-  TestData.msg)
+  TestData.msg
+  GraphUpdate.msg
+  BetweenFactor.msg
+  RangeFactor.msg
+)
 
 ## Generate services in the 'srv' folder
 add_service_files(
