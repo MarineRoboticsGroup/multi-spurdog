@@ -14,7 +14,7 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, TestData, AcommsCycleStatus
+    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, TestData, AcommsCycleStatus, GraphUpdate, RangeFactor, BetweenFactor
 )
 from spurdog_acomms.srv import(
     PreintegrateImu, PreintegrateImuResponse
@@ -33,6 +33,10 @@ from spurdog_acomms_utils.nmea_utils import (
     parse_nmea_caxst,
     parse_nmea_carev,
     parse_nmea_catxf
+)
+from spurdog_acomms_utils.codec_utils import (
+    encode_pwcs_as_int,
+    encode_range_event_as_int
 )
 
 class CycleManager:
@@ -87,6 +91,7 @@ class CycleManager:
             "last_range_target": 0,
             "last_range_distance": 0.0
         }
+        self.graph_update_msg = GraphUpdate()
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
@@ -107,13 +112,13 @@ class CycleManager:
 
         self.queue_status_sub = rospy.Subscriber("modem/queue_status", QueueStatus, self.on_queue_status)
         self.packet_rcv_sub = rospy.Subscriber("modem/packet_rx", ReceivedPacket, self.on_nmea_from_modem)
-        self.test_data_pub = rospy.Publisher("modem/to_acomms/test_data",TestData, queue_size=1)
-        self.test_data_sub = rospy.Subscriber("modem/from_acomms/test_data", TestData, self.on_test_data)
+        self.graph_update_pub = rospy.Publisher("modem/to_acomms/graph_update",GraphUpdate, queue_size=1)
+        self.graph_update_sub = rospy.Subscriber("modem/from_acomms/graph_update", GraphUpdate, self.on_graph_update)
 
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
-
+        self.cycle_status_pub = rospy.Publisher("comms_cycle_status", AcommsCycleStatus, queue_size=1)
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
         self.configure_comms_cycle()
@@ -189,6 +194,8 @@ class CycleManager:
             src, dest, recieved_ping_time, owtt = parse_nmea_cacmr(data)
             if data[0] == "PNR" and src == self.local_address:
                 self.acomms_event_pub.publish("priority=2,pattern=([0.255.0.0]:1.0),cycles=1")
+                measured_range = owtt * self.sound_speed
+                self.add_range_event_to_graph_update(self, src, None, measured_range, sigma_range=self.range_sigma)
                 rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, self.address_to_name[dest]))
             elif data[0] == "PNR":
                 rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (recieved_ping_time, self.address_to_name[src], self.address_to_name[dest]))
@@ -202,6 +209,8 @@ class CycleManager:
                 return
             elif dest == self.local_address:
                 rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, self.address_to_name[src], payload))
+                # Analyze the payload (should be a letter followed by a integer, e.g. "A1")
+                self.add_range_event_to_graph_update(self, src, int(payload[1:]), None, None)
                 # Log the payload to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
                 # Check if there is an existing entry and update it
                 for entry in self.rcv_range_data:
@@ -288,14 +297,13 @@ class CycleManager:
             pass
         return
 
-    def on_test_data(self, msg: TestData):
+    def on_graph_update(self, msg: GraphUpdate):
         """This function receives test data from the modem
         Args:
             msg (TestData): The test data message
         """
         # Log the test data
-        rospy.loginfo("[%s] Received Test Data: Seq ID: %d, Address: %d" % (
-            msg.header.stamp, msg.seq_id, msg.address))
+        rospy.loginfo("[%s] Received Test Data: %s" % (rospy.Time.now(), msg))
         return
 
     def send_ping(self, target_addr):
@@ -353,7 +361,7 @@ class CycleManager:
                     self.send_ping(next_tgt)
                 elif self.send_data:
                     rospy.sleep(1)  # To account for formulating ping data
-                    self.send_test_data()
+                    self.send_graph_update()
                     pass
                 else:
                     rospy.loginfo("[%s] No more targets to ping" % rospy.Time.now())
@@ -396,7 +404,7 @@ class CycleManager:
                     self.send_ping(next_tgt)
                 elif self.send_data:
                     rospy.sleep(1)  # To account for formulating ping data
-                    self.send_test_data()
+                    self.send_graph_update()
                 else:
                     rospy.loginfo("[%s] No more targets to ping" % rospy.Time.now())
                 return
@@ -404,18 +412,22 @@ class CycleManager:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
         return
 
-    def send_test_data(self):
+    def send_graph_update(self):
         """This function sends test data to the modem
         """
+        # # Create a test data message
+        # test_data_msg = TestData()
+        # test_data_msg.seq_id = self.active_slot_seq  # Sequence ID for the test datas
+        # test_data_msg.address = self.local_address
+        # # Fill the payload with 86 bytes of integer data
+        # test_data_msg.payload = bytearray(np.random.randint(0, 255,size=86, dtype=np.uint8).tolist())
+        # # Publish the test data message
+        # self.test_data_pub.publish(test_data_msg)
         # Create a test data message
-        test_data_msg = TestData()
-        test_data_msg.seq_id = self.active_slot_seq  # Sequence ID for the test datas
-        test_data_msg.address = self.local_address
-        # Fill the payload with 86 bytes of integer data
-        test_data_msg.payload = bytearray(np.random.randint(0, 255,size=86, dtype=np.uint8).tolist())
-        # Publish the test data message
-        self.test_data_pub.publish(test_data_msg)
-        rospy.loginfo("[%s] Sent Test Data" % (rospy.Time.now()))
+        active_message = self.graph_update_msg
+        self.graph_update_pub.publish(active_message)
+        self.graph_update_msg = GraphUpdate()  # Reset the message for the next cycle
+        rospy.loginfo("[%s] Sent Graph Update" % (rospy.Time.now()))
         return
 
     # Sensor Callbacks:s
@@ -485,6 +497,8 @@ class CycleManager:
                     covariance=[1.0] * 36  # Placeholder covariance
                 )
             )
+        # Add the pose_delta (a PoseWithCovarianceStamped message) to the graph_update message
+        self.add_pwcs_to_graph_update(key1_index, response.pose_delta)
         # Log the pose factor
         pose_factor_msg = PoseFactorStamped()
         pose_factor_msg.header.stamp = tj
@@ -506,6 +520,44 @@ class CycleManager:
         self.modem_addresses[local_chr][1] = key2_index
         self.pose_time_lookup[key2] = tj
         return
+
+    def add_pwcs_to_graph_update(self, key1_index, pwcs: PoseWithCovarianceStamped):
+        """Check the number of existing poses in the graph update message and add the pose"""
+        num_poses = len(self.graph_update_msg.num_poses)
+        if num_poses == 0:
+            first_key_index = key1_index
+            self.graph_update_msg.relative_pose_0 = encode_pwcs_as_int(pwcs)
+        elif num_poses == 1:
+            self.graph_update_msg.relative_pose_1 = encode_pwcs_as_int(pwcs)
+        elif num_poses == 2:
+            self.graph_update_msg.relative_pose_2 = encode_pwcs_as_int(pwcs)
+        elif num_poses == 3:
+            self.graph_update_msg.relative_pose_3 = encode_pwcs_as_int(pwcs)
+        else:
+            rospy.logwarn("[%s] Graph Update Message already has 4 poses, not adding more." % rospy.Time.now())
+            return
+        # Update the number of poses in the graph update message
+        self.graph_update_msg.num_poses = num_poses + 1
+        return
+
+    def add_range_event_to_graph_update(self, remote_addr, index, measured_range, sigma_range):
+        """This function adds a range event to the graph update message"""
+        # Check how many range events are in the graph update message by checking if the ranging_event_0 slot is empty
+        ranging_event_msg = encode_range_event_as_int(
+            remote_addr, index, measured_range, sigma_range, self.depth)
+        # Check the number of existing range events in the graph update message and add the range event
+        num_poses = len(self.graph_update_msg.num_poses)
+        if self.graph_update_msg.num_poses == 0:
+            self.graph_update_msg.ranging_event_0 = ranging_event_msg
+        elif self.graph_update_msg.ranging_event_1 == RangeFactor():
+            self.graph_update_msg.ranging_event_1 = ranging_event_msg
+        elif self.graph_update_msg.ranging_event_2 == RangeFactor():
+            self.graph_update_msg.ranging_event_2 = ranging_event_msg
+        elif self.graph_update_msg.ranging_event_3 == RangeFactor():
+            self.graph_update_msg.ranging_event_3 = ranging_event_msg
+        else:
+            rospy.logwarn("[%s] Graph Update Message already has 4 range events, not adding more." % rospy.Time.now())
+            return
 
     def on_gps(self, msg: PoseWithCovarianceStamped):
         """This function receives the GPS data from the estimator

@@ -1,6 +1,7 @@
+# GraphUpdate.msg
 # Header Info
-int16 first_key_index
-int8 num_poses
+uint16 first_key_index
+uint8 num_poses
 # Between Factor Info
 BetweenFactor relative_pose_0
 BetweenFactor relative_pose_1
