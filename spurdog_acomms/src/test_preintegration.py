@@ -8,7 +8,7 @@ import scipy.spatial.transform as spt
 from std_msgs.msg import Header, String, Time, Float32
 from geometry_msgs.msg import Point, Quaternion, Pose, PoseWithCovariance, PoseWithCovarianceStamped, PoseStamped
 from ros_acomms_msgs.msg import(
-    TdmaStatus, QueueStatus
+    TdmaStatus, QueueStatus, PingReply
 )
 from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
@@ -72,9 +72,10 @@ class CycleManager:
         # Establish the message subs and pubs
         self.nav_state_sub = rospy.Subscriber("nav_state", PoseStamped, self.on_nav_state, queue_size=1)
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
+        self.range_logging_sub = rospy.Subscriber("modem/ping_reply",PingReply, self.on_ping_reply, queue_size=1)
         # Initialize the factor publishers
-        self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
-        self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
+        #self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
+        #self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
         self.configure_comms_cycle()
@@ -116,6 +117,21 @@ class CycleManager:
             "orientation": np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w]),
         }
         return
+
+    def on_ping_reply(self, msg: PingReply):
+        """This function is called when a ping reply message is received.
+        It processes the ping reply and updates the range data.
+        Args:
+            msg (PingReply): The ping reply message
+        """
+        # Log the ping reply
+        # Process the ping reply
+        ping_timestamp = msg.cst.toa
+        rospy.loginfo("[%s] Received Ping Reply" % (ping_timestamp.to_sec()))
+        # Request the preintegration for the ping reply time
+        self.request_preintegration(ping_timestamp, adv_pose=True)
+        return
+
     # Sensor data handling
     def request_preintegration(self, tj, adv_pose: bool = True):
         """This function requests a relative pose measurement from imu sensor handler node
@@ -198,7 +214,13 @@ class CycleManager:
                     w=x_ij.pose.pose.orientation.w
                 )
                 pose_factor_msg.pose.covariance = np.array(x_ij.pose.covariance).reshape((6, 6)).flatten().tolist()
-                self.pose_factor_pub.publish(pose_factor_msg)
+                # log the relative pose factor
+                rospy.loginfo(f"Publishing pose factor from {key1} to {key2} at {tj.to_sec():.2f}: "
+                                f"position={[f'{x:.4f}' for x in position]}, "
+                                f"orientation={[f'{r:.2f}' for r in orientation_rpy]},\n "
+                                f"sigmas={[f'{s:.4f}' for s in sigmas]}")
+
+                #self.pose_factor_pub.publish(pose_factor_msg)
                 #rospy.loginfo(f"Published pose factor: {pose_factor_msg}")
                 # This allows for calling preintegration to clear the queue without advancing the pos
             self.initial_ti = tj  # Update the initial time to the current time
@@ -235,7 +257,7 @@ class CycleManager:
         # Run the routine preintegration at a regular interval
         rate = rospy.Rate(0.33)
         while not rospy.is_shutdown():
-            self.routine_preintegration()
+            #self.routine_preintegration()
             rate.sleep()
 
 if __name__ == "__main__":
