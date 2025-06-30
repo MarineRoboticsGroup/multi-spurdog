@@ -275,7 +275,7 @@ class CycleManager:
                     rospy.Time.now(), self.address_to_name[src], self.address_to_name[dest], timestamp_sec, owtt, tat, measured_range))
                 # self.range_data.append([timestamp_sec.to_sec(), src, dest, owtt, measured_range])
                 # Request preintegration
-                #self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
+                self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
                 # Publish a pose factor message
                 # Log the pose factor
                 pose_factor_msg = PoseFactorStamped()
