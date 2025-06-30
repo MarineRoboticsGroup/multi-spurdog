@@ -78,9 +78,9 @@ class CycleManager:
             "min_range": 1000.0,
             "max_range": -1000.0,
             "last_range_timestamp": rospy.Time.now(),
-            "last_range_interval": 0.0,
-            "last_range_target": None,
-            "last_range_distance": None
+            "last_range_interval": rospy.Duration(0),
+            "last_range_target": 0,
+            "last_range_distance": 0.0
         }
 
         # Check services
@@ -203,9 +203,10 @@ class CycleManager:
             #rospy.loginfo("[%s] Received $CATXP message: %s" % (rospy.Time.now(), data))
             pass
         elif nmea_type == "$CATXF": # Modem-to-host report of end of transmission
+            self.acomms_event_pub.publish("priority=2,pattern=([255.255.0.0]:1.0),cycles=3")
             nbytes = parse_nmea_catxf(data)
             if nbytes > 2:
-                self.acomms_event_pub.publish("priority=2,pattern=([255.255.0.0]:1.0),cycles=3")
+                #self.acomms_event_pub.publish("priority=2,pattern=([255.255.0.0]:1.0),cycles=3")
                 pass
         else:
             return
@@ -491,7 +492,7 @@ class CycleManager:
         dop = msg.cst.dop
         # Update the cycle status
         self.cycle_status["pings_successful"] += 1
-        self.cycle_status["last_range_interval"] = range_timestamp - self.cycle_status["last_range_timestamp"]
+        self.cycle_status["last_range_interval"] = rospy.Duration(rospy.Time(range_timestamp).from_sec() - self.cycle_status["last_range_timestamp"])
         self.cycle_status["last_range_timestamp"] = range_timestamp
         self.cycle_status["last_range_target"] = dest
         self.cycle_status["last_range_distance"] = np.round(measured_range,4)
@@ -712,7 +713,7 @@ class CycleManager:
             rospy.loginfo("[%s] Preintegration Data Written to File at: %s" % (rospy.Time.now(), preintegration_file))
         return
 
-    def send_acomms_status(self):
+    def send_acomms_status(self, event):
         """This function sends the ACOMMS status to the modem"""
         # Create the ACOMMS event message
         acomms_cycle_status = AcommsCycleStatus()
@@ -728,6 +729,7 @@ class CycleManager:
         acomms_cycle_status.last_range_target = self.cycle_status["last_range_target"]
         acomms_cycle_status.last_range_distance = self.cycle_status["last_range_distance"]
         self.cycle_status_pub.publish(acomms_cycle_status)
+        rospy.loginfo("[%s] Cycle Status sent" % rospy.Time.now())
         return
 
 if __name__ == "__main__":
