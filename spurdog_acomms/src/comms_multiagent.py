@@ -160,7 +160,7 @@ class CycleManager:
         if nmea_type == "$CACMD": # Modem-to-host acknowledgement of a ping command
             src, dest = parse_nmea_cacmd(data)
             if data[0] == "PNG" and src == self.local_address:
-                self.acomms_event_pub.publish("priority=2,pattern=([255.255.0.0]:1.0),cycles=1")
+                self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.0.255.0]:1.0),cycles=1")
                 rospy.loginfo("[%s] Sent Ping to %s" % (rospy.Time.now(), self.address_to_name[dest]))
             else:
                 rospy.logerr("[%s] Received $CACMD with unexpected data: %s" % (rospy.Time.now(), data))
@@ -171,7 +171,7 @@ class CycleManager:
             rcvd_stamp = rospy.Time.from_sec(recieved_ping_time)
             if data[1] == "PNG" and dest == self.local_address:
                 self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
-                self.acomms_event_pub.publish("priority=2,pattern=([0.0.255.0]:1.0),cycles=1")
+                self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([100.0.150.50]:1.0),cycles=1")
                 # Log the ping event to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
                 # Check if there is an existin CST-based entry for this ping (CST time within 1sec and matching src/dest)
                 for entry in self.rcv_range_data:
@@ -193,7 +193,7 @@ class CycleManager:
         elif nmea_type == "$CACMR": # Modem-to-host acknowledgement of a ping response
             src, dest, recieved_ping_time, owtt = parse_nmea_cacmr(data)
             if data[0] == "PNR" and src == self.local_address:
-                self.acomms_event_pub.publish("priority=2,pattern=([0.255.0.0]:1.0),cycles=1")
+                self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:1.0),cycles=1")
                 measured_range = owtt * self.sound_speed
                 self.add_range_event_to_graph_update(self, src, None, measured_range, sigma_range=self.range_sigma)
                 rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, self.address_to_name[dest]))
