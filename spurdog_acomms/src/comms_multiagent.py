@@ -219,7 +219,7 @@ class CycleManager:
                         rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, self.address_to_name[src], payload))
                         # Analyze the payload (should be a letter followed by a integer, e.g. "A1")
                         self.partial_ranges.append({
-                            "timestamp": recieved_msg_time.to_sec(),
+                            "timestamp": recieved_msg_time,
                             "key1": chr(ord("A") + self.local_address) + str(self.modem_addresses[chr(ord("A") + self.local_address)][1]),
                             "key2": payload,  # e.g. "L0" or "A2"
                             "remote_address": src,
@@ -375,7 +375,7 @@ class CycleManager:
             decoded_range_event = decode_range_event_from_int(encoded_range_event)
             #decoded_range_event = [remote_address, index, measured_range, sigma_range, depth]
             # Check how we should handle the range event
-            remote_name = self.address_to_name(decoded_range_event[0])
+            remote_name = self.address_to_name[decoded_range_event[0]]
             if "L" in remote_address:  # This is a range between the sender and the landmark
                 #decoded_range_event = [remote_address, None, measured_range, sigma_range, depth]
                 # Build a RangeFactorStamped Directly
