@@ -195,7 +195,7 @@ class CycleManager:
             if data[0] == "PNR" and src == self.local_address:
                 self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:1.0),cycles=1")
                 measured_range = owtt * self.sound_speed
-                self.add_range_event_to_graph_update(self, src, None, measured_range, sigma_range=self.range_sigma)
+                self.add_range_event_to_graph_update(src, None, measured_range, sigma_range=self.range_sigma)
                 rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, self.address_to_name[dest]))
             elif data[0] == "PNR":
                 rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (recieved_ping_time, self.address_to_name[src], self.address_to_name[dest]))
@@ -210,7 +210,7 @@ class CycleManager:
             elif dest == self.local_address:
                 rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, self.address_to_name[src], payload))
                 # Analyze the payload (should be a letter followed by a integer, e.g. "A1")
-                self.add_range_event_to_graph_update(self, src, int(payload[1:]), None, None)
+                self.add_range_event_to_graph_update(src, int(payload[1:]), None, None)
                 # Log the payload to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
                 # Check if there is an existing entry and update it
                 for entry in self.rcv_range_data:
@@ -302,8 +302,79 @@ class CycleManager:
         Args:
             msg (TestData): The test data message
         """
+        # Parse the graph update into PoseFactorStamped and RangeFactorStamped messages
+        sender_address = msg.sender_address
+        initial_key_index = msg.first_key_index
+        num_poses = msg.num_poses
+        # Build a list of pose keys to publish:
+        pose_keys = []
+        for i in range(num_poses+1): #0,1,2,3,4
+            key_index = initial_key_index + i
+            pose_key = chr(ord("A") + sender_address) + str(key_index)
+            pose_keys.append(pose_key)
+        # Now, iterate over the poses and publish them
+        for i in range(num_poses): #0,1,2,3
+            key1 = pose_keys[i]
+            key2 = pose_keys[i+1]
+            # Get the encoded pose data
+            prefix = f"relative_pose_{i}_"
+            x = getattr(msg, prefix + "x")
+            y = getattr(msg, prefix + "y")
+            z = getattr(msg, prefix + "z")
+            qw = getattr(msg, prefix + "qw")
+            qx = getattr(msg, prefix + "qx")
+            qy = getattr(msg, prefix + "qy")
+            qz = getattr(msg, prefix + "qz")
+            sigma_x = getattr(msg, prefix + "sigma_x")
+            sigma_y = getattr(msg, prefix + "sigma_y")
+            sigma_z = getattr(msg, prefix + "sigma_z")
+            sigma_psi = getattr(msg, prefix + "sigma_psi")
+            rho_xy = getattr(msg, prefix + "rho_xy")
+            rho_xpsi = getattr(msg, prefix + "rho_xpsi")
+            rho_ypsi = getattr(msg, prefix + "rho_ypsi")
+            encoded_pose = [x, y, z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, rho_xy, rho_xpsi, rho_ypsi]
+            # Create a PoseWithCovariance message
+            pose_with_covariance = decode_pwc_from_int(encoded_pose)
+            # Create a PoseFactorStamped message
+            pose_factor_msg = PoseFactorStamped()
+            pose_factor_msg.header.stamp = msg.header.stamp
+            pose_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
+            pose_factor_msg.key1 = key1
+            pose_factor_msg.key2 = key2 if key2 is not None else ""
+            pose_factor_msg.pose = pose_with_covariance
+            # Publish the pose factor message
+            self.pose_factor_pub.publish(pose_factor_msg)
+            rospy.loginfo("[%s] Published Pose Factor: %s -> %s" % (rospy.Time.now(), key1, key2))
+        # Now iterative over the range events and publish them
+        for i in range(num_poses): #0,1,2,3
+            prefix = f"range_event_{i}_"
+            remote_address = getattr(msg, prefix + "remote_address")
+            index = getattr(msg, prefix + "index")
+            measured_range = getattr(msg, prefix + "measured_range")
+            sigma_range = getattr(msg, prefix + "sigma_range")
+            depth = getattr(msg, prefix + "depth")
+            decoded_range_event = decode_range_event_from_int(remote_address, index, measured_range, sigma_range, depth)
+            # Create a RangeFactorStamped message
+            range_factor_msg = RangeFactorStamped()
+            range_factor_msg.header.stamp = msg.header.stamp
+            range_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
+            range_factor_msg.key1 = pose_keys[i+1] # Assuming the ranges are time-ordered
+            ping_dest = self.address_to_name[decoded_range_event[0]]
+            range_factor_msg.depth = self.depth
+            # Apply different parsing for 
+            if decoded_range_event[1] is not None: # They transmitted their index and the ping payload index (a recieved ping)
+                range_factor_msg.key2 = ping_dest + str(decoded_range_event[1])  # e.g. "L0" or "A2"
+                range_factor_msg.meas_range = None
+                range_factor_msg.range_sigma = None
+            else: # They transmitted a range event, but don't know the index on the other agent (a transmitted ping)
+                range_factor_msg.key2 = ping_dest
+                range_factor_msg.meas_range = decoded_range_event[2]
+                range_factor_msg.range_sigma = decoded_range_event[3]
+            # Publish the range factor message
+            self.range_factor_pub.publish(range_factor_msg)
+            rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (key1, key2, range_factor_msg.meas_range))
         # Log the test data
-        rospy.loginfo("[%s] Received Test Data: %s" % (rospy.Time.now(), msg))
+        rospy.loginfo("[%s] Received Graph Update" % (rospy.Time.now()))
         return
 
     def send_ping(self, target_addr):
@@ -427,6 +498,7 @@ class CycleManager:
         active_message = self.graph_update_msg
         self.graph_update_pub.publish(active_message)
         self.graph_update_msg = GraphUpdate()  # Reset the message for the next cycle
+        self.graph_update_msg.sender_address = np.clip(int(self.local_address),0,4)
         rospy.loginfo("[%s] Sent Graph Update" % (rospy.Time.now()))
         return
 
@@ -521,43 +593,62 @@ class CycleManager:
         self.pose_time_lookup[key2] = tj
         return
 
-    def add_pwcs_to_graph_update(self, key1_index, pwcs: PoseWithCovarianceStamped):
-        """Check the number of existing poses in the graph update message and add the pose"""
-        num_poses = len(self.graph_update_msg.num_poses)
+    def add_pwcs_to_graph_update(self, preintegratded_pose: PoseWithCovarianceStamped, key1_index: int):
+        """This function adds a PoseWithCovarianceStamped message to the graph update message
+        Args:
+            preintegratded_pose (PoseWithCovarianceStamped): The pose to add to the graph update
+            key1_index (int): The index of the first key in the pose factor
+        """
+        # Encode the PoseWithCovarianceStamped message as integer values
+        encoded_pose = encode_pwcs_as_int(preintegratded_pose)
+        # Get the number of poses currently stored:
+        num_poses = self.graph_update_msg.num_poses
+        prefix = f"relative_pose_{num_poses}_"
+        # If this is the first pose, update the first_key_index
         if num_poses == 0:
-            first_key_index = key1_index
-            self.graph_update_msg.relative_pose_0 = encode_pwcs_as_int(pwcs)
-        elif num_poses == 1:
-            self.graph_update_msg.relative_pose_1 = encode_pwcs_as_int(pwcs)
-        elif num_poses == 2:
-            self.graph_update_msg.relative_pose_2 = encode_pwcs_as_int(pwcs)
-        elif num_poses == 3:
-            self.graph_update_msg.relative_pose_3 = encode_pwcs_as_int(pwcs)
-        else:
-            rospy.logwarn("[%s] Graph Update Message already has 4 poses, not adding more." % rospy.Time.now())
-            return
-        # Update the number of poses in the graph update message
-        self.graph_update_msg.num_poses = num_poses + 1
+            self.graph_update_msg.first_key_index = key1_index
+        # Add the encoded pose to the graph update message
+        setattr(self.graph_update_msg, prefix + "x", encoded_pose[0])
+        setattr(self.graph_update_msg, prefix + "y", encoded_pose[1])
+        setattr(self.graph_update_msg, prefix + "z", encoded_pose[2])
+        setattr(self.graph_update_msg, prefix + "qw", encoded_pose[3])
+        setattr(self.graph_update_msg, prefix + "qx", encoded_pose[4])
+        setattr(self.graph_update_msg, prefix + "qy", encoded_pose[5])
+        setattr(self.graph_update_msg, prefix + "qz", encoded_pose[6])
+        setattr(self.graph_update_msg, prefix + "sigma_x", encoded_pose[7])
+        setattr(self.graph_update_msg, prefix + "sigma_y", encoded_pose[8])
+        setattr(self.graph_update_msg, prefix + "sigma_z", encoded_pose[9])
+        setattr(self.graph_update_msg, prefix + "sigma_psi", encoded_pose[10])
+        setattr(self.graph_update_msg, prefix + "rho_xy", encoded_pose[11])
+        setattr(self.graph_update_msg, prefix + "rho_xpsi", encoded_pose[12])
+        setattr(self.graph_update_msg, prefix + "rho_ypsi", encoded_pose[13])
+        # Increment the number of poses in the graph update message
+        self.graph_update_msg.num_poses += 1
+        # Log the addition of the pose
+        rospy.loginfo("[%s] Added PoseWithCovarianceStamped #%s to Graph Update)" % (rospy.Time.now(), prefix))
         return
 
-    def add_range_event_to_graph_update(self, remote_addr, index, measured_range, sigma_range):
-        """This function adds a range event to the graph update message"""
-        # Check how many range events are in the graph update message by checking if the ranging_event_0 slot is empty
-        ranging_event_msg = encode_range_event_as_int(
-            remote_addr, index, measured_range, sigma_range, self.depth)
-        # Check the number of existing range events in the graph update message and add the range event
-        num_poses = len(self.graph_update_msg.num_poses)
-        if self.graph_update_msg.num_poses == 0:
-            self.graph_update_msg.ranging_event_0 = ranging_event_msg
-        elif self.graph_update_msg.ranging_event_1 == RangeFactor():
-            self.graph_update_msg.ranging_event_1 = ranging_event_msg
-        elif self.graph_update_msg.ranging_event_2 == RangeFactor():
-            self.graph_update_msg.ranging_event_2 = ranging_event_msg
-        elif self.graph_update_msg.ranging_event_3 == RangeFactor():
-            self.graph_update_msg.ranging_event_3 = ranging_event_msg
-        else:
-            rospy.logwarn("[%s] Graph Update Message already has 4 range events, not adding more." % rospy.Time.now())
-            return
+    def add_range_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0):
+        #[remote_address, index_or_measured_range, sigma_range, depth]
+        """This function adds a range measurement to the graph update message"""
+        # Encode the range measurement as integer values
+        encoded_range = encode_range_as_int(remote_address, remote_index, measured_range, sigma_range)
+        # Get the number of ranges currently stored (a proxy is the number of depth readings which are not zero)
+        num_ranges = 0
+        for i in range(0, 4):
+            depth_field_prefix = f"range_{i}_depth"
+            if hasattr(self.graph_update_msg, depth_field_prefix):
+                depth_value = getattr(self.graph_update_msg, depth_field_prefix)
+                if depth_value != 0.0:
+                    num_ranges += 1
+        prefix = f"range_{num_ranges}_"
+        # Update the fields at this index
+        setattr(self.graph_update_msg, prefix + "remote_address", encoded_range[0])
+        setattr(self.graph_update_msg, prefix + "index_or_measured_range", encoded_range[1])
+        setattr(self.graph_update_msg, prefix + "sigma_range", encoded_range[2])
+        setattr(self.graph_update_msg, prefix + "depth", encoded_range[3])
+        rospy.loginfo("[%s] Added Range #%s to Graph Update)" % (rospy.Time.now(), prefix))
+        return
 
     def on_gps(self, msg: PoseWithCovarianceStamped):
         """This function receives the GPS data from the estimator
