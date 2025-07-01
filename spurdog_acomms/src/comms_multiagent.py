@@ -93,6 +93,9 @@ class CycleManager:
             "last_range_target": 0,
             "last_range_distance": 0.0
         }
+        self.partial_ranges = []
+        # partial ranges is a list of dicts, each with the following keys:
+        # timestamp, key1: str, key2: str, remote_address: int, index: int, measured_range: float, sigma_range: float, depth1: float, depth2: float
         self.graph_update_msg = GraphUpdate()
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
@@ -172,6 +175,7 @@ class CycleManager:
             # Convert time (ROS Time in sec) to ROS Time in nsec
             rcvd_stamp = rospy.Time.from_sec(recieved_ping_time)
             if data[0] == "PNG" and dest == self.local_address:
+                # Log to the partial ranges:
                 self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
                 self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([100.0.150.50]:1.0),cycles=1")
                 # Log the ping event to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
@@ -216,6 +220,17 @@ class CycleManager:
                     else:
                         rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, self.address_to_name[src], payload))
                         # Analyze the payload (should be a letter followed by a integer, e.g. "A1")
+                        self.partial_ranges.append({
+                            "timestamp": recieved_msg_time.to_sec(),
+                            "key1": chr(ord("A") + self.local_address) + str(self.modem_addresses[chr(ord("A") + self.local_address)][1]),
+                            "key2": payload,  # e.g. "L0" or "A2"
+                            "remote_address": src,
+                            "index": None,  # This will be filled later when the msg is received
+                            "measured_range": None,  # This will be filled later when the msg is received
+                            "sigma_range": None,    # This will be filled later when the msg is received
+                            "depth1": self.depth,
+                            "depth2": None  # This will be filled later when the msg is received
+                        })
                         self.add_range_event_to_graph_update(src, int(payload[1:]), None, None)
                         # Log the payload to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
                         # Check if there is an existing entry and update it
@@ -360,25 +375,114 @@ class CycleManager:
             depth = getattr(msg, prefix + "depth")
             encoded_range_event = [remote_address, index_or_measured_range, sigma_range, depth]
             decoded_range_event = decode_range_event_from_int(encoded_range_event)
-            # Create a RangeFactorStamped message
-            range_factor_msg = RangeFactorStamped()
-            range_factor_msg.header.stamp = msg.header.stamp
-            range_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
-            range_factor_msg.key1 = pose_keys[i+1] # Assuming the ranges are time-ordered
-            ping_dest = self.address_to_name[decoded_range_event[0]]
-            range_factor_msg.depth = self.depth
-            # Apply different parsing for 
-            if decoded_range_event[1] is not None: # They transmitted their index and the ping payload index (a recieved ping)
-                range_factor_msg.key2 = ping_dest + str(decoded_range_event[1])  # e.g. "L0" or "A2"
-                range_factor_msg.meas_range = None
-                range_factor_msg.range_sigma = None
-            else: # They transmitted a range event, but don't know the index on the other agent (a transmitted ping)
-                range_factor_msg.key2 = ping_dest
-                range_factor_msg.meas_range = decoded_range_event[2]
-                range_factor_msg.range_sigma = decoded_range_event[3]
-            # Publish the range factor message
-            self.range_factor_pub.publish(range_factor_msg)
-            rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (key1, key2, range_factor_msg.meas_range))
+            #decoded_range_event = [remote_address, index, measured_range, sigma_range, depth]
+            # Check how we should handle the range event
+            remote_name = self.address_to_name(decoded_range_event[0])
+            if "L" in remote_address:  # This is a range between the sender and the landmark
+                #decoded_range_event = [remote_address, None, measured_range, sigma_range, depth]
+                # Build a RangeFactorStamped Directly
+                range_factor_msg = RangeFactorStamped()
+                range_factor_msg.header.stamp = rospy.Time.now()
+                range_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
+                range_factor_msg.key1 = pose_keys[i+1]  # e.g. "A0"
+                range_factor_msg.key2 = remote_name  # e.g. "L0"
+                range_factor_msg.meas_range = decoded_range_event[2]  # This is the measured range
+                range_factor_msg.range_sigma = decoded_range_event[3]  # This is the sigma range
+                range_factor_msg.depth1 = decoded_range_event[4]  # Depth of the sender
+                range_factor_msg.depth2 = self.landmarks[remote_name][2]  # Depth of the landmark
+                self.range_factor_pub.publish(range_factor_msg)
+                rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
+                    rospy.Time.now(), pose_keys[i+1], remote_name, decoded_range_event[2]))
+            elif decoded_range_event[1] == None: # This is a range initiated by the sender
+                # decoded_range_event = [remote_address, None, measured_range, sigma_range, depth]
+                # We should have an entry in partial ranges for this:
+                found_partial = False
+                assoc_entry = {}
+                for pr in self.partial_ranges:
+                    if pr["key2"] == pose_keys[i+1]: # We recieved this symbol as payload
+                        pr["measured_range"] = decoded_range_event[2]
+                        pr["sigma_range"] = decoded_range_event[3]
+                        pr["depth2"] = decoded_range_event[4]
+                        found_partial = True
+                        assoc_entry = pr
+                        self.partial_ranges.remove(pr)  # Remove the entry from partial ranges
+                        break
+                if found_partial:
+                    # Now, we can send this RangeFactorStamped message
+                    range_factor_msg = RangeFactorStamped()
+                    range_factor_msg.header.stamp = rospy.Time.now()
+                    range_factor_msg.header.frame_id = self.address_to_name[sender_address]
+                    range_factor_msg.key1 = assoc_entry["key1"]  # e.g. "A0"
+                    range_factor_msg.key2 = assoc_entry["key2"]
+                    range_factor_msg.meas_range = assoc_entry["measured_range"]
+                    range_factor_msg.range_sigma = assoc_entry["sigma_range"]
+                    range_factor_msg.depth1 = assoc_entry["depth1"]
+                    range_factor_msg.depth2 = assoc_entry["depth2"]
+                    self.range_factor_pub.publish(range_factor_msg)
+                    rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
+                        rospy.Time.now(), assoc_entry["key2"], assoc_entry["key1"], assoc_entry["measured_range"]))
+                elif decoded_range_event[0] == self.local_address:  # This is a range to us
+                    # If we don't have one, thats and error and we should log it
+                    rospy.logwarn("[%s] No partial range found for %s" % (rospy.Time.now(), pose_keys[i+1]))
+                elif decoded_range_event[0] != self.local_address:  # This is a range transmitted from the sender to some other agent
+                    # We need to add a partial to the partial ranges
+                    self.partial_ranges.append({
+                        "timestamp": rospy.Time.now().to_sec(),
+                        "key1": pose_keys[i+1],  # e.g. "A0"
+                        "key2": None,  # This will be filled later when the msg is received
+                        "remote_address": decoded_range_event[0],
+                        "index": None,  # This will be filled later when the msg is received
+                        "measured_range": decoded_range_event[2],
+                        "sigma_range": decoded_range_event[3],
+                        "depth1": decoded_range_event[4],
+                        "depth2": None # Depth of the other agent
+                    })
+            elif decoded_range_event[1] is not None:  # This is a range initiated by an agent and recieved by the sender
+                transmitted_payload = self.address_to_name[decoded_range_event[0]] + str(decoded_range_event[1])  # e.g. "L0" or "A2"
+                # decoded_range_event = [remote_address, index, None, None, depth]
+                found_partial = False
+                assoc_entry = {}
+                for pr in self.partial_ranges:
+                    if pr["key1"] == transmitted_payload: # looking for a match to our key1
+                        pr["key2"] = pose_keys[i+1]
+                        pr["index"] = decoded_range_event[1]
+                        pr["depth2"] = decoded_range_event[4]
+                        found_partial = True
+                        assoc_entry = pr
+                        self.partial_ranges.remove(pr)
+                        break
+                if found_partial:
+                    # Now, we can send this RangeFactorStamped message
+                    range_factor_msg = RangeFactorStamped()
+                    range_factor_msg.header.stamp = rospy.Time.now()
+                    range_factor_msg.header.frame_id = self.address_to_name[sender_address]
+                    range_factor_msg.key1 = assoc_entry["key1"]  # e.g. "A0
+                    range_factor_msg.key2 = assoc_entry["key2"]
+                    range_factor_msg.meas_range = assoc_entry["measured_range"]
+                    range_factor_msg.range_sigma = assoc_entry["sigma_range"]
+                    range_factor_msg.depth1 = assoc_entry["depth1"]
+                    range_factor_msg.depth2 = assoc_entry["depth2"]
+                    self.range_factor_pub.publish(range_factor_msg)
+                    rospy.loginfo("[%s] Published Range Factor: %s -> %s, index=%d" % (
+                        rospy.Time.now(), assoc_entry["key1"], assoc_entry["key2"], decoded_range_event[1]))
+                elif decoded_range_event[0] == self.local_address:  # This is a range to us
+                    # If we don't have one, thats and error and we should log it
+                    rospy.logwarn("[%s] No partial range found for %s" % (rospy.Time.now(), pose_keys[i+1]))
+                elif decoded_range_event[0] != self.local_address:  # This is a range transmitted from the sender to some other agent
+                    # We need to add a partial to the partial ranges
+                    self.partial_ranges.append({
+                        "timestamp": rospy.Time.now().to_sec(),
+                        "key1": transmitted_payload,  # e.g. "L0" or "A2"
+                        "key2": pose_keys[i+1],  # e.g. "A0"
+                        "remote_address": decoded_range_event[0],
+                        "index": decoded_range_event[1],
+                        "measured_range": None,
+                        "sigma_range": None,
+                        "depth1": None,
+                        "depth2": decoded_range_event[4]  # Depth of the other agent
+                    })
+                else:
+                    rospy.logwarn("[%s] No partial range found for (abnormal address) %s" % (rospy.Time.now(), pose_keys[i+1]))
         # Log the test data
         rospy.loginfo("[%s] Received Graph Update" % (rospy.Time.now()))
         return
@@ -456,25 +560,46 @@ class CycleManager:
                 timestamp_ns = ping_resp.cst.toa - rospy.Duration.from_sec(owtt)
                 timestamp_sec = rospy.Time.from_sec(timestamp_ns.to_sec())
                 # Send the range factor message
-                range_factor_msg = RangeFactorStamped()
-                range_factor_msg.header.stamp = timestamp_sec
-                range_factor_msg.header.frame_id = "modem"
-                range_factor_msg.key1 = chr(ord("A") + self.local_address) + str(self.modem_addresses[chr(ord("A") + self.local_address)][1])
-                range_factor_msg.key2 = self.address_to_name[target_addr]
-                range_factor_msg.meas_range = measured_range
-                range_factor_msg.range_sigma = self.range_sigma
-                range_factor_msg.depth = self.depth
-                self.range_factor_pub.publish(range_factor_msg)
+                # range_factor_msg = RangeFactorStamped()
+                # range_factor_msg.header.stamp = timestamp_sec
+                # range_factor_msg.header.frame_id = "modem"
+                # range_factor_msg.key1 = symbol
+                # range_factor_msg.key2 = self.address_to_name[target_addr]
+                # range_factor_msg.meas_range = measured_range
+                # range_factor_msg.range_sigma = self.range_sigma
+                # range_factor_msg.depth = self.depth
+                # self.range_factor_pub.publish(range_factor_msg)
                 # Log all the fields
                 rospy.loginfo("[%s] Ping Complete %s to %s: timestamp=%s, owtt=%.4f, tat= %.4f, measured_range=%.2f" % (
                     rospy.Time.now(), self.address_to_name[src], self.address_to_name[dest], timestamp_sec, owtt, tat, measured_range))
                 # self.tx_range_data.append([timestamp_sec.to_sec(), src, dest, owtt, measured_range])
                 # Request preintegration
                 self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
-                # if target_addr == first_tgt:
-                #     self.send_ping(second_tgt)  # Attempt the second target
-                # elif target_addr == second_tgt:
-                #     self.send_ping(first_tgt)  # Attempt the first target
+                if "L" in self.address_to_name[dest]:  #Send the range factor message right away
+                    range_factor_msg = RangeFactorStamped()
+                    range_factor_msg.header.stamp = timestamp_sec
+                    range_factor_msg.header.frame_id = "modem"
+                    range_factor_msg.key1 = symbol
+                    range_factor_msg.key2 = self.address_to_name[dest]  # e.g. "L0" or "A2"
+                    range_factor_msg.meas_range = measured_range
+                    range_factor_msg.range_sigma = self.range_sigma
+                    range_factor_msg.depth1 = self.depth
+                    range_factor_msg.depth2 = self.landmarks[self.address_to_name[dest]][2]
+                    self.range_factor_pub.publish(range_factor_msg)
+                    rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
+                        timestamp_sec, symbol, self.address_to_name[dest], measured_range))
+                else:
+                    self.partial_ranges.append({
+                        "timestamp": timestamp_sec.to_sec(),
+                        "key1": symbol,
+                        "key2": self.address_to_name[dest],  # e.g. "L0" or "A2"
+                        "remote_address": dest,
+                        "index": None,  # This will be filled later when the msg is received
+                        "measured_range": measured_range,  # This will be filled later when the msg is received
+                        "sigma_range": self.range_sigma,    # This will be filled later when the msg is received
+                        "depth1": self.depth,
+                        "depth2": None  # This will be filled later when the msg is received
+                    })
                 next_tgt = self.planned_targets[0] if self.planned_targets else None
                 if next_tgt is not None:
                     rospy.loginfo("[%s] Attempting next target: %s" % (rospy.Time.now(), self.address_to_name[next_tgt]))
