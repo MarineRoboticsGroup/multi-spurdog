@@ -36,7 +36,9 @@ from spurdog_acomms_utils.nmea_utils import (
 )
 from spurdog_acomms_utils.codec_utils import (
     encode_pwcs_as_int,
-    encode_range_event_as_int
+    encode_range_event_as_int,
+    decode_pwc_from_int,
+    decode_range_event_from_int
 )
 
 class CycleManager:
@@ -169,7 +171,7 @@ class CycleManager:
             src, dest, recieved_ping_time = parse_nmea_cacma(data)
             # Convert time (ROS Time in sec) to ROS Time in nsec
             rcvd_stamp = rospy.Time.from_sec(recieved_ping_time)
-            if data[1] == "PNG" and dest == self.local_address:
+            if data[0] == "PNG" and dest == self.local_address:
                 self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
                 self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([100.0.150.50]:1.0),cycles=1")
                 # Log the ping event to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
@@ -184,8 +186,8 @@ class CycleManager:
                     else: # Assume that the CST hasn't been recieved yet and make a new entry
                         # Add a new entry with None for CST time
                         self.rcv_range_data.append([rcvd_stamp.to_sec(), None, src, dest, None, None, None, None, None])
-                rospy.loginfo("[%s] Received Ping from %s" % (recieved_ping_time, chr(ord("A") + self.address_to_name[src])))
-            elif data[1] == "PNG":
+                rospy.loginfo("[%s] Received Ping from %s" % (recieved_ping_time, self.address_to_name[src]))
+            elif data[0] == "PNG":
                 rospy.loginfo("[%s] Overheard Ping from %s to %s" % (recieved_ping_time, self.address_to_name[src], self.address_to_name[dest]))
             else:
                 rospy.logerr("[%s] Received $CACMA with unexpected data: %s" % (rospy.Time.now(), data))
@@ -521,7 +523,8 @@ class CycleManager:
         ti = self.pose_time_lookup[local_chr + str(key1_index)]
         try:
             rospy.loginfo(f"Attempting to preintegrate between {ti} and {tj}")
-            response = self.preintegrate_imu(tj)
+            
+            response = self.preintegrate_imu(ti, tj)
             rospy.loginfo(f"Received preintegrated pose between {ti} and {tj}")
             if adv_pose:
                 x_ij = response.pose_delta
@@ -593,7 +596,7 @@ class CycleManager:
         self.pose_time_lookup[key2] = tj
         return
 
-    def add_pwcs_to_graph_update(self, preintegratded_pose: PoseWithCovarianceStamped, key1_index: int):
+    def add_pwcs_to_graph_update(self, key1_index: int, preintegratded_pose: PoseWithCovarianceStamped):
         """This function adds a PoseWithCovarianceStamped message to the graph update message
         Args:
             preintegratded_pose (PoseWithCovarianceStamped): The pose to add to the graph update
@@ -628,11 +631,11 @@ class CycleManager:
         rospy.loginfo("[%s] Added PoseWithCovarianceStamped #%s to Graph Update)" % (rospy.Time.now(), prefix))
         return
 
-    def add_range_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0):
+    def add_range_event_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0):
         #[remote_address, index_or_measured_range, sigma_range, depth]
         """This function adds a range measurement to the graph update message"""
         # Encode the range measurement as integer values
-        encoded_range = encode_range_as_int(remote_address, remote_index, measured_range, sigma_range)
+        encoded_range = encode_range_event_as_int(remote_address, remote_index, measured_range, sigma_range)
         # Get the number of ranges currently stored (a proxy is the number of depth readings which are not zero)
         num_ranges = 0
         for i in range(0, 4):
@@ -757,7 +760,7 @@ class CycleManager:
         """
         # Get timestamp from header
         message_timestamp = msg.header.stamp.to_sec()
-        range_timestamp = rospy.Time(msg.cst.toa.secs, msg.cst.toa.nsecs).to_sec(),
+        range_timestamp = rospy.Time(msg.cst.toa.secs, msg.cst.toa.nsecs).to_sec()
         src = msg.dest #NOTE: inverted due to ping reply
         dest = msg.src
         owtt = msg.owtt
@@ -787,8 +790,12 @@ class CycleManager:
         # dqf = msg.cst.dqf
         dop = msg.cst.dop
         # Update the cycle status
+        # rospy.loginfo("[%s] rnage timestamp: %.4f, message timestamp: %.4f, last range timestamp: %.4f, src: %s" % (
+        #     rospy.Time.now(), range_timestamp, message_timestamp, self.cycle_status["last_range_timestamp"].to_sec(), chr(ord("A") + src)))
         self.cycle_status["pings_successful"] += 1
-        self.cycle_status["last_range_interval"] = rospy.Duration(rospy.Time(range_timestamp).from_sec() - self.cycle_status["last_range_timestamp"])
+        self.cycle_status["last_range_interval"] = rospy.Duration.from_sec(
+            range_timestamp - self.cycle_status["last_range_timestamp"].to_sec()
+        ).to_sec()
         self.cycle_status["last_range_timestamp"] = range_timestamp
         self.cycle_status["last_range_target"] = dest
         self.cycle_status["last_range_distance"] = np.round(measured_range,4)

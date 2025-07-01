@@ -29,14 +29,14 @@ def parse_nmea_cacmd(nmea_data: list):
 def parse_nmea_cacma(nmea_data: list):
     """ Modem-to-host acknowledgement of a recieved ping, sent via the PingRequest service
         $CACMA,TIME,PNG,SRC,DEST,<>,<>,NumDatabytes,<>*CS
-        $CACMA,2025-03-17T17:16:29.639994,PNG,0,1,56.7,6.62,3,0,0*74
+        $CACMA,PNG,2025-07-01T01:32:18.877616,1,0,32.0,8.29,1,0,0*73
     """
     # Get the fields
     if len(nmea_data) != 9:
         rospy.logerr("[%s] CAMCA data length is not 9, instead %s!" % (rospy.Time.now(), len(nmea_data)))
         return None
     else:
-        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[0],"%Y-%m-%dT%H:%M:%S.%f").timestamp()).to_sec()
+        recieved_ping_time = rospy.Time.from_sec(datetime.strptime(nmea_data[1],"%Y-%m-%dT%H:%M:%S.%f").timestamp()).to_sec()
         src = int(nmea_data[2])
         dest = int(nmea_data[3])
         return src, dest, recieved_ping_time

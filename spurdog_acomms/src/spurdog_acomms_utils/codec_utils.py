@@ -76,26 +76,26 @@ def encode_pwcs_as_int(pwcs:PoseWithCovarianceStamped):
     rho_ypsi = pwcs.pose.covariance[11] / (sigma_y * sigma_psi) if sigma_y and sigma_psi else 0.0
 
     # Encode the position and orientation
-    x = np.clip(int(pwcs.pose.pose.position.x * CODEC_SCALE_FACTORS["between_factor"]["x"]), -32768, 32767)
-    y = np.clip(int(pwcs.pose.pose.position.y * CODEC_SCALE_FACTORS["between_factor"]["y"]), -32768, 32767)
-    z = np.clip(int(pwcs.pose.pose.position.z * CODEC_SCALE_FACTORS["between_factor"]["z"]),  -128, 127)
+    x = int(np.clip(int(pwcs.pose.pose.position.x * CODEC_SCALE_FACTORS["between_factor"]["x"]), -32768, 32767))
+    y = int(np.clip(int(pwcs.pose.pose.position.y * CODEC_SCALE_FACTORS["between_factor"]["y"]), -32768, 32767))
+    z = int(np.clip(int(pwcs.pose.pose.position.z * CODEC_SCALE_FACTORS["between_factor"]["z"]),  -128, 127))
 
     # Encode the orientation as a quaternion
-    qx = np.clip(int(pwcs.pose.pose.orientation.x * CODEC_SCALE_FACTORS["between_factor"]["qx"]), -128, 127)
-    qy = np.clip(int(pwcs.pose.pose.orientation.y * CODEC_SCALE_FACTORS["between_factor"]["qy"]), -128, 127)
-    qz = np.clip(int(pwcs.pose.pose.orientation.z * CODEC_SCALE_FACTORS["between_factor"]["qz"]), -128, 127)
-    qw = np.clip(int(pwcs.pose.pose.orientation.w * CODEC_SCALE_FACTORS["between_factor"]["qw"]), -128, 127)
+    qx = int(np.clip(int(pwcs.pose.pose.orientation.x * CODEC_SCALE_FACTORS["between_factor"]["qx"]), -128, 127))
+    qy = int(np.clip(int(pwcs.pose.pose.orientation.y * CODEC_SCALE_FACTORS["between_factor"]["qy"]), -128, 127))
+    qz = int(np.clip(int(pwcs.pose.pose.orientation.z * CODEC_SCALE_FACTORS["between_factor"]["qz"]), -128, 127))
+    qw = int(np.clip(int(pwcs.pose.pose.orientation.w * CODEC_SCALE_FACTORS["between_factor"]["qw"]), -128, 127))
 
     # Encode the sigmas
-    sigma_x = np.clip(int(sigma_x * CODEC_SCALE_FACTORS["between_factor"]["sigma_x"]), 0, 255)
-    sigma_y = np.clip(int(sigma_y * CODEC_SCALE_FACTORS["between_factor"]["sigma_y"]), 0, 255)
-    sigma_z = np.clip(int(sigma_z * CODEC_SCALE_FACTORS["between_factor"]["sigma_z"]), 0, 255)
-    sigma_psi = np.clip(int(sigma_psi * CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"]), 0, 255)
+    sigma_x = int(np.clip(int(sigma_x * CODEC_SCALE_FACTORS["between_factor"]["sigma_x"]), 0, 255))
+    sigma_y = int(np.clip(int(sigma_y * CODEC_SCALE_FACTORS["between_factor"]["sigma_y"]), 0, 255))
+    sigma_z = int(np.clip(int(sigma_z * CODEC_SCALE_FACTORS["between_factor"]["sigma_z"]), 0, 255))
+    sigma_psi = int(np.clip(int(sigma_psi * CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"]), 0, 255))
 
     # Encode the correlation coefficients
-    rho_xy = np.clip(int(rho_xy * CODEC_SCALE_FACTORS["between_factor"]["rho_xy"]), -128, 127)
-    rho_xpsi = np.clip(int(rho_xpsi * CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"]), -128, 127)
-    rho_ypsi = np.clip(int(rho_ypsi * CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"]), -128, 127)
+    rho_xy = int(np.clip(int(rho_xy * CODEC_SCALE_FACTORS["between_factor"]["rho_xy"]), -128, 127))
+    rho_xpsi = int(np.clip(int(rho_xpsi * CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"]), -128, 127))
+    rho_ypsi = int(np.clip(int(rho_ypsi * CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"]), -128, 127))
 
     # Build the list 
     between_factor = [x, y, z, qw, qx, qy, qz,
@@ -117,9 +117,9 @@ def encode_range_event_as_int(remote_address:int, remote_index:int=None, measure
     # Encode the remote address
     remote_address = remote_address
     # Encode the index or measured range
-    if index is not None:
-        index = int(index*CODEC_SCALE_FACTORS["range_factor"]["index"])
-        if index < 0 or index > 65535:
+    if remote_index is not None:
+        remote_index = int(index*CODEC_SCALE_FACTORS["range_factor"]["index"])
+        if remote_index < 0 or index > 65535:
             rospy.logerr("[%s] Index value out of range!" % rospy.Time.now())
             index_or_measured_range = 0  # Default value if out of range
         else:
@@ -149,13 +149,13 @@ def encode_range_event_as_int(remote_address:int, remote_index:int=None, measure
     else:
         rospy.logerr("[%s] No index or measured range provided!" % rospy.Time.now())
         return RangeFactor()
-    depth = int(depth * CODEC_SCALE_FACTORS["range_factor"]["depth"])
-    # Verify that the depth is within range
-    if depth < 0.1 or depth > 255:
-        rospy.logerr("[%s] Depth value out of range!" % rospy.Time.now())
-        depth = 0.1 # accounts for a 10cm depth offset for the transducer relative to the depth sensor
+    if depth is None or depth < 0.1:
+        depth = 0.1
+    elif depth > 12.5:
+        depth = 12.5
     else:
-        depth = depth
+        pass # Scale the depth
+    depth = int(depth * CODEC_SCALE_FACTORS["range_factor"]["depth"])
     return [remote_address, index_or_measured_range, sigma_range, depth]
 
 # def encode_range_event_as_int(remote_address:int, index:int=None, measured_range:float=None, sigma_range:float=None, depth:float=None):
