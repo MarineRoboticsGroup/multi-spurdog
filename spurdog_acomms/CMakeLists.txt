@@ -224,6 +224,7 @@ catkin_install_python(PROGRAMS
   src/imu_sensor_handler.py
   src/imu_cal.py
   src/test_preintegration.py
+  src/extract_preintegration.py
   src/test_timing.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

@@ -430,22 +430,29 @@ bool ImuPreintegratorNode::handlePreintegrate(
   res.pose_delta.pose.pose.orientation.y = q.y();
   res.pose_delta.pose.pose.orientation.z = q.z();
   // Covariance is block diagonal with the rotation in the upper left 3x3 and the position in the lower right 3x3
+  // We need it to be in the opposite order: position in upper left, rotation in lower right
   // Fill the upper-left 3x3 block with the position covariance (from relativeCov's bottom-right block)
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      // Position covariance goes in top-left: rows 0-2, cols 0-2
-      res.pose_delta.pose.covariance[i * 6 + j] = relativeCov(3 + i, 3 + j);
+  // for (int i = 0; i < 3; ++i) {
+  //   for (int j = 0; j < 3; ++j) {
+  //     // Position covariance goes in top-left: rows 0-2, cols 0-2
+  //     res.pose_delta.pose.covariance[i * 6 + j] = relativeCov(3 + i, 3 + j);
+  //   }
+  // }
+
+  // // Fill the lower-right 3x3 block with the rotation covariance (from relativeCov's top-left block)
+  // for (int i = 0; i < 3; ++i) {
+  //   for (int j = 0; j < 3; ++j) {
+  //     // Rotation covariance goes in bottom-right: rows 3-5, cols 3-5
+  //     res.pose_delta.pose.covariance[(i + 3) * 6 + (j + 3)] = relativeCov(i, j);
+  //   }
+  // }
+  for (int i = 0; i < 6; ++i) {
+    for (int j = 0; j < 6; ++j) {
+      int src_i = (i < 3) ? i + 3 : i - 3;  // Swap translation (i<3) and rotation (i>=3)
+      int src_j = (j < 3) ? j + 3 : j - 3;
+      res.pose_delta.pose.covariance[i * 6 + j] = relativeCov(src_i, src_j);
     }
   }
-
-  // Fill the lower-right 3x3 block with the rotation covariance (from relativeCov's top-left block)
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      // Rotation covariance goes in bottom-right: rows 3-5, cols 3-5
-      res.pose_delta.pose.covariance[(i + 3) * 6 + (j + 3)] = relativeCov(i, j);
-    }
-  }
-
   return true;
 }
 
