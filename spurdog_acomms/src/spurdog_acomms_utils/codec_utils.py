@@ -44,13 +44,13 @@ CODEC_SCALE_FACTORS = {
         "qx": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
         "qy": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
         "qz": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
-        "sigma_x": 70,          # uint8, 0-255, expected: 0-3.6m, resolution: 0.014m
-        "sigma_y": 70,          # uint8, 0-255, expected: 0-3.6m, resolution: 0.014m
-        "sigma_z": 70,          # uint8, 0-255, expected: 0-3.6m, resolution: 0.014m
-        "sigma_psi": 40,        # uint8, 0-255, expected: 0-2pirad , resolution: 0.157rad (~pi/20)
-        "rho_xy": 100,          # int8, -128 to 127, expected:
-        "rho_xpsi": 100,        # int8, -128 to 127, expected:
-        "rho_ypsi": 100         # int8, -128 to 127, expected:
+        "sigma_x": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.01m
+        "sigma_y": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.01m
+        "sigma_z": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.01m
+        "sigma_psi": 255e4,     # uint8, 0-255, expected: 1e-5 to 1e-4, resolution: 4e-7rad (2.2e-5 deg)
+        "rho_xy": 127e12,       # int8, -128 to 127, expected: -1e-10 to 1e-10, resolution:
+        "rho_xpsi": 254e5,      # int8, -128 to 127, expected: -5e-6 to 5e-6, resolution:
+        "rho_ypsi": 254e5       # int8, -128 to 127, expected: -5e-6 to 5e-6, resolution:
     },
     "range_factor": {
         "remote_address": 1,    # uint8, 0-255, expected: 0-5
