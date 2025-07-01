@@ -275,7 +275,7 @@ def decode_range_event_from_int(encoded_range):
         sigma_range = encoded_range[2] / CODEC_SCALE_FACTORS["range_factor"]["sigma_range"]
         index = None  # No index provided, only measured range
     # Decode the depths
-    depth = encoded_range[4] / CODEC_SCALE_FACTORS["range_factor"]["depth"]
+    depth = encoded_range[3] / CODEC_SCALE_FACTORS["range_factor"]["depth"]
     return remote_address, index, measured_range, sigma_range, depth
 
 # Legacy Pre-encoding and decoding functions:

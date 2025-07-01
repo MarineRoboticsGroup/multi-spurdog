@@ -355,11 +355,11 @@ class CycleManager:
         for i in range(num_poses): #0,1,2,3
             prefix = f"range_event_{i}_"
             remote_address = getattr(msg, prefix + "remote_address")
-            index = getattr(msg, prefix + "index")
-            measured_range = getattr(msg, prefix + "measured_range")
+            index_or_measured_range = getattr(msg, prefix + "index_or_measured_range")
             sigma_range = getattr(msg, prefix + "sigma_range")
             depth = getattr(msg, prefix + "depth")
-            decoded_range_event = decode_range_event_from_int(remote_address, index, measured_range, sigma_range, depth)
+            encoded_range_event = [remote_address, index_or_measured_range, sigma_range, depth]
+            decoded_range_event = decode_range_event_from_int(remote_address, index_or_measured_range, sigma_range, depth)
             # Create a RangeFactorStamped message
             range_factor_msg = RangeFactorStamped()
             range_factor_msg.header.stamp = msg.header.stamp
