@@ -359,7 +359,7 @@ class CycleManager:
             sigma_range = getattr(msg, prefix + "sigma_range")
             depth = getattr(msg, prefix + "depth")
             encoded_range_event = [remote_address, index_or_measured_range, sigma_range, depth]
-            decoded_range_event = decode_range_event_from_int(remote_address, index_or_measured_range, sigma_range, depth)
+            decoded_range_event = decode_range_event_from_int(encoded_range_event)
             # Create a RangeFactorStamped message
             range_factor_msg = RangeFactorStamped()
             range_factor_msg.header.stamp = msg.header.stamp
