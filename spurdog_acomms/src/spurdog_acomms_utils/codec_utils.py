@@ -74,203 +74,208 @@ def encode_pwcs_as_int(pwcs:PoseWithCovarianceStamped):
     rho_xy = pwcs.pose.covariance[1] / (sigma_x * sigma_y) if sigma_x and sigma_y else 0.0
     rho_xpsi = pwcs.pose.covariance[5] / (sigma_x * sigma_psi) if sigma_x and sigma_psi else 0.0
     rho_ypsi = pwcs.pose.covariance[11] / (sigma_y * sigma_psi) if sigma_y and sigma_psi else 0.0
+
     # Encode the position and orientation
-    x = int(pwcs.pose.pose.position.x * CODEC_SCALE_FACTORS["between_factor"]["x"])
-    y = int(pwcs.pose.pose.position.y * CODEC_SCALE_FACTORS["between_factor"]["y"])
-    z = int(pwcs.pose.pose.position.z * CODEC_SCALE_FACTORS["between_factor"]["z"])
-    # verify all fields are within range
-    if x < -32768 or x > 32767 or \
-       y < -32768 or y > 32767 or \
-       z < -128 or z > 127:
-        rospy.logerr("[%s] Position values out of range!" % rospy.Time.now())
-        # Cap the values to the maximum range
-        x = np.clip(x, -32768, 32767)
-        y = np.clip(y, -32768, 32767)
-        z = np.clip(z, -128, 127)
-    else:
-        # Load the values into the message
-        between_factor.x = x
-        between_factor.y = y
-        between_factor.z = z
+    x = int(np.clip(int(pwcs.pose.pose.position.x * CODEC_SCALE_FACTORS["between_factor"]["x"]), -32768, 32767))
+    y = int(np.clip(int(pwcs.pose.pose.position.y * CODEC_SCALE_FACTORS["between_factor"]["y"]), -32768, 32767))
+    z = int(np.clip(int(pwcs.pose.pose.position.z * CODEC_SCALE_FACTORS["between_factor"]["z"]),  -128, 127))
+
     # Encode the orientation as a quaternion
-    qx = int(pwcs.pose.pose.orientation.x * CODEC_SCALE_FACTORS["between_factor"]["qx"])
-    qy = int(pwcs.pose.pose.orientation.y * CODEC_SCALE_FACTORS["between_factor"]["qy"])
-    qz = int(pwcs.pose.pose.orientation.z * CODEC_SCALE_FACTORS["between_factor"]["qz"])
-    qw = int(pwcs.pose.pose.orientation.w * CODEC_SCALE_FACTORS["between_factor"]["qw"])
-    # verify all fields are within range
-    if qx < -127 or qx > 127 or \
-       qy < -127 or qy > 127 or \
-       qz < -127 or qz > 127 or \
-       qw < -127 or qw > 127:
-        rospy.logerr("[%s] Orientation values out of range!" % rospy.Time.now())
-        # Cap the values to the maximum range
-        qx = np.clip(qx, -127, 127)
-        qy = np.clip(qy, -127, 127)
-        qz = np.clip(qz, -127, 127)
-        qw = np.clip(qw, -127, 127)
-    else:
-        # Load the values into the message
-        between_factor.qx = qx
-        between_factor.qy = qy
-        between_factor.qz = qz
-        between_factor.qw = qw
+    qx = int(np.clip(int(pwcs.pose.pose.orientation.x * CODEC_SCALE_FACTORS["between_factor"]["qx"]), -128, 127))
+    qy = int(np.clip(int(pwcs.pose.pose.orientation.y * CODEC_SCALE_FACTORS["between_factor"]["qy"]), -128, 127))
+    qz = int(np.clip(int(pwcs.pose.pose.orientation.z * CODEC_SCALE_FACTORS["between_factor"]["qz"]), -128, 127))
+    qw = int(np.clip(int(pwcs.pose.pose.orientation.w * CODEC_SCALE_FACTORS["between_factor"]["qw"]), -128, 127))
+
     # Encode the sigmas
-    sigma_x = int(sigma_x * CODEC_SCALE_FACTORS["between_factor"]["sigma_x"])
-    sigma_y = int(sigma_y * CODEC_SCALE_FACTORS["between_factor"]["sigma_y"])
-    sigma_z = int(sigma_z * CODEC_SCALE_FACTORS["between_factor"]["sigma_z"])
-    sigma_psi = int(sigma_psi * CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"])
-    # verify all fields are within range
-    if sigma_x < 0 or sigma_x > 255 or \
-       sigma_y < 0 or sigma_y > 255 or \
-       sigma_z < 0 or sigma_z > 255 or \
-       sigma_psi < 0 or sigma_psi > 255:
-        rospy.logerr("[%s] Sigma values out of range!" % rospy.Time.now())
-        # Cap the values to the maximum range
-        sigma_x = np.clip(sigma_x, 0, 255)
-        sigma_y = np.clip(sigma_y, 0, 255)
-        sigma_z = np.clip(sigma_z, 0, 255)
-        sigma_psi = np.clip(sigma_psi, 0, 255)
-    else:
-        # Load the values into the message
-        between_factor.sigma_x = sigma_x
-        between_factor.sigma_y = sigma_y
-        between_factor.sigma_z = sigma_z
-        between_factor.sigma_psi = sigma_psi
+    sigma_x = int(np.clip(int(sigma_x * CODEC_SCALE_FACTORS["between_factor"]["sigma_x"]), 0, 255))
+    sigma_y = int(np.clip(int(sigma_y * CODEC_SCALE_FACTORS["between_factor"]["sigma_y"]), 0, 255))
+    sigma_z = int(np.clip(int(sigma_z * CODEC_SCALE_FACTORS["between_factor"]["sigma_z"]), 0, 255))
+    sigma_psi = int(np.clip(int(sigma_psi * CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"]), 0, 255))
+
     # Encode the correlation coefficients
-    rho_xy = int(rho_xy * CODEC_SCALE_FACTORS["between_factor"]["rho_xy"])
-    rho_xpsi = int(rho_xpsi * CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"])
-    rho_ypsi = int(rho_ypsi * CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"])
-    # verify all fields are within range
-    if rho_xy < -128 or rho_xy > 127 or \
-       rho_xpsi < -128 or rho_xpsi > 127 or \
-       rho_ypsi < -128 or rho_ypsi > 127:
-        rospy.logerr("[%s] Correlation coefficient values out of range!" % rospy.Time.now())
-        # Cap the values to the maximum range
-        rho_xy = np.clip(rho_xy, -128, 127)
-        rho_xpsi = np.clip(rho_xpsi, -128, 127)
-        rho_ypsi = np.clip(rho_ypsi, -128, 127)
-    else:
-        # Load the values into the message
-        between_factor.rho_xy = rho_xy
-        between_factor.rho_xpsi = rho_xpsi
-        between_factor.rho_ypsi = rho_ypsi
+    rho_xy = int(np.clip(int(rho_xy * CODEC_SCALE_FACTORS["between_factor"]["rho_xy"]), -128, 127))
+    rho_xpsi = int(np.clip(int(rho_xpsi * CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"]), -128, 127))
+    rho_ypsi = int(np.clip(int(rho_ypsi * CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"]), -128, 127))
+
+    # Build the list 
+    between_factor = [x, y, z, qw, qx, qy, qz,
+                      sigma_x, sigma_y, sigma_z, sigma_psi,
+                      rho_xy, rho_xpsi, rho_ypsi]
     return between_factor
 
-def encode_range_event_as_int(remote_address:int, index:int=None, measured_range:float=None, sigma_range:float=None, depth:float=None):
+def encode_range_event_as_int(remote_address:int, remote_index:int=None, measured_range:float=None, sigma_range:float=None, depth:float=None):
     """This function encodes the range event data into a message
     Args:
         remote_address (int): The remote address of the range event
-        index (int): The index of the range event, defaults to None
+        remote_index (int): The index of the range event, defaults to None
         measured_range (float): The measured range value, defaults to None
         sigma_range (float): The sigma value for the range, defaults to None
         depth (float): The depth value, defaults to None
     Returns:
         RangeFactor: The encoded range factor message
     """
-    # Initialize the output message
-    range_factor = RangeFactor()
     # Encode the remote address
-    range_factor.remote_address = remote_address
+    remote_address = remote_address
     # Encode the index or measured range
-    if index is not None:
-        index = int(index*CODEC_SCALE_FACTORS["range_factor"]["index"])
-        if index < 0 or index > 65535:
+    if remote_index is not None:
+        remote_index = int(remote_index*CODEC_SCALE_FACTORS["range_factor"]["index"])
+        if remote_index < 0 or remote_index > 65535:
             rospy.logerr("[%s] Index value out of range!" % rospy.Time.now())
-            range_factor.index_or_measured_range = 0  # Default value if out of range
+            index_or_measured_range = 0  # Default value if out of range
         else:
-            range_factor.index_or_measured_range = index
-        range_factor.sigma_range = 0  # Default value if index is provided
+            index_or_measured_range = remote_index
+        sigma_range = 0  # Default value if index is provided
     elif measured_range is not None:
         measured_range = int(measured_range * CODEC_SCALE_FACTORS["range_factor"]["measured_range"])
         sigma_range = int(sigma_range * CODEC_SCALE_FACTORS["range_factor"]["sigma_range"])
         # Handle unexpected large sigmas
         if sigma_range < 0 or sigma_range > 255:
             rospy.logerr("[%s] Sigma range value out of range!" % rospy.Time.now())
-            range_factor.sigma_range = 255  # Default value if out of range
+            sigma_range = 255  # Default value if out of range
         # Handle unexpected low ranges by setting the range to zero with max sigma
         if measured_range < 0:
             rospy.logerr("[%s] Measured range value low out of range!" % rospy.Time.now())
-            range_factor.index_or_measured_range = 0  # Default value if out of range
-            range_factor.sigma_range = 255  # Default value if out of range
+            index_or_measured_range = 0  # Default value if out of range
+            sigma_range = 255  # Default value if out of range
         # Handle unexpected high ranges by setting the range to max with max sigma
         elif measured_range > 65535:
             rospy.logerr("[%s] Measured range value high out of range!" % rospy.Time.now())
-            range_factor.index_or_measured_range = 65535  # Default value if out of range
-            range_factor.sigma_range = 255  # Default value if out of range
+            index_or_measured_range = 65535  # Default value if out of range
+            sigma_range = 255  # Default value if out of range
         # Otherwise, set the measured range and sigma range
         else:
-            range_factor.index_or_measured_range = measured_range
-            range_factor.sigma_range = sigma_range
+            index_or_measured_range = measured_range
+            sigma_range = sigma_range
     else:
         rospy.logerr("[%s] No index or measured range provided!" % rospy.Time.now())
         return RangeFactor()
-    depth = int(depth * CODEC_SCALE_FACTORS["range_factor"]["depth"])
-    # Verify that the depth is within range
-    if depth < 0 or depth > 255:
-        rospy.logerr("[%s] Depth value out of range!" % rospy.Time.now())
-        range_factor.depth = 0 # note this is much more likely to be a negative, when surfacing than 12.7m
+    if depth is None or depth < 0.1:
+        depth = 0.1
+    elif depth > 12.5:
+        depth = 12.5
     else:
-        range_factor.depth = depth
-    return range_factor
+        pass # Scale the depth
+    depth = int(depth * CODEC_SCALE_FACTORS["range_factor"]["depth"])
+    return [remote_address, index_or_measured_range, sigma_range, depth]
+
+# def encode_range_event_as_int(remote_address:int, index:int=None, measured_range:float=None, sigma_range:float=None, depth:float=None):
+#     """This function encodes the range event data into a message
+#     Args:
+#         remote_address (int): The remote address of the range event
+#         index (int): The index of the range event, defaults to None
+#         measured_range (float): The measured range value, defaults to None
+#         sigma_range (float): The sigma value for the range, defaults to None
+#         depth (float): The depth value, defaults to None
+#     Returns:
+#         RangeFactor: The encoded range factor message
+#     """
+#     # Initialize the output message
+#     range_factor = RangeFactor()
+#     # Encode the remote address
+#     range_factor.remote_address = remote_address
+#     # Encode the index or measured range
+#     if index is not None:
+#         index = int(index*CODEC_SCALE_FACTORS["range_factor"]["index"])
+#         if index < 0 or index > 65535:
+#             rospy.logerr("[%s] Index value out of range!" % rospy.Time.now())
+#             range_factor.index_or_measured_range = 0  # Default value if out of range
+#         else:
+#             range_factor.index_or_measured_range = index
+#         range_factor.sigma_range = 0  # Default value if index is provided
+#     elif measured_range is not None:
+#         measured_range = int(measured_range * CODEC_SCALE_FACTORS["range_factor"]["measured_range"])
+#         sigma_range = int(sigma_range * CODEC_SCALE_FACTORS["range_factor"]["sigma_range"])
+#         # Handle unexpected large sigmas
+#         if sigma_range < 0 or sigma_range > 255:
+#             rospy.logerr("[%s] Sigma range value out of range!" % rospy.Time.now())
+#             range_factor.sigma_range = 255  # Default value if out of range
+#         # Handle unexpected low ranges by setting the range to zero with max sigma
+#         if measured_range < 0:
+#             rospy.logerr("[%s] Measured range value low out of range!" % rospy.Time.now())
+#             range_factor.index_or_measured_range = 0  # Default value if out of range
+#             range_factor.sigma_range = 255  # Default value if out of range
+#         # Handle unexpected high ranges by setting the range to max with max sigma
+#         elif measured_range > 65535:
+#             rospy.logerr("[%s] Measured range value high out of range!" % rospy.Time.now())
+#             range_factor.index_or_measured_range = 65535  # Default value if out of range
+#             range_factor.sigma_range = 255  # Default value if out of range
+#         # Otherwise, set the measured range and sigma range
+#         else:
+#             range_factor.index_or_measured_range = measured_range
+#             range_factor.sigma_range = sigma_range
+#     else:
+#         rospy.logerr("[%s] No index or measured range provided!" % rospy.Time.now())
+#         return RangeFactor()
+#     depth = int(depth * CODEC_SCALE_FACTORS["range_factor"]["depth"])
+#     # Verify that the depth is within range
+#     if depth < 0 or depth > 255:
+#         rospy.logerr("[%s] Depth value out of range!" % rospy.Time.now())
+#         range_factor.depth = 0 # note this is much more likely to be a negative, when surfacing than 12.7m
+#     else:
+#         range_factor.depth = depth
+#     return range_factor
 
 # Graph Update decoding:
-def decode_pwcs_from_int(between_factor:BetweenFactor):
-    """This function decodes the BetweenFactor data from a message into a PoseWithCovariance"""
+def decode_pwc_from_int(encoded_pose):
+    """This function decodes the BetweenFactor data from a message into a PoseWithCovariance
+    Args:
+        encoded_pose (list): The encoded pose data [x,y,z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, rho_xy, rho_xpsi, rho_ypsi]"""
     # Initialize the output message
     pwc = PoseWithCovariance()
     # Decode the position
-    pwc.pose.position.x = between_factor.x / CODEC_SCALE_FACTORS["between_factor"]["x"]
-    pwc.pose.position.y = between_factor.y / CODEC_SCALE_FACTORS["between_factor"]["y"]
-    pwc.pose.position.z = between_factor.z / CODEC_SCALE_FACTORS["between_factor"]["z"]
-    # Decode the orientation
-    pwc.pose.orientation.x = between_factor.qx / CODEC_SCALE_FACTORS["between_factor"]["qx"]
-    pwc.pose.orientation.y = between_factor.qy / CODEC_SCALE_FACTORS["between_factor"]["qy"]
-    pwc.pose.orientation.z = between_factor.qz / CODEC_SCALE_FACTORS["between_factor"]["qz"]
-    pwc.pose.orientation.w = between_factor.qw / CODEC_SCALE_FACTORS["between_factor"]["qw"]
+    pwc.pose.position.x = encoded_pose[0] / CODEC_SCALE_FACTORS["between_factor"]["x"]
+    pwc.pose.position.y = encoded_pose[1] / CODEC_SCALE_FACTORS["between_factor"]["y"]
+    pwc.pose.position.z = encoded_pose[2] / CODEC_SCALE_FACTORS["between_factor"]["z"]
+    # Build the orientation quaternion
+    pwc.pose.orientation.x = encoded_pose[4] / CODEC_SCALE_FACTORS["between_factor"]["qw"]
+    pwc.pose.orientation.y = encoded_pose[5] / CODEC_SCALE_FACTORS["between_factor"]["qx"]
+    pwc.pose.orientation.z = encoded_pose[6] / CODEC_SCALE_FACTORS["between_factor"]["qy"]
+    pwc.pose.orientation.w = encoded_pose[3] / CODEC_SCALE_FACTORS["between_factor"]["qz"]
     # Build the new covariance matrix
-    sigma_x = between_factor.sigma_x / CODEC_SCALE_FACTORS["between_factor"]["sigma_x"]
-    sigma_y = between_factor.sigma_y / CODEC_SCALE_FACTORS["between_factor"]["sigma_y"]
-    sigma_z = between_factor.sigma_z / CODEC_SCALE_FACTORS["between_factor"]["sigma_z"]
-    sigma_psi = between_factor.sigma_psi / CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"]
-    rho_xy = between_factor.rho_xy / CODEC_SCALE_FACTORS["between_factor"]["rho_xy"]
-    rho_xpsi = between_factor.rho_xpsi / CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"]
-    rho_ypsi = between_factor.rho_ypsi / CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"]
-    # Build the covariance matrix
-    pwc.pose.covariance = np.zeros(36)
-    pwc.pose.covariance[0] = sigma_x ** 2  # x
-    pwc.pose.covariance[7] = sigma_y ** 2  # y
-    pwc.pose.covariance[14] = sigma_z ** 2  # z
-    pwc.pose.covariance[21] = sigma_x ** 2  # roll
-    pwc.pose.covariance[28] = sigma_y ** 2  # pitch
-    pwc.pose.covariance[35] = sigma_psi ** 2  # yaw
-    # Fill in the correlation coefficients
-    pwc.pose.covariance[1] = rho_xy * sigma_x * sigma_y  # sigma_xy
-    pwc.pose.covariance[5] = rho_xpsi * sigma_x * sigma_psi  # sigma_xpsi
-    pwc.pose.covariance[11] = rho_ypsi * sigma_y * sigma_psi  # sigma_ypsi
-    # Fill the symmetric entries for var_xy, var_xpsi, var_ypsi
-    pwc.pose.covariance[6] = pwc.pose.covariance[1]  # sigma_xy
-    pwc.pose.covariance[30] = pwc.pose.covariance[5]  # sigma_xpsi
-    pwc.pose.covariance[31] = pwc.pose.covariance[11]  # sigma_ypsi
-    # Return the PoseWithCovariance message
-    return PoseWithCovarianceStamped(header=rospy.Header(), pose=pwc)
+    sigma_x = encoded_pose[7] / CODEC_SCALE_FACTORS["between_factor"]["sigma_x"]
+    sigma_y = encoded_pose[8] / CODEC_SCALE_FACTORS["between_factor"]["sigma_y"]
+    sigma_z = encoded_pose[9] / CODEC_SCALE_FACTORS["between_factor"]["sigma_z"]
+    sigma_psi = encoded_pose[10] / CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"]
+    rho_xy = encoded_pose[11] / CODEC_SCALE_FACTORS["between_factor"]["rho_xy"] if sigma_x and sigma_y else 0.0
+    rho_xpsi = encoded_pose[12] / CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"] if sigma_x and sigma_psi else 0.0
+    rho_ypsi = encoded_pose[13] / CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"] if sigma_y and sigma_psi else 0.0
 
-def decode_range_event_from_int(range_factor:RangeFactor):
-    """ Decode the RangeFactor data from the message, outputting the index, measured_range, range_sigma, and depth """
-    # Initialize the output variables
-    index = None
-    measured_range = None
-    sigma_range = None
-    depth = None
+    # Build the covariance matrix
+    pwc.covariance = np.zeros(36)
+    pwc.covariance[0] = sigma_x ** 2  # x
+    pwc.covariance[7] = sigma_y ** 2  # y
+    pwc.covariance[14] = sigma_z ** 2  # z
+    pwc.covariance[21] = sigma_x ** 2  # roll
+    pwc.covariance[28] = sigma_y ** 2  # pitch
+    pwc.covariance[35] = sigma_psi ** 2  # yaw
+    # Fill in the correlation coefficients
+    pwc.covariance[1] = rho_xy * sigma_x * sigma_y  # sigma_xy
+    pwc.covariance[5] = rho_xpsi * sigma_x * sigma_psi  # sigma_xpsi
+    pwc.covariance[11] = rho_ypsi * sigma_y * sigma_psi  # sigma_ypsi
+    # Fill the symmetric entries for var_xy, var_xpsi, var_ypsi
+    pwc.covariance[6] = pwc.covariance[1]  # sigma_xy
+    pwc.covariance[30] = pwc.covariance[5]  # sigma_xpsi
+    pwc.covariance[31] = pwc.covariance[11]  # sigma_ypsi
+    # Return the PoseWithCovariance message
+    return pwc
+
+def decode_range_event_from_int(encoded_range):
+    """ Decode the RangeFactor data from the message, outputting the index, measured_range, range_sigma, and depth
+    Args:
+        encoded_range (list): The encoded range data [remote_address, index_or_measured_range, sigma_range, depth]"""
     # Decode the remote address
-    remote_address = range_factor.remote_address
+    remote_address = encoded_range[0]
     # Decode the index or measured range
-    if range_factor.sigma_range == 0:  # If sigma_range is zero, it means index is provided
-        index = range_factor.index_or_measured_range / CODEC_SCALE_FACTORS["range_factor"]["index"]
+    if encoded_range[2] == 0:  # If sigma_range is zero, it means an index is provided but not a measured range
+        index = encoded_range[1] / CODEC_SCALE_FACTORS["range_factor"]["index"]
+        measured_range = None
+        sigma_range = None
     else:  # Otherwise, it means measured range is provided
-        measured_range = range_factor.index_or_measured_range / CODEC_SCALE_FACTORS["range_factor"]["measured_range"]
-        sigma_range = range_factor.sigma_range / CODEC_SCALE_FACTORS["range_factor"]["sigma_range"]
-    # Decode the depth
-    depth = range_factor.depth / CODEC_SCALE_FACTORS["range_factor"]["depth"]
+        measured_range = encoded_range[1] / CODEC_SCALE_FACTORS["range_factor"]["measured_range"]
+        sigma_range = encoded_range[2] / CODEC_SCALE_FACTORS["range_factor"]["sigma_range"]
+        index = None  # No index provided, only measured range
+    # Decode the depths
+    depth = encoded_range[3] / CODEC_SCALE_FACTORS["range_factor"]["depth"]
     return remote_address, index, measured_range, sigma_range, depth
 
 # Legacy Pre-encoding and decoding functions:

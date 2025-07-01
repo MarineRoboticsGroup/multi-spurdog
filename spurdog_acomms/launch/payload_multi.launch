@@ -49,7 +49,7 @@
                     SRC: 0
                     XST: 1
                     TAT: 50
-                    pwramp.txlevel: 0
+                    pwramp.txlevel: 1
                     psk.packet.mod_hdr_version: 1
                 </rosparam>
             </node>
@@ -57,20 +57,23 @@
             <node name="tdma_node" pkg="ros_acomms" type="tdma_node.py" output="log" required="true" respawn="false">
                 <param name="num_slots" value="$(arg num_agents)" />
                 <param name="active_slots" value="$(arg source_addr)"/>
-                <param name="slot_duration_seconds" value="15" />
+                <param name="slot_duration_seconds" value="20" />
+                <param name="miniframe_rate" value="5" />
+                <param name="guard_time_seconds" value="2.0" />
+                <param name="packet_length_seconds" value="1.0" />
             </node>
-            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen">
+            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="log">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
 
-            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen">
+            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="log">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
         </group>
 
         <!-- Launch communication and graph managers-->
         <node name="comms_lbl" pkg="spurdog_acomms" type="comms_multiagent.py" output="screen">
-            <param name="sound_speed" value="1504" />
+            <param name="sound_speed" value="1500" />
             <param name="sigma_range" value="1" />
             <param name="ping_timeout" value="4" />
             <param name="send_data" value="true" />

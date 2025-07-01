@@ -1,14 +1,85 @@
 # GraphUpdate.msg
 # Header Info
+uint8 sender_address
 uint16 first_key_index
 uint8 num_poses
-# Between Factor Info
-BetweenFactor relative_pose_0
-BetweenFactor relative_pose_1
-BetweenFactor relative_pose_2
-BetweenFactor relative_pose_3
-# Range Factor Info
-RangeFactor ranging_event_0
-RangeFactor ranging_event_1
-RangeFactor ranging_event_2
-RangeFactor ranging_event_3
+# Between Factor 0
+int16 relative_pose_0_x
+int16 relative_pose_0_y
+int8 relative_pose_0_z
+int8 relative_pose_0_qw
+int8 relative_pose_0_qx
+int8 relative_pose_0_qy
+int8 relative_pose_0_qz
+uint8 relative_pose_0_sigma_x
+uint8 relative_pose_0_sigma_y
+uint8 relative_pose_0_sigma_z
+uint8 relative_pose_0_sigma_psi
+int8 relative_pose_0_rho_xy
+int8 relative_pose_0_rho_xpsi
+int8 relative_pose_0_rho_ypsi
+# Between Factor 1
+int16 relative_pose_1_x
+int16 relative_pose_1_y
+int8 relative_pose_1_z
+int8 relative_pose_1_qw
+int8 relative_pose_1_qx
+int8 relative_pose_1_qy
+int8 relative_pose_1_qz
+uint8 relative_pose_1_sigma_x
+uint8 relative_pose_1_sigma_y
+uint8 relative_pose_1_sigma_z
+uint8 relative_pose_1_sigma_psi
+int8 relative_pose_1_rho_xy
+int8 relative_pose_1_rho_xpsi
+int8 relative_pose_1_rho_ypsi
+# Between Factor 2
+int16 relative_pose_2_x
+int16 relative_pose_2_y
+int8 relative_pose_2_z
+int8 relative_pose_2_qw
+int8 relative_pose_2_qx
+int8 relative_pose_2_qy
+int8 relative_pose_2_qz
+uint8 relative_pose_2_sigma_x
+uint8 relative_pose_2_sigma_y
+uint8 relative_pose_2_sigma_z
+uint8 relative_pose_2_sigma_psi
+int8 relative_pose_2_rho_xy
+int8 relative_pose_2_rho_xpsi
+int8 relative_pose_2_rho_ypsi
+# Between Factor 3
+int16 relative_pose_3_x
+int16 relative_pose_3_y
+int8 relative_pose_3_z
+int8 relative_pose_3_qw
+int8 relative_pose_3_qx
+int8 relative_pose_3_qy
+int8 relative_pose_3_qz
+uint8 relative_pose_3_sigma_x
+uint8 relative_pose_3_sigma_y
+uint8 relative_pose_3_sigma_z
+uint8 relative_pose_3_sigma_psi
+int8 relative_pose_3_rho_xy
+int8 relative_pose_3_rho_xpsi
+int8 relative_pose_3_rho_ypsi
+# Range Factor 0
+uint8 range_event_0_remote_address
+uint16 range_event_0_index_or_measured_range
+uint8 range_event_0_sigma_range
+uint8 range_event_0_depth
+# Range Factor 1
+uint8 range_event_1_remote_address
+uint16 range_event_1_index_or_measured_range
+uint8 range_event_1_sigma_range
+uint8 range_event_1_depth
+# Range Factor 2
+uint8 range_event_2_remote_address
+uint16 range_event_2_index_or_measured_range
+uint8 range_event_2_sigma_range
+uint8 range_event_2_depth
+# Range Factor 3
+uint8 range_event_3_remote_address
+uint16 range_event_3_index_or_measured_range
+uint8 range_event_3_sigma_range
+uint8 range_event_3_depth

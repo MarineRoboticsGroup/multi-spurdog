@@ -155,7 +155,7 @@ class CycleManager:
             src, dest, recieved_ping_time = parse_nmea_cacma(data)
             # Convert time (ROS Time in sec) to ROS Time in nsec
             rcvd_stamp = rospy.Time.from_sec(recieved_ping_time)
-            if data[1] == "PNG" and dest == self.local_address:
+            if data[0] == "PNG" and dest == self.local_address:
                 self.request_preintegration(rcvd_stamp, True) # Request a relative pose measurement
                 self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([100.0.150.50]:1.0),cycles=1")
                 # Log the ping event to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
