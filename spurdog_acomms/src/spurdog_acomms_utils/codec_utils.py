@@ -118,12 +118,12 @@ def encode_range_event_as_int(remote_address:int, remote_index:int=None, measure
     remote_address = remote_address
     # Encode the index or measured range
     if remote_index is not None:
-        remote_index = int(index*CODEC_SCALE_FACTORS["range_factor"]["index"])
-        if remote_index < 0 or index > 65535:
+        remote_index = int(remote_index*CODEC_SCALE_FACTORS["range_factor"]["index"])
+        if remote_index < 0 or remote_index > 65535:
             rospy.logerr("[%s] Index value out of range!" % rospy.Time.now())
             index_or_measured_range = 0  # Default value if out of range
         else:
-            index_or_measured_range = index
+            index_or_measured_range = remote_index
         sigma_range = 0  # Default value if index is provided
     elif measured_range is not None:
         measured_range = int(measured_range * CODEC_SCALE_FACTORS["range_factor"]["measured_range"])
@@ -216,7 +216,7 @@ def encode_range_event_as_int(remote_address:int, remote_index:int=None, measure
 #     return range_factor
 
 # Graph Update decoding:
-def decode_pwc_from_int(enocoded_pose):
+def decode_pwc_from_int(encoded_pose):
     """This function decodes the BetweenFactor data from a message into a PoseWithCovariance
     Args:
         encoded_pose (list): The encoded pose data [x,y,z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, rho_xy, rho_xpsi, rho_ypsi]"""
@@ -241,23 +241,23 @@ def decode_pwc_from_int(enocoded_pose):
     rho_ypsi = encoded_pose[13] / CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"] if sigma_y and sigma_psi else 0.0
 
     # Build the covariance matrix
-    pwc.pose.covariance = np.zeros(36)
-    pwc.pose.covariance[0] = sigma_x ** 2  # x
-    pwc.pose.covariance[7] = sigma_y ** 2  # y
-    pwc.pose.covariance[14] = sigma_z ** 2  # z
-    pwc.pose.covariance[21] = sigma_x ** 2  # roll
-    pwc.pose.covariance[28] = sigma_y ** 2  # pitch
-    pwc.pose.covariance[35] = sigma_psi ** 2  # yaw
+    pwc.covariance = np.zeros(36)
+    pwc.covariance[0] = sigma_x ** 2  # x
+    pwc.covariance[7] = sigma_y ** 2  # y
+    pwc.covariance[14] = sigma_z ** 2  # z
+    pwc.covariance[21] = sigma_x ** 2  # roll
+    pwc.covariance[28] = sigma_y ** 2  # pitch
+    pwc.covariance[35] = sigma_psi ** 2  # yaw
     # Fill in the correlation coefficients
-    pwc.pose.covariance[1] = rho_xy * sigma_x * sigma_y  # sigma_xy
-    pwc.pose.covariance[5] = rho_xpsi * sigma_x * sigma_psi  # sigma_xpsi
-    pwc.pose.covariance[11] = rho_ypsi * sigma_y * sigma_psi  # sigma_ypsi
+    pwc.covariance[1] = rho_xy * sigma_x * sigma_y  # sigma_xy
+    pwc.covariance[5] = rho_xpsi * sigma_x * sigma_psi  # sigma_xpsi
+    pwc.covariance[11] = rho_ypsi * sigma_y * sigma_psi  # sigma_ypsi
     # Fill the symmetric entries for var_xy, var_xpsi, var_ypsi
-    pwc.pose.covariance[6] = pwc.pose.covariance[1]  # sigma_xy
-    pwc.pose.covariance[30] = pwc.pose.covariance[5]  # sigma_xpsi
-    pwc.pose.covariance[31] = pwc.pose.covariance[11]  # sigma_ypsi
+    pwc.covariance[6] = pwc.covariance[1]  # sigma_xy
+    pwc.covariance[30] = pwc.covariance[5]  # sigma_xpsi
+    pwc.covariance[31] = pwc.covariance[11]  # sigma_ypsi
     # Return the PoseWithCovariance message
-    return PoseWithCovarianceStamped(header=rospy.Header(), pose=pwc)
+    return pwc
 
 def decode_range_event_from_int(encoded_range):
     """ Decode the RangeFactor data from the message, outputting the index, measured_range, range_sigma, and depth

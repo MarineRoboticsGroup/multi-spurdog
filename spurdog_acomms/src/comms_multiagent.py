@@ -190,7 +190,7 @@ class CycleManager:
             elif data[0] == "PNG":
                 rospy.loginfo("[%s] Overheard Ping from %s to %s" % (recieved_ping_time, self.address_to_name[src], self.address_to_name[dest]))
             else:
-                rospy.logerr("[%s] Received $CACMA with unexpected data: %s" % (rospy.Time.now(), data))
+                rospy.loginfo("[%s] Received $CACMA with unexpected data: %s" % (rospy.Time.now(), data))
 
         elif nmea_type == "$CACMR": # Modem-to-host acknowledgement of a ping response
             src, dest, recieved_ping_time, owtt = parse_nmea_cacmr(data)
@@ -204,30 +204,34 @@ class CycleManager:
             else:
                 rospy.logerr("[%s] Received $CACMR with unexpected data: %s" % (rospy.Time.now(), data))
 
-        elif nmea_type == "$CARFP" and data[5] == "-1": # Modem-to-host acknowledgement of a minipacket ping payload
+        elif nmea_type == "$CARFP": # Modem-to-host acknowledgement of a minipacket ping payload
             src, dest, recieved_msg_time, num_frames, payload = parse_nmea_carfp(data)
-            if recieved_msg_time == None or not src == None or not dest == None:
+            #rospy.loginfo("[%s] CARFP data payload: %s" % (rospy.Time.now(), payload))
+            if recieved_msg_time == None or src == None or dest == None:
                 #rospy.logerr("[%s] CARFP message is missing required fields" % rospy.Time.now())
                 return
             elif dest == self.local_address:
-                rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, self.address_to_name[src], payload))
-                # Analyze the payload (should be a letter followed by a integer, e.g. "A1")
-                self.add_range_event_to_graph_update(src, int(payload[1:]), None, None)
-                # Log the payload to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
-                # Check if there is an existing entry and update it
-                for entry in self.rcv_range_data:
-                    # If the entry has been filled, ignore
-                    if entry[4] is not None:
-                        continue
-                    # If the entry matches the src and dest, fill it
-                    elif entry[2] == src and entry[3] == dest:
-                        entry[0] = recieved_msg_time.to_sec()
-                        entry[4] = payload
+                    if payload == '':
+                        pass
                     else:
-                        # Assume that the CARFP hasn't been recieved yet and make a new entry
-                        self.rcv_range_data.append([recieved_msg_time.to_sec(), None, src, dest, payload, None, None, None, None])
+                        rospy.loginfo("[%s] Received Ping from %s with payload %s" % (recieved_msg_time, self.address_to_name[src], payload))
+                        # Analyze the payload (should be a letter followed by a integer, e.g. "A1")
+                        self.add_range_event_to_graph_update(src, int(payload[1:]), None, None)
+                        # Log the payload to the rcv_range_data (Range Time, CST Time, Src, Dest, Payload, Doppler, StdDev Noise, SNR In, SNR Out)
+                        # Check if there is an existing entry and update it
+                        for entry in self.rcv_range_data:
+                            # If the entry has been filled, ignore
+                            if entry[4] is not None:
+                                continue
+                            # If the entry matches the src and dest, fill it
+                            elif entry[2] == src and entry[3] == dest:
+                                entry[0] = recieved_msg_time.to_sec()
+                                entry[4] = payload
+                            else:
+                                # Assume that the CARFP hasn't been recieved yet and make a new entry
+                                self.rcv_range_data.append([recieved_msg_time.to_sec(), None, src, dest, payload, None, None, None, None])
             elif dest != self.local_address:
-                rospy.logerr("[%s] Overheard Ping-related $CARFP from %s to %s with paylaod %s" % (recieved_msg_time, self.address_to_name[src], self.address_to_name[dest], payload))
+                rospy.loginfo("[%s] Overheard Ping-related $CARFP from %s to %s with paylaod %s" % (recieved_msg_time, self.address_to_name[src], self.address_to_name[dest], payload))
             else:
                 rospy.logerr("[%s] Received $CARFP with unexpected data: %s" % (rospy.Time.now(), data))
 
@@ -339,7 +343,7 @@ class CycleManager:
             pose_with_covariance = decode_pwc_from_int(encoded_pose)
             # Create a PoseFactorStamped message
             pose_factor_msg = PoseFactorStamped()
-            pose_factor_msg.header.stamp = msg.header.stamp
+            pose_factor_msg.header.stamp = rospy.Time.now()  # Use the current time for the header
             pose_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
             pose_factor_msg.key1 = key1
             pose_factor_msg.key2 = key2 if key2 is not None else ""
@@ -644,7 +648,7 @@ class CycleManager:
                 depth_value = getattr(self.graph_update_msg, depth_field_prefix)
                 if depth_value != 0.0:
                     num_ranges += 1
-        prefix = f"range_{num_ranges}_"
+        prefix = f"range_event_{num_ranges}_"
         # Update the fields at this index
         setattr(self.graph_update_msg, prefix + "remote_address", encoded_range[0])
         setattr(self.graph_update_msg, prefix + "index_or_measured_range", encoded_range[1])
@@ -795,8 +799,8 @@ class CycleManager:
         self.cycle_status["pings_successful"] += 1
         self.cycle_status["last_range_interval"] = rospy.Duration.from_sec(
             range_timestamp - self.cycle_status["last_range_timestamp"].to_sec()
-        ).to_sec()
-        self.cycle_status["last_range_timestamp"] = range_timestamp
+        )
+        self.cycle_status["last_range_timestamp"] = rospy.Time.from_sec(range_timestamp)
         self.cycle_status["last_range_target"] = dest
         self.cycle_status["last_range_distance"] = np.round(measured_range,4)
         if measured_range > self.cycle_status["max_range"]:

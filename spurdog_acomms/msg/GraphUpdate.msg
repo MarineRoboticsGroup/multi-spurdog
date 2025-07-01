@@ -64,22 +64,22 @@ int8 relative_pose_3_rho_xy
 int8 relative_pose_3_rho_xpsi
 int8 relative_pose_3_rho_ypsi
 # Range Factor 0
-uint8 range_0_remote_address
-uint16 range_0_index_or_measured_range
-uint8 range_0_sigma_range
-uint8 range_0_depth
+uint8 range_event_0_remote_address
+uint16 range_event_0_index_or_measured_range
+uint8 range_event_0_sigma_range
+uint8 range_event_0_depth
 # Range Factor 1
-uint8 range_1_remote_address
-uint16 range_1_index_or_measured_range
-uint8 range_1_sigma_range
-uint8 range_1_depth
+uint8 range_event_1_remote_address
+uint16 range_event_1_index_or_measured_range
+uint8 range_event_1_sigma_range
+uint8 range_event_1_depth
 # Range Factor 2
-uint8 range_2_remote_address
-uint16 range_2_index_or_measured_range
-uint8 range_2_sigma_range
-uint8 range_2_depth
+uint8 range_event_2_remote_address
+uint16 range_event_2_index_or_measured_range
+uint8 range_event_2_sigma_range
+uint8 range_event_2_depth
 # Range Factor 3
-uint8 range_3_remote_address
-uint16 range_3_index_or_measured_range
-uint8 range_3_sigma_range
-uint8 range_3_depth
+uint8 range_event_3_remote_address
+uint16 range_event_3_index_or_measured_range
+uint8 range_event_3_sigma_range
+uint8 range_event_3_depth
