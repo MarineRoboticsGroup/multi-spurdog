@@ -91,15 +91,12 @@ def parse_nmea_carfp(nmea_data: list):
                 hex_payload = bytearray.fromhex(hex_data)
                 data_payload = hex_payload.decode("utf-8") if hex_payload else ""
             else:
-                rospy.logerr("[%s] Unexpected CARFP data: %s!" % (rospy.Time.now(), nmea_data))
+                #rospy.logerr("[%s] Unexpected CARFP data: %s!" % (rospy.Time.now(), nmea_data))
                 return None, None, None, None, None
-        elif nmea_data[5] == "5": # $CARFP data[5]=5 indicates a ros minipacket
+        else: # $CARFP data[5]=5 indicates a ros minipacket
             # Get the number of frames and the header data
             num_frames = (len(nmea_data[8].split(";"))/3)-1
             data_payload = ""
-        else:
-            rospy.logerr("[%s] Unexpected CARFP data: %s!" % (rospy.Time.now(), nmea_data))
-            return None, None, None, None, None
         return src, dest, recieved_ping_time, num_frames, data_payload
 
 def parse_nmea_cacst(nmea_data: list):

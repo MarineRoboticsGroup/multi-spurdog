@@ -199,7 +199,7 @@ class CycleManager:
             if data[0] == "PNR" and src == self.local_address:
                 self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:1.0),cycles=1")
                 measured_range = owtt * self.sound_speed
-                self.add_range_event_to_graph_update(src, None, measured_range, sigma_range=self.range_sigma)
+                self.add_range_event_to_graph_update(dest, None, measured_range, sigma_range=self.range_sigma)
                 rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, self.address_to_name[dest]))
             elif data[0] == "PNR":
                 rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (recieved_ping_time, self.address_to_name[src], self.address_to_name[dest]))
@@ -759,18 +759,18 @@ class CycleManager:
         rospy.loginfo("[%s] Added PoseWithCovarianceStamped %s to Graph Update)" % (rospy.Time.now(), prefix))
         return
 
-    def add_range_event_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0):
+    def add_range_event_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0, depth=self.depth):
         #[remote_address, index_or_measured_range, sigma_range, depth]
         """This function adds a range measurement to the graph update message"""
         # Encode the range measurement as integer values
-        encoded_range = encode_range_event_as_int(remote_address, remote_index, measured_range, sigma_range)
+        encoded_range = encode_range_event_as_int(remote_address, remote_index, measured_range, sigma_range, depth)
         # Get the number of ranges currently stored (a proxy is the number of depth readings which are not zero)
         num_ranges = 0
         for i in range(0, 4):
             depth_field_prefix = f"range_{i}_depth"
             if hasattr(self.graph_update_msg, depth_field_prefix):
                 depth_value = getattr(self.graph_update_msg, depth_field_prefix)
-                if depth_value != 0.0:
+                if depth_value > 0.0:
                     num_ranges += 1
         prefix = f"range_event_{num_ranges}_"
         # Update the fields at this index
