@@ -774,8 +774,8 @@ class CycleManager:
                     num_ranges += 1
                 else:
                     break  # First unused slot
-        except AttributeError:
-            break  # Field does not exist
+            except AttributeError:
+                break  # Field does not exist
         if num_ranges >= 4:
             rospy.logwarn("Maximum number of range events already added to graph update!")
             return  # Optionally raise exception or overwrite last one
