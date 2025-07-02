@@ -243,6 +243,8 @@ class CycleManager:
                         #     else:
                         #         # Assume that the CARFP hasn't been recieved yet and make a new entry
                         #         self.rcv_range_data.append([recieved_msg_time.to_sec(), None, src, dest, payload, None, None, None, None])
+            elif src == dest:
+                rospy.loginfo("[%s] Received packet $CARFP from %s" % (recieved_msg_time, self.address_to_name[src]))
             elif dest != self.local_address:
                 rospy.loginfo("[%s] Overheard Ping-related $CARFP from %s to %s with paylaod %s" % (recieved_msg_time, self.address_to_name[src], self.address_to_name[dest], payload))
             else:
@@ -466,7 +468,7 @@ class CycleManager:
                         rospy.Time.now(), assoc_entry["key1"], assoc_entry["key2"], decoded_range_event[1]))
                 elif decoded_range_event[0] == self.local_address:  # This is a range to us
                     # If we don't have one, thats and error and we should log it
-                    rospy.logwarn("[%s] No partial range found for %s" % (rospy.Time.now(), pose_keys[i+1]))
+                    rospy.logwarn("[%s] No partial range found for %s. Unpaired keys in partial dict: " % (rospy.Time.now(), pose_keys[i+1], [pr["key1"] for pr in self.partial_ranges]))
                 elif decoded_range_event[0] != self.local_address:  # This is a range transmitted from the sender to some other agent
                     # We need to add a partial to the partial ranges
                     self.partial_ranges.append({
@@ -481,7 +483,7 @@ class CycleManager:
                         "depth2": decoded_range_event[4]  # Depth of the other agent
                     })
                 else:
-                    rospy.logwarn("[%s] No partial range found for (abnormal address) %s" % (rospy.Time.now(), pose_keys[i+1]))
+                    rospy.logwarn("[%s] Abnormal address, no partial range found %s" % (rospy.Time.now(), pose_keys[i+1]))
         # Log the test data
         rospy.loginfo("[%s] Received Graph Update" % (rospy.Time.now()))
         return
