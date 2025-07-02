@@ -58,7 +58,8 @@
                 <param name="num_slots" value="$(arg num_agents)" />
                 <param name="active_slots" value="$(arg source_addr)"/>
                 <param name="slot_duration_seconds" value="30" />
-                <param name="miniframe_rate" value="5" />
+                <param name="miniframe_rate" value="1" />
+                <param name="dataframe_rate" value="1" />
                 <param name="guard_time_seconds" value="2.0" />
                 <param name="packet_length_seconds" value="1.0" />
             </node>

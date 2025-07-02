@@ -199,7 +199,7 @@ class CycleManager:
             if data[0] == "PNR" and src == self.local_address:
                 self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:1.0),cycles=1")
                 measured_range = owtt * self.sound_speed
-                self.add_range_event_to_graph_update(src, None, measured_range, sigma_range=self.range_sigma)
+                self.add_range_event_to_graph_update(dest, None, measured_range, sigma_range=self.range_sigma)
                 rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, self.address_to_name[dest]))
             elif data[0] == "PNR":
                 rospy.loginfo("[%s] Overheard Ping Response from %s to %s" % (recieved_ping_time, self.address_to_name[src], self.address_to_name[dest]))
@@ -391,9 +391,9 @@ class CycleManager:
                 range_factor_msg.range_sigma = decoded_range_event[3]  # This is the sigma range
                 range_factor_msg.depth1 = decoded_range_event[4]  # Depth of the sender
                 range_factor_msg.depth2 = self.landmarks[remote_name][2]  # Depth of the landmark
-                self.range_factor_pub.publish(range_factor_msg)
                 rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
                     rospy.Time.now(), pose_keys[i+1], remote_name, decoded_range_event[2]))
+                self.range_factor_pub.publish(range_factor_msg)
             elif decoded_range_event[1] == None: # This is a range initiated by the sender
                 # decoded_range_event = [remote_address, None, measured_range, sigma_range, depth]
                 # We should have an entry in partial ranges for this:
@@ -419,9 +419,9 @@ class CycleManager:
                     range_factor_msg.range_sigma = assoc_entry["sigma_range"]
                     range_factor_msg.depth1 = assoc_entry["depth1"]
                     range_factor_msg.depth2 = assoc_entry["depth2"]
-                    self.range_factor_pub.publish(range_factor_msg)
                     rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
                         rospy.Time.now(), assoc_entry["key2"], assoc_entry["key1"], assoc_entry["measured_range"]))
+                    self.range_factor_pub.publish(range_factor_msg)
                 elif decoded_range_event[0] == self.local_address:  # This is a range to us
                     # If we don't have one, thats and error and we should log it
                     rospy.logwarn("[%s] No partial range found for %s" % (rospy.Time.now(), pose_keys[i+1]))
@@ -439,11 +439,14 @@ class CycleManager:
                         "depth2": None # Depth of the other agent
                     })
             elif decoded_range_event[1] is not None:  # This is a range initiated by an agent and recieved by the sender
-                transmitted_payload = self.address_to_name[decoded_range_event[0]] + str(decoded_range_event[1])  # e.g. "L0" or "A2"
+                transmitted_payload = self.address_to_name[decoded_range_event[0]] + str(int(decoded_range_event[1]))  # e.g. "L0" or "A2"
                 # decoded_range_event = [remote_address, index, None, None, depth]
                 found_partial = False
                 assoc_entry = {}
+                # Transmitted payload is of the form "A0"
+                # key1 is of the same form as transmitted
                 for pr in self.partial_ranges:
+                    rospy.loginfo("Key1: %s, Key2: %s, tx: %s"% (pr["key1"], pr["key2"], transmitted_payload))
                     if pr["key1"] == transmitted_payload: # looking for a match to our key1
                         pr["key2"] = pose_keys[i+1]
                         pr["index"] = decoded_range_event[1]
@@ -463,12 +466,14 @@ class CycleManager:
                     range_factor_msg.range_sigma = assoc_entry["sigma_range"]
                     range_factor_msg.depth1 = assoc_entry["depth1"]
                     range_factor_msg.depth2 = assoc_entry["depth2"]
-                    self.range_factor_pub.publish(range_factor_msg)
                     rospy.loginfo("[%s] Published Range Factor: %s -> %s, index=%d" % (
                         rospy.Time.now(), assoc_entry["key1"], assoc_entry["key2"], decoded_range_event[1]))
+                    self.range_factor_pub.publish(range_factor_msg)
                 elif decoded_range_event[0] == self.local_address:  # This is a range to us
                     # If we don't have one, thats and error and we should log it
-                    rospy.logwarn("[%s] No partial range found for %s. Unpaired keys in partial dict: " % (rospy.Time.now(), pose_keys[i+1], [pr["key1"] for pr in self.partial_ranges]))
+                    # Get a list of all key2 in the partial ranges
+                    available_key2s = [pr["key2"] for pr in self.partial_ranges if pr["key2"] is not None]
+                    rospy.logwarn("[%s] No partial range found for %s. Unpaired keys in partial dict: %s" % (rospy.Time.now(), pose_keys[i+1], available_key2s))
                 elif decoded_range_event[0] != self.local_address:  # This is a range transmitted from the sender to some other agent
                     # We need to add a partial to the partial ranges
                     self.partial_ranges.append({
@@ -626,7 +631,7 @@ class CycleManager:
         active_message = self.graph_update_msg
         self.graph_update_pub.publish(active_message)
         self.graph_update_msg = GraphUpdate()  # Reset the message for the next cycle
-        self.graph_update_msg.sender_address = np.clip(int(self.local_address),0,4)
+        self.graph_update_msg.sender_address = int(self.local_address)
         rospy.loginfo("[%s] Sent Graph Update" % (rospy.Time.now()))
         return
 
@@ -761,15 +766,22 @@ class CycleManager:
         #[remote_address, index_or_measured_range, sigma_range, depth]
         """This function adds a range measurement to the graph update message"""
         # Encode the range measurement as integer values
-        encoded_range = encode_range_event_as_int(remote_address, remote_index, measured_range, sigma_range)
+        depth = self.depth
+        encoded_range = encode_range_event_as_int(remote_address, remote_index, measured_range, sigma_range, depth)
         # Get the number of ranges currently stored (a proxy is the number of depth readings which are not zero)
         num_ranges = 0
-        for i in range(0, 4):
-            depth_field_prefix = f"range_{i}_depth"
-            if hasattr(self.graph_update_msg, depth_field_prefix):
-                depth_value = getattr(self.graph_update_msg, depth_field_prefix)
-                if depth_value != 0.0:
+        for i in range(4):
+            try:
+                depth_val = getattr(self.graph_update_msg, f"range_event_{i}_depth")
+                if depth_val > 0.0:
                     num_ranges += 1
+                else:
+                    break  # First unused slot
+            except AttributeError:
+                break  # Field does not exist
+        if num_ranges >= 4:
+            rospy.logwarn("Maximum number of range events already added to graph update!")
+            return  # Optionally raise exception or overwrite last one
         prefix = f"range_event_{num_ranges}_"
         # Update the fields at this index
         setattr(self.graph_update_msg, prefix + "remote_address", encoded_range[0])
