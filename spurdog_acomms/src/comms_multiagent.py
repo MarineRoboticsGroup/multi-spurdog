@@ -759,10 +759,11 @@ class CycleManager:
         rospy.loginfo("[%s] Added PoseWithCovarianceStamped %s to Graph Update)" % (rospy.Time.now(), prefix))
         return
 
-    def add_range_event_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0, depth=self.depth):
+    def add_range_event_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0):
         #[remote_address, index_or_measured_range, sigma_range, depth]
         """This function adds a range measurement to the graph update message"""
         # Encode the range measurement as integer values
+        depth = self.depth
         encoded_range = encode_range_event_as_int(remote_address, remote_index, measured_range, sigma_range, depth)
         # Get the number of ranges currently stored (a proxy is the number of depth readings which are not zero)
         num_ranges = 0
