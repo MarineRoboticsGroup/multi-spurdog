@@ -321,6 +321,7 @@ class CycleManager:
         Args:
             msg (TestData): The test data message
         """
+        rospy.logwarn("[%s] Processing Graph Update from %s" % (rospy.Time.now(), self.address_to_name[msg.sender_address]))
         # Parse the graph update into PoseFactorStamped and RangeFactorStamped messages
         sender_address = msg.sender_address
         initial_key_index = msg.first_key_index
@@ -376,7 +377,7 @@ class CycleManager:
             #decoded_range_event = [remote_address, index, measured_range, sigma_range, depth]
             # Check how we should handle the range event
             remote_name = self.address_to_name[decoded_range_event[0]]
-            if "L" in remote_address:  # This is a range between the sender and the landmark
+            if "L" in remote_name:  # This is a range between the sender and the landmark
                 #decoded_range_event = [remote_address, None, measured_range, sigma_range, depth]
                 # Build a RangeFactorStamped Directly
                 range_factor_msg = RangeFactorStamped()
@@ -751,7 +752,7 @@ class CycleManager:
         # Increment the number of poses in the graph update message
         self.graph_update_msg.num_poses += 1
         # Log the addition of the pose
-        rospy.loginfo("[%s] Added PoseWithCovarianceStamped #%s to Graph Update)" % (rospy.Time.now(), prefix))
+        rospy.loginfo("[%s] Added PoseWithCovarianceStamped %s to Graph Update)" % (rospy.Time.now(), prefix))
         return
 
     def add_range_event_to_graph_update(self, remote_address: int, remote_index: int, measured_range: float, sigma_range: float = 1.0):
@@ -773,7 +774,7 @@ class CycleManager:
         setattr(self.graph_update_msg, prefix + "index_or_measured_range", encoded_range[1])
         setattr(self.graph_update_msg, prefix + "sigma_range", encoded_range[2])
         setattr(self.graph_update_msg, prefix + "depth", encoded_range[3])
-        rospy.loginfo("[%s] Added Range #%s to Graph Update)" % (rospy.Time.now(), prefix))
+        rospy.loginfo("[%s] Added Range %s to Graph Update)" % (rospy.Time.now(), prefix))
         return
 
     def on_gps(self, msg: PoseWithCovarianceStamped):

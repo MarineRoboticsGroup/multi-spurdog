@@ -62,11 +62,11 @@
                 <param name="guard_time_seconds" value="2.0" />
                 <param name="packet_length_seconds" value="1.0" />
             </node>
-            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="log">
+            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
 
-            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="log">
+            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
         </group>
