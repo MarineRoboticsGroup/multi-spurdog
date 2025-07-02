@@ -628,7 +628,7 @@ class CycleManager:
         active_message = self.graph_update_msg
         self.graph_update_pub.publish(active_message)
         self.graph_update_msg = GraphUpdate()  # Reset the message for the next cycle
-        self.graph_update_msg.sender_address = np.clip(int(self.local_address),0,4)
+        self.graph_update_msg.sender_address = int(self.local_address)
         rospy.loginfo("[%s] Sent Graph Update" % (rospy.Time.now()))
         return
 
@@ -767,12 +767,18 @@ class CycleManager:
         encoded_range = encode_range_event_as_int(remote_address, remote_index, measured_range, sigma_range, depth)
         # Get the number of ranges currently stored (a proxy is the number of depth readings which are not zero)
         num_ranges = 0
-        for i in range(0, 4):
-            depth_field_prefix = f"range_{i}_depth"
-            if hasattr(self.graph_update_msg, depth_field_prefix):
-                depth_value = getattr(self.graph_update_msg, depth_field_prefix)
-                if depth_value > 0.0:
-                    num_ranges += 1
+        for i in range(4):
+            try:
+                depth_val = getattr(self.graph_update_msg, f"range_event_{i}_depth")
+            if depth_val > 0.0:
+                num_ranges += 1
+            else:
+                break  # First unused slot
+        except AttributeError:
+            break  # Field does not exist
+        if num_ranges >= 4:
+            rospy.logwarn("Maximum number of range events already added to graph update!")
+            return  # Optionally raise exception or overwrite last one
         prefix = f"range_event_{num_ranges}_"
         # Update the fields at this index
         setattr(self.graph_update_msg, prefix + "remote_address", encoded_range[0])
