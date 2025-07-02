@@ -49,7 +49,7 @@
                     SRC: 1
                     XST: 1
                     TAT: 50
-                    pwramp.txlevel: 1
+                    pwramp.txlevel: 3
                     psk.packet.mod_hdr_version: 1
                 </rosparam>
             </node>
