@@ -770,10 +770,10 @@ class CycleManager:
         for i in range(4):
             try:
                 depth_val = getattr(self.graph_update_msg, f"range_event_{i}_depth")
-            if depth_val > 0.0:
-                num_ranges += 1
-            else:
-                break  # First unused slot
+                if depth_val > 0.0:
+                    num_ranges += 1
+                else:
+                    break  # First unused slot
         except AttributeError:
             break  # Field does not exist
         if num_ranges >= 4:
