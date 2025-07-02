@@ -49,7 +49,7 @@
                     SRC: 0
                     XST: 1
                     TAT: 50
-                    pwramp.txlevel: 3
+                    pwramp.txlevel: 0
                     psk.packet.mod_hdr_version: 1
                 </rosparam>
             </node>
@@ -57,17 +57,17 @@
             <node name="tdma_node" pkg="ros_acomms" type="tdma_node.py" output="log" required="true" respawn="false">
                 <param name="num_slots" value="$(arg num_agents)" />
                 <param name="active_slots" value="$(arg source_addr)"/>
-                <param name="slot_duration_seconds" value="30" />
+                <param name="slot_duration_seconds" value="20" />
                 <param name="miniframe_rate" value="1" />
                 <param name="dataframe_rate" value="1" />
                 <param name="guard_time_seconds" value="2.0" />
                 <param name="packet_length_seconds" value="1.0" />
             </node>
-            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen">
+            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="log">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
 
-            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen">
+            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="log">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
         </group>

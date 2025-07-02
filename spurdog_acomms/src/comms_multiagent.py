@@ -446,7 +446,6 @@ class CycleManager:
                 # Transmitted payload is of the form "A0"
                 # key1 is of the same form as transmitted
                 for pr in self.partial_ranges:
-                    rospy.loginfo("Key1: %s, Key2: %s, tx: %s"% (pr["key1"], pr["key2"], transmitted_payload))
                     if pr["key1"] == transmitted_payload: # looking for a match to our key1
                         pr["key2"] = pose_keys[i+1]
                         pr["index"] = decoded_range_event[1]
@@ -466,8 +465,8 @@ class CycleManager:
                     range_factor_msg.range_sigma = assoc_entry["sigma_range"]
                     range_factor_msg.depth1 = assoc_entry["depth1"]
                     range_factor_msg.depth2 = assoc_entry["depth2"]
-                    rospy.loginfo("[%s] Published Range Factor: %s -> %s, index=%d" % (
-                        rospy.Time.now(), assoc_entry["key1"], assoc_entry["key2"], decoded_range_event[1]))
+                    rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
+                        rospy.Time.now(), assoc_entry["key1"], assoc_entry["key2"], assoc_entry["measured_range"]))
                     self.range_factor_pub.publish(range_factor_msg)
                 elif decoded_range_event[0] == self.local_address:  # This is a range to us
                     # If we don't have one, thats and error and we should log it
