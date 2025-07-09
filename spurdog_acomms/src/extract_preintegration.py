@@ -36,9 +36,9 @@ from spurdog_acomms_utils.nmea_utils import (
 )
 
 class CycleManager:
-    """This is a node to run the comms cycle for the vehicle.
-        - This is a lightweight version to test simple message reciept rates
-        - This is configured as a bang-bang LBL controller (1 agent, 2 landmarks, no tdma)
+    """This is a specialized post-processing node to handle the bags from 27June which have some unique deficiencies.
+    - Bags lack relative pose measurements (but have the ti/tj timestamps), so we request preintegration over these and publish a pose factor
+    - Bags have range factors, but the key1 is off by one index, so we re-key the range factors to match the pose factors
     """
     def __init__(self):
         rospy.init_node('comms_cycle_manager', anonymous=True)
@@ -97,7 +97,9 @@ class CycleManager:
         #self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         #self.range_logging_sub = rospy.Subscriber("modem/ping_reply",PingReply, self.on_ping_reply, queue_size=1)
         self.pose_factor_sub = rospy.Subscriber("pose_factor", PoseFactorStamped, self.on_pose_factor, queue_size=1)
+        self.range_factor_sub = rospy.Subscriber("range_factor", RangeFactorStamped, self.on_range_factor, queue_size=1)
         # Initialize the factor publishers
+        self.range_factor_pub = rospy.Publisher("range_factor_recovered", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor_recovered", PoseFactorStamped, queue_size=1)
         #self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         # Initialize the modem addresses and cycle targets
@@ -136,6 +138,20 @@ class CycleManager:
         # Extract the timestamp, then call prientegration using this timestamp
         tj = msg.header.stamp
         self.request_preintegration(tj, adv_pose=True)
+        return
+
+    def on_range_factor(self, msg: RangeFactorStamped):
+        """This function handles the range factor messages.
+        It extracts the range information and stores it in the range data.
+        """
+        # Re-key the range factor key1 (advance by 1)
+        key1 = msg.key1
+        local_chr = key1[0]  # The first character is the local address
+        key1_index = int(key1[1:])  # The rest is the index
+        key1_rekeyed = local_chr + str(key1_index + 1)  # Re-key the range factor key1
+        # Update the key1 in the message
+        msg.key1 = key1_rekeyed
+        self.range_factor_pub.publish(msg)
         return
 
     # Sensor data handling
