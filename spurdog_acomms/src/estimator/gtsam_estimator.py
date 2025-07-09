@@ -35,6 +35,16 @@ from gtsam.gtsam import (
     PriorFactorPoint2,
     PriorFactorPoint3,
     symbol,
+    PoseTranslationPrior2D,
+    PoseTranslationPrior3D,
+    # ISAM2
+    ISAM2Params,
+    ISAM2DoglegParams,
+    ISAM2,
+    # LM
+    LevenbergMarquardtOptimizer,
+    LevenbergMarquardtParams,
+    Symbol,
 )
 
 try:
@@ -43,7 +53,7 @@ try:
     logger.debug("Found C++ SESyncFactor2d")
 except ImportError:
     logger.warning("Using python SESyncFactor2d - will be much slower")
-    from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
+    from custom_factors.SESyncFactor2d import RelativePose2dFactor
 
 try:
     from gtsam import SESyncFactor3d as RelativePose3dFactor
@@ -51,7 +61,7 @@ try:
     logger.debug("Found C++ SESyncFactor3d")
 except ImportError:
     logger.warning("Using python SESyncFactor3d - will be much slower")
-    from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
+    from custom_factors.SESyncFactor3d import RelativePose3dFactor
 
 try:
     from gtsam_unstable import PoseToPointFactor2D as PoseToPoint2dFactor
@@ -60,22 +70,15 @@ try:
     logger.info("Found C++ PoseToPointFactor for 2D and 3D")
 except ImportError:
     logger.warning("Using python PoseToPointFactor - will be much slower")
-    from ra_slam.custom_factors.PoseToPointFactor import (
+    from custom_factors.PoseToPointFactor import (
         PoseToPoint2dFactor,
         PoseToPoint3dFactor,
     )
 
-from gtsam_unstable.gtsam_unstable import PoseToPointFactor2D, PoseToPointFactor3D
-from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
-from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
-from ra_slam.custom_factors.PoseToPointFactor import (
-    PoseToPoint2dFactor,
-    PoseToPoint3dFactor,
-)
-
 from estimator import Estimator
 from estimator_helpers import (
     Key,
+    KeyPair,
     RangeMeasurement,
     OdometryMeasurement,
     OdometryMeasurement2D,
@@ -89,12 +92,14 @@ from estimator_helpers import (
     Point3D,
     _check_transformation_matrix,
     get_theta_from_transformation_matrix,
+    get_quat_from_rotation_matrix,
     get_theta_from_rotation_matrix,
     get_translation_from_transformation_matrix,
-    get_measurement_precisions_from_covariance_matrix
+    get_measurement_precisions_from_covariance_matrix,
+    get_diag_relpose_covar
 )
 
-from typing import Union
+from typing import Union, List
 
 VALID_BETWEEN_FACTOR_MODELS = ["SESync", "between"]
 
@@ -135,7 +140,9 @@ def get_pose3_from_matrix(pose_matrix: np.ndarray) -> Pose3:
     return Pose3(Rot3(rot_matrix), np.array([tx, ty, tz]))
 
 
-def get_relative_pose_from_odom_measurement(odom_measurement: OdometryMeasurement) -> Union[Pose2, Pose3]:
+def get_relative_pose_from_odom_measurement(
+    odom_measurement: OdometryMeasurement,
+) -> Union[Pose2, Pose3]:
     """Get the relative pose from the odometry measurement.
 
     Args:
@@ -155,10 +162,13 @@ def get_relative_pose_from_odom_measurement(odom_measurement: OdometryMeasuremen
         logger.error(err)
         raise ValueError(err)
 
+
 def _get_between_factor(
     odom_measurement: OdometryMeasurement, i_sym: int, j_sym: int
 ) -> Union[BetweenFactorPose2, BetweenFactorPose3]:
-    odom_noise = noiseModel.Diagonal.Sigmas(np.diag(odom_measurement.covariance.covariance_matrix))
+    odom_noise = noiseModel.Diagonal.Sigmas(
+        np.diag(odom_measurement.covariance.covariance_matrix)
+    )
     rel_pose = get_relative_pose_from_odom_measurement(odom_measurement)
     if isinstance(odom_measurement, OdometryMeasurement2D):
         odom_factor = BetweenFactorPose2(i_sym, j_sym, rel_pose, odom_noise)
@@ -225,6 +235,97 @@ def get_pose_to_pose_factor(
     return odom_factor
 
 
+def solve_with_isam2(
+    graph: NonlinearFactorGraph, initial_vals: Values, return_all_iterates: bool = False
+) -> Union[Values, List[Values]]:
+    if return_all_iterates:
+        raise NotImplementedError("ISAM2 does not support returning all iterates")
+
+    parameters = ISAM2Params()
+    parameters.setOptimizationParams(ISAM2DoglegParams())
+    logger.debug(f"ISAM Params: {parameters}")
+    isam_solver = ISAM2(parameters)
+    isam_solver.update(graph, initial_vals)
+    result = isam_solver.calculateEstimate()
+    return result
+
+
+def solve_with_levenberg_marquardt(
+    graph: NonlinearFactorGraph, initial_vals: Values, return_all_iterates: bool = False
+) -> Union[Values, List[Values]]:
+    try:
+        optimizer = LevenbergMarquardtOptimizer(graph, initial_vals)
+    except RuntimeError as e:
+        logger.error(f"Failed to create LevenbergMarquardtOptimizer: {e}")
+        print("Graph keys:", graph.keyVector())
+        print("Initial values keys:", initial_vals.keys())
+        raise e
+
+    params = LevenbergMarquardtParams()
+    params.setVerbosityLM("SUMMARY")
+    # params.setVerbosityLM("LAMBDA") # set to be very verbose
+
+    def _check_all_variables_have_initialization():
+        # check that the variables in the graph are all in the initial values
+        # otherwise, the optimizer will throw an error
+        init_vals_vars = initial_vals.keys()
+        graph_vars = graph.keyVector()
+
+        graph_var_set = set(graph_vars)
+        init_vals_var_set = set(init_vals_vars)
+
+        in_graph_not_init_vals = graph_var_set - init_vals_var_set
+        in_init_vals_not_graph = init_vals_var_set - graph_var_set
+
+        if len(in_graph_not_init_vals) > 0:
+            graph_vars_as_symbols = [Symbol(key) for key in in_graph_not_init_vals]
+            raise ValueError(
+                f"Variables in graph but not in initial values: {graph_vars_as_symbols}"
+            )
+
+        if len(in_init_vals_not_graph) > 0:
+            init_vals_vars_as_symbols = [Symbol(key) for key in in_init_vals_not_graph]
+            raise ValueError(
+                f"Variables in initial values but not in graph: {init_vals_vars_as_symbols}"
+            )
+
+    _check_all_variables_have_initialization()
+
+    if not return_all_iterates:
+        optimizer.optimize()
+        result = optimizer.values()
+        return result
+    else:
+        results = [optimizer.values()]
+        currentError = np.inf
+        newError = optimizer.error()
+        rel_err_tol = params.getRelativeErrorTol()
+        abs_err_tol = params.getAbsoluteErrorTol()
+        err_tol = params.getErrorTol()
+        max_iter = params.getMaxIterations()
+
+        converged = False
+        curr_iter = 0
+
+        while not converged and curr_iter < max_iter:
+            optimizer.iterate()
+            results.append(optimizer.values())
+
+            currentError = newError
+            newError = optimizer.error()
+
+            within_rel_err_tol = (
+                abs(newError - currentError) < rel_err_tol * currentError
+            )
+            within_abs_err_tol = abs(newError - currentError) < abs_err_tol
+            within_err_tol = newError < err_tol
+
+            converged = within_rel_err_tol or within_abs_err_tol or within_err_tol
+            curr_iter += 1
+
+        return results
+
+
 class GtsamEstimator(Estimator):
     """
     A concrete implementation of the Estimator interface using GTSAM.
@@ -234,10 +335,16 @@ class GtsamEstimator(Estimator):
     def __init__(self, mode: EstimatorMode, dimension: int, odom_factor_type: str):
         super().__init__(mode, dimension)
 
+        if mode == EstimatorMode.GTSAM_DOG:
+            raise NotImplementedError(
+                "GTSAM Dogleg mode is not implemented. Use GTSAM Levenberg-Marquardt for now."
+            )
+
         # Initialize GTSAM-specific variables here
         self.factor_graph = NonlinearFactorGraph()
-        self.values = Values()
+        self.initial_values = Values()
         self.odom_factor_type = odom_factor_type
+        self.gtsam_result = Values()
 
     def add_range(self, range_measurement: RangeMeasurement) -> None:
         pose_symbol = get_symbol_from_name(range_measurement.key1)
@@ -284,12 +391,40 @@ class GtsamEstimator(Estimator):
         )
         self.factor_graph.push_back(odom_factor)
 
-        raise NotImplementedError(
-            "GTSAM odometry measurement addition not implemented."
-        )
-
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:
-        raise NotImplementedError("GTSAM depth measurement addition not implemented.")
+        """We will add a poor man's depth measurement by placing a prior
+        on the translation of the pose. We will add very low precision
+        to the x and y translation, and high precision to the z translation.
+
+        Args:
+            depth_measurement (DepthMeasurement): the depth measurement to be added.
+        """
+        depth = depth_measurement.depth
+        depth_precision = 1 / depth_measurement.variance
+        other_translation_precision = (
+            depth_precision / 100000.0
+        )  # very low precision for x and y
+        pose_symbol = get_symbol_from_name(depth_measurement.key)
+
+        # how many dimensions do we need to fill for a psuedo depth measurement?
+        fill_dim = self.dimension - 1
+
+        # make the noise model for the translation prior
+        noise_model = noiseModel.Diagonal.Sigmas(
+            np.array(
+                [other_translation_precision] * fill_dim
+                + [depth_precision]  # high precision for z translation
+            )
+        )
+        fake_translation = np.array(
+            [0.0] * fill_dim + [depth]  # fake translation in the z direction
+        )
+        prior_factor = PoseTranslationPrior3D(
+            pose_symbol,
+            fake_translation,
+            noise_model,
+        )
+        self.factor_graph.push_back(prior_factor)
 
     def get_pose(self, key: Key) -> Union[Pose2D, Pose3D]:
         """
@@ -316,4 +451,50 @@ class GtsamEstimator(Estimator):
         raise NotImplementedError("GTSAM get_point not implemented.")
 
     def update(self):
-        raise NotImplementedError("GTSAM update not implemented.")
+        self.gtsam_result = solve_with_levenberg_marquardt(
+            self.factor_graph, self.initial_values, return_all_iterates=False
+        )
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    logger.info("GTSAM Estimator module loaded successfully.")
+    # You can add test cases or example usage here if needed.
+
+    # Example usage
+    estimator = GtsamEstimator(
+        mode=EstimatorMode.GTSAM_LM, dimension=3, odom_factor_type="between"
+    )
+    logger.info("GTSAM Estimator instance created successfully.")
+
+    # Try to add two odometry measurements, representing going in a straight line
+    poses = ["P0", "P1", "P2"]
+    covar = get_diag_relpose_covar(np.array([0.5]*6))
+    assert isinstance(covar, RelPoseCovar6), "Covariance must be a RelPoseCovar6 instance"
+
+    odom_measurement_1 = OdometryMeasurement3D(
+        key_pair=KeyPair(poses[0], poses[1]),
+        relative_translation=(1.0, 0.0, 0.0),  # Move 1 meter in the x direction
+        relative_rotation=tuple(get_quat_from_rotation_matrix(np.eye(3))),  # No rotation
+        covariance=covar
+    )
+    estimator.add_odometry(odom_measurement_1)
+
+    odom_measurement_2 = OdometryMeasurement3D(
+        key_pair=KeyPair(poses[1], poses[2]),
+        relative_translation=(1.0, 0.0, 0.0),
+        relative_rotation=tuple(get_quat_from_rotation_matrix(np.eye(3))),  # No rotation
+        covariance=covar
+    )
+    estimator.add_odometry(odom_measurement_2)
+
+    logger.info("Added two odometry measurements to the GTSAM estimator.")
+
+    # see if we can get a state estimate and print it
+    estimator.update()
+    pose_estimates = []
+    for key in poses:
+        logger.info(f"Getting pose for key: {key}")
+        pose = estimator.get_pose(key)
+        pose_estimates.append(pose)
+        logger.info(f"Pose for {key}: {pose}")
+

@@ -62,16 +62,6 @@ class Estimator(ABC):
         pass
 
     @abstractmethod
-    def get_current_pose(self) -> Union[Pose2D, Pose3D]:
-        """
-        Get the current pose of the estimator.
-
-        Returns:
-            The current pose of the estimator.
-        """
-        pass
-
-    @abstractmethod
     def get_pose(self, key: Key) -> Union[Pose2D, Pose3D]:
         """
         Get the current state of the estimator.
@@ -115,7 +105,7 @@ class CoraEstimator(Estimator):
     def add_range(self, range_measurement: RangeMeasurement) -> None:
         raise NotImplementedError("Cora range measurement addition not implemented.")
 
-    def add_odometry(self, odometry_measurement: OdometryMeasurement) -> None:
+    def add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
         raise NotImplementedError(
             "Cora odometry measurement addition not implemented."
         )
