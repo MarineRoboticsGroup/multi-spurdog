@@ -14,7 +14,7 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, TestData, AcommsCycleStatus, GraphUpdate
+    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, AcommsCycleStatus, GraphUpdate, ReceivedSignalStats
 )
 from spurdog_acomms.srv import(
     PreintegrateImu, PreintegrateImuResponse
@@ -121,6 +121,7 @@ class CycleManager:
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
         self.cycle_status_pub = rospy.Publisher("comms_cycle_status", AcommsCycleStatus, queue_size=1)
+        self.recieved_signal_stats_pub = rospy.Publisher("recieved_signal_stats", ReceivedSignalStats, queue_size=1)
 
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
@@ -832,30 +833,6 @@ class CycleManager:
         dest = msg.src
         owtt = msg.owtt
         measured_range = owtt * self.sound_speed if owtt is not None else None
-        #tat = msg.tat
-        snr_in = msg.snr_in
-        snr_out = msg.snr_out
-        # tx_level = msg.tx_level
-        # mfd_peak = msg.cst.mfd_peak
-        # mfd_pow = msg.cst.mfd_pow
-        # mfd_ratio = msg.cst.mfd_ratio
-        # mfd_spl = msg.cst.mfd_spl
-        # agn = msg.cst.agn
-        # shift_ainp = msg.cst.shift_ainp
-        # shift_ain = msg.cst.shift_ain
-        # shift_aout = msg.cst.shift_aout
-        # shift_mfd = msg.cst.shift_mfd
-        # shift_p2b = msg.cst.shift_p2b
-        # rate = msg.cst.rate_num
-        # psk_error = msg.cst.psk_error
-        # packet_type = msg.cst.packet_type
-        # num_frames = msg.cst.num_frames
-        # bad_frames = msg.cst.bad_frames_num
-        # snr_rss = msg.cst.snr_rss
-        stddev_noise = msg.cst.noise
-        # mse_error = msg.cst.mse
-        # dqf = msg.cst.dqf
-        dop = msg.cst.dop
         # Update the cycle status
         # rospy.loginfo("[%s] rnage timestamp: %.4f, message timestamp: %.4f, last range timestamp: %.4f, src: %s" % (
         #     rospy.Time.now(), range_timestamp, message_timestamp, self.cycle_status["last_range_timestamp"].to_sec(), chr(ord("A") + src)))
@@ -872,6 +849,37 @@ class CycleManager:
             self.cycle_status["min_range"] = np.round(measured_range,4)
         else:
             pass
+        # Create a ReceivedSignalStats message
+        received_signal_stats = ReceivedSignalStats()
+        received_signal_stats.header.stamp = rospy.Time.now()
+        received_signal_stats.header.frame_id = "modem"
+        received_signal_stats.toa = rospy.Time.from_sec(range_timestamp)
+        received_signal_stats.src = msg.src
+        received_signal_stats.dest = msg.dest
+        received_signal_stats.signal_type = "range"
+        received_signal_stats.carrier = msg.cst.carrier
+        received_signal_stats.bandwidth = msg.cst.bandwidth
+        received_signal_stats.rate_num = msg.cst.rate_num
+        # Get packet type from CST
+        packet_types = ["error", "FSK", "FSK_mini", "PSK", "PSK_mini", "PSK_FDP"]
+        if msg.cst.packet_type == -1:
+            received_signal_stats.packet_type = "unknown"
+        else:
+            received_signal_stats.packet_type = packet_types[msg.cst.packet_type] if msg.cst.packet_type < len(packet_types) else "unknown"
+        received_signal_stats.mfd_peak = msg.cst.mfd_peak
+        received_signal_stats.mfd_pow = msg.cst.mfd_pow
+        received_signal_stats.mfd_ratio = msg.cst.mfd_ratio
+        received_signal_stats.mfd_spl = msg.cst.mfd_spl
+        received_signal_stats.snr_rss = msg.cst.snr_rss
+        received_signal_stats.snr_in = msg.cst.snr_in
+        received_signal_stats.snr_out = msg.cst.snr_out
+        received_signal_stats.mse = msg.cst.mse
+        received_signal_stats.dop = msg.cst.dop
+        received_signal_stats.noise = msg.cst.noise
+        received_signal_stats.tx_level = msg.tx_level
+        received_signal_stats.owtt = msg.owtt
+        received_signal_stats.tat = msg.tat
+        self.recieved_signal_stats_pub.publish(received_signal_stats)
         return
 
     def send_acomms_status(self, event):

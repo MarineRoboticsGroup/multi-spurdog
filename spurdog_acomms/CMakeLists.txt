@@ -74,6 +74,7 @@ add_message_files(
   GraphUpdate.msg
   BetweenFactor.msg
   RangeFactor.msg
+  ReceivedSignalStats.msg
 )
 
 ## Generate services in the 'srv' folder
