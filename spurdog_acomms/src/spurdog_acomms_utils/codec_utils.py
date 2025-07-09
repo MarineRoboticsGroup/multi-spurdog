@@ -36,17 +36,33 @@ CODEC_SCALE_FACTORS = {
         "sigma_yaw": 10,
         "range": 100,
     },
-    "between_factor": {
-        "x": 10.0,              # int16, -32768 to 32767, expected: -65.5 to 65.5m, resolution: 0.1m
-        "y": 10.0,              # int16, -32768 to 32767, expected: -65.5 to 65.5m, resolution: 0.1m
+    "prior_factor": {
+        "x": 10.0,              # int16, -32768 to 32767, expected: -3200m to 3200m
+        "y": 10.0,              # int16, -32768 to 32767, expected: -3200m to 3200m
         "z": 10.0,              # int8, -128 to 127, expected: -12.8 to 12.7m, resolution: 0.1m
         "qw": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
         "qx": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
         "qy": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
         "qz": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
-        "sigma_x": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.01m
-        "sigma_y": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.01m
-        "sigma_z": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.01m
+        "sigma_x": 5,           # uint8, 0-255, expected: 0-50m, resolution: 0.2m
+        "sigma_y": 5,           # uint8, 0-255, expected: 0-50m, resolution: 0.2m
+        "sigma_z": 5,           # uint8, 0-255, expected: 0-50m, resolution: 0.2m
+        "sigma_psi": 255e2,     # uint8, 0-255, expected: 1e-2
+        "rho_xy": 0,            # int8, -128 to 127, expected: -1e-10 to 1e-10, resolution:
+        "rho_xpsi": 0,          # int8, -128 to 127, expected: -5e-6 to 5e-6, resolution:
+        "rho_ypsi": 0           # int8, -128 to 127, expected: -5e-6 to 5e-6, resolution:
+    },
+    "between_factor": {
+        "x": 500.0,              # int16, -32768 to 32767, expected: -65.5 to 65.5m, resolution: 0.002m
+        "y": 500.0,              # int16, -32768 to 32767, expected: -65.5 to 65.5m, resolution: 0.002m
+        "z": 10.0,              # int8, -128 to 127, expected: -12.8 to 12.7m, resolution: 0.1m
+        "qw": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
+        "qx": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
+        "qy": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
+        "qz": 127,              # int8, -128 to 127, expected: -1 to 1, resolution: 0.00787deg
+        "sigma_x": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.02m
+        "sigma_y": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.02m
+        "sigma_z": 50,          # uint8, 0-255, expected: 0-5m, resolution: 0.02m
         "sigma_psi": 255e4,     # uint8, 0-255, expected: 1e-5 to 1e-4, resolution: 4e-7rad (2.2e-5 deg)
         "rho_xy": 127e12,       # int8, -128 to 127, expected: -1e-10 to 1e-10, resolution:
         "rho_xpsi": 254e5,      # int8, -128 to 127, expected: -5e-6 to 5e-6, resolution:
@@ -62,7 +78,15 @@ CODEC_SCALE_FACTORS = {
 }
 
 # Graph Update encoding:
-def encode_pwcs_as_int(pwcs:PoseWithCovarianceStamped):
+def encode_pwcs_as_int(pwcs:PoseWithCovarianceStamped, type):
+    # Use type to get the scale factors
+    if type == "between":
+        codec_scale_factors = CODEC_SCALE_FACTORS["between_factor"]
+    elif type == "prior":
+        codec_scale_factors = CODEC_SCALE_FACTORS["prior_factor"]
+    else:
+        rospy.logerr("[%s] Invalid type for encoding PoseWithCovarianceStamped!" % rospy.Time.now())
+        return BetweenFactor()
     # Intialize the output message
     between_factor = BetweenFactor()
     # Extract the appropriate covariance sigmas
@@ -76,26 +100,26 @@ def encode_pwcs_as_int(pwcs:PoseWithCovarianceStamped):
     rho_ypsi = pwcs.pose.covariance[11] / (sigma_y * sigma_psi) if sigma_y and sigma_psi else 0.0
 
     # Encode the position and orientation
-    x = int(np.clip(int(pwcs.pose.pose.position.x * CODEC_SCALE_FACTORS["between_factor"]["x"]), -32768, 32767))
-    y = int(np.clip(int(pwcs.pose.pose.position.y * CODEC_SCALE_FACTORS["between_factor"]["y"]), -32768, 32767))
-    z = int(np.clip(int(pwcs.pose.pose.position.z * CODEC_SCALE_FACTORS["between_factor"]["z"]),  -128, 127))
+    x = int(np.clip(int(pwcs.pose.pose.position.x * codec_scale_factors["x"]), -32768, 32767))
+    y = int(np.clip(int(pwcs.pose.pose.position.y * codec_scale_factors["y"]), -32768, 32767))
+    z = int(np.clip(int(pwcs.pose.pose.position.z * codec_scale_factors["z"]),  -128, 127))
 
     # Encode the orientation as a quaternion
-    qx = int(np.clip(int(pwcs.pose.pose.orientation.x * CODEC_SCALE_FACTORS["between_factor"]["qx"]), -128, 127))
-    qy = int(np.clip(int(pwcs.pose.pose.orientation.y * CODEC_SCALE_FACTORS["between_factor"]["qy"]), -128, 127))
-    qz = int(np.clip(int(pwcs.pose.pose.orientation.z * CODEC_SCALE_FACTORS["between_factor"]["qz"]), -128, 127))
-    qw = int(np.clip(int(pwcs.pose.pose.orientation.w * CODEC_SCALE_FACTORS["between_factor"]["qw"]), -128, 127))
+    qx = int(np.clip(int(pwcs.pose.pose.orientation.x * codec_scale_factors["qx"]), -128, 127))
+    qy = int(np.clip(int(pwcs.pose.pose.orientation.y * codec_scale_factors["qy"]), -128, 127))
+    qz = int(np.clip(int(pwcs.pose.pose.orientation.z * codec_scale_factors["qz"]), -128, 127))
+    qw = int(np.clip(int(pwcs.pose.pose.orientation.w * codec_scale_factors["qw"]), -128, 127))
 
     # Encode the sigmas
-    sigma_x = int(np.clip(int(sigma_x * CODEC_SCALE_FACTORS["between_factor"]["sigma_x"]), 0, 255))
-    sigma_y = int(np.clip(int(sigma_y * CODEC_SCALE_FACTORS["between_factor"]["sigma_y"]), 0, 255))
-    sigma_z = int(np.clip(int(sigma_z * CODEC_SCALE_FACTORS["between_factor"]["sigma_z"]), 0, 255))
-    sigma_psi = int(np.clip(int(sigma_psi * CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"]), 0, 255))
+    sigma_x = int(np.clip(int(sigma_x * codec_scale_factors["sigma_x"]), 0, 255))
+    sigma_y = int(np.clip(int(sigma_y * codec_scale_factors["sigma_y"]), 0, 255))
+    sigma_z = int(np.clip(int(sigma_z * codec_scale_factors["sigma_z"]), 0, 255))
+    sigma_psi = int(np.clip(int(sigma_psi * codec_scale_factors["sigma_psi"]), 0, 255))
 
     # Encode the correlation coefficients
-    rho_xy = int(np.clip(int(rho_xy * CODEC_SCALE_FACTORS["between_factor"]["rho_xy"]), -128, 127))
-    rho_xpsi = int(np.clip(int(rho_xpsi * CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"]), -128, 127))
-    rho_ypsi = int(np.clip(int(rho_ypsi * CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"]), -128, 127))
+    rho_xy = int(np.clip(int(rho_xy * codec_scale_factors["rho_xy"]), -128, 127))
+    rho_xpsi = int(np.clip(int(rho_xpsi * codec_scale_factors["rho_xpsi"]), -128, 127))
+    rho_ypsi = int(np.clip(int(rho_ypsi * codec_scale_factors["rho_ypsi"]), -128, 127))
 
     # Build the list 
     between_factor = [x, y, z, qw, qx, qy, qz,

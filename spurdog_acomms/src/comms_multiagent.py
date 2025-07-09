@@ -14,7 +14,9 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, AcommsCycleStatus, GraphUpdate, ReceivedSignalStats
+    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped,
+    AcommsCycleStatus, ReceivedSignalStats,
+    BasicGraphUpdate, AdvancedGraphUpdate,
 )
 from spurdog_acomms.srv import(
     PreintegrateImu, PreintegrateImuResponse
@@ -29,8 +31,6 @@ from spurdog_acomms_utils.nmea_utils import (
     parse_nmea_cacma,
     parse_nmea_cacmr,
     parse_nmea_carfp,
-    parse_nmea_cacst,
-    parse_nmea_caxst,
     parse_nmea_carev,
     parse_nmea_catxf
 )
@@ -61,6 +61,7 @@ class CycleManager:
             "L0": rospy.get_param(full_ns + "landmarks/L0"),
             "L1": rospy.get_param(full_ns + "landmarks/L1")
         }
+        self.message_mode = "basic"
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
@@ -93,7 +94,6 @@ class CycleManager:
         self.partial_ranges = []
         # partial ranges is a list of dicts, each with the following keys:
         # timestamp, key1: str, key2: str, remote_address: int, index: int, measured_range: float, sigma_range: float, depth1: float, depth2: float
-        self.graph_update_msg = GraphUpdate()
         # Check services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
@@ -114,9 +114,14 @@ class CycleManager:
 
         self.queue_status_sub = rospy.Subscriber("modem/queue_status", QueueStatus, self.on_queue_status)
         self.packet_rcv_sub = rospy.Subscriber("modem/packet_rx", ReceivedPacket, self.on_nmea_from_modem)
-        self.graph_update_pub = rospy.Publisher("modem/to_acomms/graph_update",GraphUpdate, queue_size=1)
-        self.graph_update_sub = rospy.Subscriber("modem/from_acomms/graph_update", GraphUpdate, self.on_graph_update)
-
+        if self.message_mode == "basic":
+            self.graph_update_msg = BasicGraphUpdate()
+            self.graph_update_pub = rospy.Publisher("modem/to_acomms/basic_graph_update", BasicGraphUpdate, queue_size=1)
+            self.graph_update_sub = rospy.Subscriber("modem/from_acomms/basic_graph_update", BasicGraphUpdate, self.on_basic_graph_update)
+        elif self.message_mode == "advanced":
+            self.graph_update_msg = AdvancedGraphUpdate()
+            self.graph_update_pub = rospy.Publisher("modem/to_acomms/adv_graph_update",AdvancedGraphUpdate, queue_size=1)
+            self.graph_update_sub = rospy.Subscriber("modem/from_acomms/adv_graph_update", AdvancedGraphUpdate, self.on_adv_graph_update)
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
@@ -227,14 +232,6 @@ class CycleManager:
             else:
                 rospy.logerr("[%s] Received $CARFP with unexpected data: %s" % (rospy.Time.now(), data))
 
-        # elif nmea_type == "$CACST": # Modem-to-host report of signal recieved
-        #     cst_statistics = parse_nmea_cacst(data)
-        #     self.cst_data.append(cst_statistics)
-
-        # elif nmea_type == "$CAXST": # Modem-to-host report of signal transmitted
-        #     xst_statistics = parse_nmea_caxst(data)
-        #     self.xst_data.append(xst_statistics)
-
         elif nmea_type == "$CAREV" and self.ping_method == None: # Modem-to-host $CAREV message to determine the firmware version
             firmware_version = parse_nmea_carev(data)
             # if firmware_version[0] == "3":
@@ -295,7 +292,7 @@ class CycleManager:
             pass
         return
 
-    def on_graph_update(self, msg: GraphUpdate):
+    def on_basic_graph_update(self, msg: BasicGraphUpdate):
         """This function receives test data from the modem
         Args:
             msg (TestData): The test data message
@@ -584,15 +581,44 @@ class CycleManager:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
         return
 
-    def send_graph_update(self):
+    def send_basic_graph_update(self):
         """This function sends test data to the modem
         """
         # Create a test data message
         active_message = self.graph_update_msg
         self.graph_update_pub.publish(active_message)
-        self.graph_update_msg = GraphUpdate()  # Reset the message for the next cycle
+        self.graph_update_msg = BasicGraphUpdate()  # Reset the message for the next cycle
         self.graph_update_msg.sender_address = int(self.local_address)
-        rospy.loginfo("[%s] Sent Graph Update" % (rospy.Time.now()))
+        rospy.loginfo("[%s] Sent Basic Graph Update" % (rospy.Time.now()))
+        self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:2.0),cycles=1")
+        return
+
+    def send_adv_graph_update(self):
+        """This function sends test data to the modem
+        """
+        # Find the key of the first pose in the graph update message
+        addresss = self.graph_update_msg.sender_address
+        index = self.graph_update_msg.first_key_index
+        symbol_of_prior = chr(ord("A") + addresss) + str(index)
+        #TODO: Call to get the prior value and marginal from estimator
+        prior_pose = PoseWithCovarianceStamped(
+            header=Header(
+                stamp=rospy.Time.now(),
+                frame_id="modem"
+            ),
+            pose=Pose(
+                position=Point(x=0.0, y=0.0, z=0.0),
+                orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+            ),
+            covariance=[0.0] * 36  # Placeholder covariance
+        )
+        # Add Pose Prior to the graph update message
+        self.add_prior_to_graph_update(prior_pose)
+        active_message = self.graph_update_msg
+        self.graph_update_pub.publish(active_message)
+        self.graph_update_msg = AdvancedGraphUpdate()  # Reset the message for the next cycle
+        self.graph_update_msg.sender_address = int(self.local_address)
+        rospy.loginfo("[%s] Sent Advanced Graph Update" % (rospy.Time.now()))
         self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:2.0),cycles=1")
         return
 
@@ -678,6 +704,31 @@ class CycleManager:
         self.pose_time_lookup[key2] = tj
         return
 
+    def add_prior_to_graph_update(self, pose: PoseWithCovarianceStamped):
+        """This function adds a PoseWithCovarianceStamped message to the graph update message
+        Args:
+            pose (PoseWithCovarianceStamped): The pose to add to the graph update
+            key_index (int): The index of the key in the pose factor
+        """
+        # Encode the PoseWithCovarianceStamped message as integer values
+        encoded_pose = encode_pwcs_as_int(pose, "prior")
+        # Add the encoded pose to the graph update message
+        prefix = "pose_prior_0_"
+        setattr(self.graph_update_msg, prefix + "x", encoded_pose[0])
+        setattr(self.graph_update_msg, prefix + "y", encoded_pose[1])
+        setattr(self.graph_update_msg, prefix + "z", encoded_pose[2])
+        setattr(self.graph_update_msg, prefix + "qw", encoded_pose[3])
+        setattr(self.graph_update_msg, prefix + "qx", encoded_pose[4])
+        setattr(self.graph_update_msg, prefix + "qy", encoded_pose[5])
+        setattr(self.graph_update_msg, prefix + "qz", encoded_pose[6])
+        setattr(self.graph_update_msg, prefix + "sigma_x", encoded_pose[7])
+        setattr(self.graph_update_msg, prefix + "sigma_y", encoded_pose[8])
+        setattr(self.graph_update_msg, prefix + "sigma_z", encoded_pose[9])
+        setattr(self.graph_update_msg, prefix + "sigma_psi", encoded_pose[10])
+        # Log the addition of the pose
+        rospy.loginfo("[%s] Added PoseWithCovarianceStamped %s to Graph Update)" % (rospy.Time.now(), prefix))
+        return
+
     def add_pwcs_to_graph_update(self, key1_index: int, preintegratded_pose: PoseWithCovarianceStamped):
         """This function adds a PoseWithCovarianceStamped message to the graph update message
         Args:
@@ -685,7 +736,7 @@ class CycleManager:
             key1_index (int): The index of the first key in the pose factor
         """
         # Encode the PoseWithCovarianceStamped message as integer values
-        encoded_pose = encode_pwcs_as_int(preintegratded_pose)
+        encoded_pose = encode_pwcs_as_int(preintegratded_pose, "between")
         # Get the number of poses currently stored:
         num_poses = self.graph_update_msg.num_poses
         prefix = f"relative_pose_{num_poses}_"
@@ -704,9 +755,13 @@ class CycleManager:
         setattr(self.graph_update_msg, prefix + "sigma_y", encoded_pose[8])
         setattr(self.graph_update_msg, prefix + "sigma_z", encoded_pose[9])
         setattr(self.graph_update_msg, prefix + "sigma_psi", encoded_pose[10])
-        setattr(self.graph_update_msg, prefix + "rho_xy", encoded_pose[11])
-        setattr(self.graph_update_msg, prefix + "rho_xpsi", encoded_pose[12])
-        setattr(self.graph_update_msg, prefix + "rho_ypsi", encoded_pose[13])
+        if self.message_mode == "basic":
+            # For basic mode, we don't need the rho values
+            setattr(self.graph_update_msg, prefix + "rho_xy", 0)
+            setattr(self.graph_update_msg, prefix + "rho_xpsi", 0)
+            setattr(self.graph_update_msg, prefix + "rho_ypsi", 0)
+        else:
+            pass # Adv version does not include these values
         # Increment the number of poses in the graph update message
         self.graph_update_msg.num_poses += 1
         # Log the addition of the pose
