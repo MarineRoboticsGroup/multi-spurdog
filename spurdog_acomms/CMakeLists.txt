@@ -4,10 +4,9 @@ project(spurdog_acomms)
 ## Compile as C++11, supported in ROS Kinetic and newer
 add_compile_options(-std=c++11)
 # add_compile_options(-std=c++17)
-
 # set(GTSAM_DIR "/usr/local/lib/cmake/GTSAM")
 set(GTSAM_DIR "/usr/local/lib/cmake/GTSAM")
-set(EIGEN3_INCLUDE_DIR /usr/local/include/eigen3)
+#set(EIGEN3_INCLUDE_DIR /usr/local/include/eigen3)
 # set(EIGEN3_INCLUDE_DIRS "/usr/include/eigen3")
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -170,6 +169,7 @@ add_executable(imu_preintegrator src/imu_preintegrator.cpp)
 add_executable(manifold_preintegrator src/manifold_preintegrator.cpp)
 add_executable(gyro_preintegrator src/gyro_preintegrator.cpp)
 add_executable(odometry src/odometry.cpp)
+# add_executable(dvl_integrator src/dvl_integrator.cpp)
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -205,6 +205,11 @@ target_link_libraries(odometry
   ${Boost_LIBRARIES}
   gtsam
 )
+# target_link_libraries(dvl_integrator
+#   ${catkin_LIBRARIES}
+#   ${Boost_LIBRARIES}
+#   gtsam
+# )
 add_dependencies(imu_preintegrator manifold_preintegrator gyro_preintegrator odometry ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 #############
