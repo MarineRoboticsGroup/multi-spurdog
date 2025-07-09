@@ -83,4 +83,4 @@ public:
   gtsam::Pose3 convertVehicleNEDToVehicleENU(const gtsam::Pose3& T_ned);
 };
 
-#endif  // GYRO_PREINTEGRATOR_HPP
+#endif  // ODOMETRY_HPP

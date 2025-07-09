@@ -105,28 +105,28 @@ void ImuPreintegratorNode::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
     gtsam::Matrix3 vel_noise_w_enu = R_enu.matrix() * constant_vel_noise_model_ * R_enu.matrix().transpose();
     // Create a TwistWithCovarianceStamped message
     geometry_msgs::TwistWithCovarianceStamped vel_b_msg;
-    vel_msg.header = msg->header; // Copy the header
-    vel_msg.twist.twist.linear.x = vel_b_enu.x();
-    vel_msg.twist.twist.linear.y = vel_b_enu.y();
-    vel_msg.twist.twist.linear.z = vel_b_enu.z();
+    vel_b_msg.header = msg->header; // Copy the header
+    vel_b_msg.twist.twist.linear.x = vel_b_enu.x();
+    vel_b_msg.twist.twist.linear.y = vel_b_enu.y();
+    vel_b_msg.twist.twist.linear.z = vel_b_enu.z();
     // Set the covariance
-    gtsam::Matrix6 vel_covariance = gtsam::Matrix6::Zero();
-    vel_covariance.block<3, 3>(0, 0) = vel_noise_b_enu; // Set the linear velocity covariance
+    gtsam::Matrix6 vel_b_covariance = gtsam::Matrix6::Zero();
+    vel_b_covariance.block<3, 3>(0, 0) = vel_noise_b_enu; // Set the linear velocity covariance
     for (size_t i = 0; i < 36; ++i) {
-      vel_msg.twist.covariance[i] = vel_covariance(i / 6, i % 6);
+      vel_b_msg.twist.covariance[i] = vel_b_covariance(i / 6, i % 6);
     }
     vel_b_buffer_.push_back(vel_b_msg);
     // Create a TwistWithCovarianceStamped message
     geometry_msgs::TwistWithCovarianceStamped vel_w_msg;
-    vel_msg.header = msg->header; // Copy the header
-    vel_msg.twist.twist.linear.x = vel_w_enu.x();
-    vel_msg.twist.twist.linear.y = vel_w_enu.y();
-    vel_msg.twist.twist.linear.z = vel_w_enu.z();
+    vel_w_msg.header = msg->header; // Copy the header
+    vel_w_msg.twist.twist.linear.x = vel_w_enu.x();
+    vel_w_msg.twist.twist.linear.y = vel_w_enu.y();
+    vel_w_msg.twist.twist.linear.z = vel_w_enu.z();
     // Set the covariance
-    gtsam::Matrix6 vel_covariance = gtsam::Matrix6::Zero();
-    vel_covariance.block<3, 3>(0, 0) = vel_noise_w_enu; // Set the linear velocity covariance
+    gtsam::Matrix6 vel_w_covariance = gtsam::Matrix6::Zero();
+    vel_w_covariance.block<3, 3>(0, 0) = vel_noise_w_enu; // Set the linear velocity covariance
     for (size_t i = 0; i < 36; ++i) {
-      vel_msg.twist.covariance[i] = vel_covariance(i / 6, i % 6);
+      vel_w_msg.twist.covariance[i] = vel_w_covariance(i / 6, i % 6);
     }
     vel_w_buffer_.push_back(vel_w_msg);
   }
@@ -171,15 +171,15 @@ void ImuPreintegratorNode::dvlVelCallback(const geometry_msgs::TwistStamped::Con
   gtsam::Matrix3 dvl_noise_w_enu = R_enu.matrix() * dvl_noise_model_ * R_enu.matrix().transpose();
   // Create a TwistWithCovarianceStamped message
   geometry_msgs::TwistWithCovarianceStamped dvl_twist_b_enu;
-  dvl_twist_enu.header = msg->header; // Copy the header
-  dvl_twist_enu.twist.twist.linear.x = dvl_vel_b_enu.x();
-  dvl_twist_enu.twist.twist.linear.y = dvl_vel_b_enu.y();
-  dvl_twist_enu.twist.twist.linear.z = dvl_vel_b_enu.z();
+  dvl_twist_b_enu.header = msg->header; // Copy the header
+  dvl_twist_b_enu.twist.twist.linear.x = dvl_vel_b_enu.x();
+  dvl_twist_b_enu.twist.twist.linear.y = dvl_vel_b_enu.y();
+  dvl_twist_b_enu.twist.twist.linear.z = dvl_vel_b_enu.z();
   // Set the covariance (a float64[36] array)
-  gtsam::Matrix6 vel_covariance = gtsam::Matrix6::Zero();
-  vel_covariance.block<3, 3>(0, 0) = dvl_noise_b_enu; // Set the linear velocity covariance
+  gtsam::Matrix6 vel_b_covariance = gtsam::Matrix6::Zero();
+  vel_b_covariance.block<3, 3>(0, 0) = dvl_noise_b_enu; // Set the linear velocity covariance
   for (size_t i = 0; i < 36; ++i) {
-    dvl_twist_enu.twist.covariance[i] = vel_covariance(i / 6, i % 6);
+    dvl_twist_b_enu.twist.covariance[i] = vel_b_covariance(i / 6, i % 6);
   }
   vel_b_buffer_.push_back(dvl_twist_b_enu);
   // Create a TwistWithCovarianceStamped message for the world frame
@@ -189,10 +189,10 @@ void ImuPreintegratorNode::dvlVelCallback(const geometry_msgs::TwistStamped::Con
   dvl_twist_w_enu.twist.twist.linear.y = dvl_vel_w_enu.y();
   dvl_twist_w_enu.twist.twist.linear.z = dvl_vel_w_enu.z();
   // Set the covariance (a float64[36] array)
-  gtsam::Matrix6 vel_covariance_w = gtsam::Matrix6::Zero();
-  vel_covariance_w.block<3, 3>(0, 0) = dvl_noise_w_enu; // Set the linear velocity covariance
+  gtsam::Matrix6 vel_w_covariance = gtsam::Matrix6::Zero();
+  vel_w_covariance.block<3, 3>(0, 0) = dvl_noise_w_enu; // Set the linear velocity covariance
   for (size_t i = 0; i < 36; ++i) {
-    dvl_twist_w_enu.twist.covariance[i] = vel_covariance_w(i / 6, i % 6);
+    dvl_twist_w_enu.twist.covariance[i] = vel_w_covariance(i / 6, i % 6);
   }
   vel_w_buffer_.push_back(dvl_twist_w_enu);
 }
@@ -539,7 +539,7 @@ std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::deadReckonFromPrei
       gtsam::Vector3 forward = gtsam::Vector3(v_enu.x(), v_enu.y(), v_enu.z()).normalized(); // Normalize the velocity vector
       gtsam::Rot3 R_vel_w = gtsam::Rot3::Rodrigues(forward); // Create a rotation from the velocity vector
       // Add the delta position to the total translation
-      tj_w = Tj_w.translation() + delta_pos; // Accumulate the translation
+      gtsam::Point3 tj_w = Tj_w.translation() + delta_pos; // Accumulate the translation
       Tj_w = gtsam::Pose3(R_vel_w, tj_w); // Update the pose in world frame
       gtsam::Matrix3 vel_covariance = gtsam::Matrix3::Zero();
       // Upack the upper left 3x3 of the msg.twist.covariance into the vel_covariance matrix
