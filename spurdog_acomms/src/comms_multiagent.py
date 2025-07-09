@@ -117,11 +117,11 @@ class CycleManager:
         if self.message_mode == "basic":
             self.graph_update_msg = BasicGraphUpdate()
             self.graph_update_pub = rospy.Publisher("modem/to_acomms/basic_graph_update", BasicGraphUpdate, queue_size=1)
-            self.graph_update_sub = rospy.Subscriber("modem/from_acomms/basic_graph_update", BasicGraphUpdate, self.on_basic_graph_update)
+            self.graph_update_sub = rospy.Subscriber("modem/from_acomms/basic_graph_update", BasicGraphUpdate, self.on_graph_update)
         elif self.message_mode == "advanced":
             self.graph_update_msg = AdvancedGraphUpdate()
             self.graph_update_pub = rospy.Publisher("modem/to_acomms/adv_graph_update",AdvancedGraphUpdate, queue_size=1)
-            self.graph_update_sub = rospy.Subscriber("modem/from_acomms/adv_graph_update", AdvancedGraphUpdate, self.on_adv_graph_update)
+            self.graph_update_sub = rospy.Subscriber("modem/from_acomms/adv_graph_update", AdvancedGraphUpdate, self.on_graph_update)
         self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
@@ -292,7 +292,7 @@ class CycleManager:
             pass
         return
 
-    def on_basic_graph_update(self, msg: BasicGraphUpdate):
+    def on_graph_update(self, msg: BasicGraphUpdate):
         """This function receives test data from the modem
         Args:
             msg (TestData): The test data message
@@ -313,6 +313,32 @@ class CycleManager:
         for i in range(num_poses): #0,1,2,3
             key1 = pose_keys[i]
             key2 = pose_keys[i+1]
+            if self.message_mode == "advanced":
+                prefix = f"pose_prior_0_"
+                x = getattr(msg, prefix + "x")
+                y = getattr(msg, prefix + "y")
+                z = getattr(msg, prefix + "z")
+                qw = getattr(msg, prefix + "qw")
+                qx = getattr(msg, prefix + "qx")
+                qy = getattr(msg, prefix + "qy")
+                qz = getattr(msg, prefix + "qz")
+                sigma_x = getattr(msg, prefix + "sigma_x")
+                sigma_y = getattr(msg, prefix + "sigma_y")
+                sigma_z = getattr(msg, prefix + "sigma_z")
+                sigma_psi = getattr(msg, prefix + "sigma_psi")
+                encoded_pose = [x, y, z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, 0, 0, 0]
+                prior = decode_pwc_from_int(encoded_pose, "prior")
+                # Create a PoseFactorStamped message
+                pose_factor_msg = PoseFactorStamped()
+                pose_factor_msg.header.stamp = rospy.Time.now()  # Use the current time for the header
+                pose_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
+                pose_factor_msg.key1 = key1
+                pose_factor_msg.key2 = key1
+                pose_factor_msg.pose = prior
+                self.pose_factor_pub.publish(pose_factor_msg)
+                rospy.loginfo("[%s] Published Prior Factor: %s" % (rospy.Time.now(), key1))
+            else:  # Basic message mode
+                pass
             # Get the encoded pose data
             prefix = f"relative_pose_{i}_"
             x = getattr(msg, prefix + "x")
@@ -331,7 +357,7 @@ class CycleManager:
             rho_ypsi = getattr(msg, prefix + "rho_ypsi")
             encoded_pose = [x, y, z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, rho_xy, rho_xpsi, rho_ypsi]
             # Create a PoseWithCovariance message
-            pose_with_covariance = decode_pwc_from_int(encoded_pose)
+            pose_with_covariance = decode_pwc_from_int(encoded_pose, "between")
             # Create a PoseFactorStamped message
             pose_factor_msg = PoseFactorStamped()
             pose_factor_msg.header.stamp = rospy.Time.now()  # Use the current time for the header

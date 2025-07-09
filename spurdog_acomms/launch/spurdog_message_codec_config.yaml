@@ -230,9 +230,9 @@
           length: 86
     - id: 4
       message_codec: default
-      subscribe_topic: "to_acomms/graph_update"
-      publish_topic: "from_acomms/graph_update"
-      ros_type: "spurdog_acomms/GraphUpdate"
+      subscribe_topic: "to_acomms/basic_graph_update"
+      publish_topic: "from_acomms/basic_graph_update"
+      ros_type: "spurdog_acomms/BasicGraphUpdate"
       default_dest: 0
       queue_order: lifo
       queue_maxsize: 1
@@ -364,6 +364,180 @@
           codec: int8
         relative_pose_3_rho_ypsi:
           codec: int8
+        range_event_0_remote_address:
+          codec: integer
+          min_value: 0
+          max_value: 4
+        range_event_0_index_or_measured_range:
+          codec: uint16
+        range_event_0_sigma_range:
+          codec: uint8
+        range_event_0_depth:
+          codec: uint8
+        range_event_1_remote_address:
+          codec: integer
+          min_value: 0
+          max_value: 4
+        range_event_1_index_or_measured_range:
+          codec: uint16
+        range_event_1_sigma_range:
+          codec: uint8
+        range_event_1_depth:
+          codec: uint8
+        range_event_2_remote_address:
+          codec: integer
+          min_value: 0
+          max_value: 4
+        range_event_2_index_or_measured_range:
+          codec: uint16
+        range_event_2_sigma_range:
+          codec: uint8
+        range_event_2_depth:
+          codec: uint8
+        range_event_3_remote_address:
+          codec: integer
+          min_value: 0
+          max_value: 4
+        range_event_3_index_or_measured_range:
+          codec: uint16
+        range_event_3_sigma_range:
+          codec: uint8
+        range_event_3_depth:
+          codec: uint8
+    - id: 5
+      message_codec: default
+      subscribe_topic: "to_acomms/adv_graph_update"
+      publish_topic: "from_acomms/adv_graph_update"
+      ros_type: "spurdog_acomms/AdvancedGraphUpdate"
+      default_dest: 0
+      queue_order: lifo
+      queue_maxsize: 1
+      is_active: true
+      allow fragmentation: false
+      priority: 40
+      fields:
+        sender_address:
+          codec: integer
+          min_value: 0
+          max_value: 4
+        first_key_index:
+          codec: integer
+          min_value: 0
+          max_value: 1000
+        num_poses:
+          codec: integer
+          min_value: 0
+          max_value: 4
+        pose_prior_0_x:
+          codec: int16
+        pose_prior_0_y:
+          codec: int16
+        pose_prior_0_z:
+          codec: int16
+        pose_prior_0_qw:
+          codec: int8
+        pose_prior_0_qx:
+          codec: int8
+        pose_prior_0_qy:
+          codec: int8
+        pose_prior_0_qz:
+          codec: int8
+        pose_prior_0_sigma_x:
+          codec: uint8
+        pose_prior_0_sigma_y:
+          codec: uint8
+        pose_prior_0_sigma_z:
+          codec: uint8
+        pose_prior_0_sigma_psi:
+          codec: uint8
+        relative_pose_0_x:
+          codec: int16
+        relative_pose_0_y:
+          codec: int16
+        relative_pose_0_z:
+          codec: int16
+        relative_pose_0_qw:
+          codec: int8
+        relative_pose_0_qx:
+          codec: int8
+        relative_pose_0_qy:
+          codec: int8
+        relative_pose_0_qz:
+          codec: int8
+        relative_pose_0_sigma_x:
+          codec: uint8
+        relative_pose_0_sigma_y:
+          codec: uint8
+        relative_pose_0_sigma_z:
+          codec: uint8
+        relative_pose_0_sigma_psi:
+          codec: uint8
+        relative_pose_1_x:
+          codec: int16
+        relative_pose_1_y:
+          codec: int16
+        relative_pose_1_z:
+          codec: int8
+        relative_pose_1_qw:
+          codec: int8
+        relative_pose_1_qx:
+          codec: int8
+        relative_pose_1_qy:
+          codec: int8
+        relative_pose_1_qz:
+          codec: int8
+        relative_pose_1_sigma_x:
+          codec: uint8
+        relative_pose_1_sigma_y:
+          codec: uint8
+        relative_pose_1_sigma_z:
+          codec: uint8
+        relative_pose_1_sigma_psi:
+          codec: uint8
+        relative_pose_2_x:
+          codec: int16
+        relative_pose_2_y:
+          codec: int16
+        relative_pose_2_z:
+          codec: int8
+        relative_pose_2_qw:
+          codec: int8
+        relative_pose_2_qx:
+          codec: int8
+        relative_pose_2_qy:
+          codec: int8
+        relative_pose_2_qz:
+          codec: int8
+        relative_pose_2_sigma_x:
+          codec: uint8
+        relative_pose_2_sigma_y:
+          codec: uint8
+        relative_pose_2_sigma_z:
+          codec: uint8
+        relative_pose_2_sigma_psi:
+          codec: uint8
+        relative_pose_3_x:
+          codec: int16
+        relative_pose_3_y:
+          codec: int16
+        relative_pose_3_z:
+          codec: int8
+        relative_pose_3_qw:
+          codec: int8
+        relative_pose_3_qx:
+          codec: int8
+        relative_pose_3_qy:
+          codec: int8
+        relative_pose_3_qz:
+          codec: int8
+        relative_pose_3_sigma_x:
+          codec: uint8
+        relative_pose_3_sigma_y:
+          codec: uint8
+        relative_pose_3_sigma_z:
+          codec: uint8
+        relative_pose_3_sigma_psi:
+          codec: uint8
         range_event_0_remote_address:
           codec: integer
           min_value: 0

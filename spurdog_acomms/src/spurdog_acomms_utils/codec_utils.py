@@ -240,30 +240,42 @@ def encode_range_event_as_int(remote_address:int, remote_index:int=None, measure
 #     return range_factor
 
 # Graph Update decoding:
-def decode_pwc_from_int(encoded_pose):
+def decode_pwc_from_int(encoded_pose, type):
     """This function decodes the BetweenFactor data from a message into a PoseWithCovariance
     Args:
         encoded_pose (list): The encoded pose data [x,y,z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, rho_xy, rho_xpsi, rho_ypsi]"""
+    # Set the codec scale factors based on the type
+    if type == "between":
+        codec_scale_factors = CODEC_SCALE_FACTORS["between_factor"]
+    elif type == "prior":
+        codec_scale_factors = CODEC_SCALE_FACTORS["prior_factor"]
+    else:
+        rospy.logerr("[%s] Invalid type for decoding PoseWithCovarianceStamped!" % rospy.Time.now())
+        return PoseWithCovariance()
     # Initialize the output message
     pwc = PoseWithCovariance()
     # Decode the position
-    pwc.pose.position.x = encoded_pose[0] / CODEC_SCALE_FACTORS["between_factor"]["x"]
-    pwc.pose.position.y = encoded_pose[1] / CODEC_SCALE_FACTORS["between_factor"]["y"]
-    pwc.pose.position.z = encoded_pose[2] / CODEC_SCALE_FACTORS["between_factor"]["z"]
+    pwc.pose.position.x = encoded_pose[0] / codec_scale_factors["x"]
+    pwc.pose.position.y = encoded_pose[1] / codec_scale_factors["y"]
+    pwc.pose.position.z = encoded_pose[2] / codec_scale_factors["z"]
     # Build the orientation quaternion
-    pwc.pose.orientation.x = encoded_pose[4] / CODEC_SCALE_FACTORS["between_factor"]["qw"]
-    pwc.pose.orientation.y = encoded_pose[5] / CODEC_SCALE_FACTORS["between_factor"]["qx"]
-    pwc.pose.orientation.z = encoded_pose[6] / CODEC_SCALE_FACTORS["between_factor"]["qy"]
-    pwc.pose.orientation.w = encoded_pose[3] / CODEC_SCALE_FACTORS["between_factor"]["qz"]
+    pwc.pose.orientation.x = encoded_pose[4] / codec_scale_factors["qw"]
+    pwc.pose.orientation.y = encoded_pose[5] / codec_scale_factors["qx"]
+    pwc.pose.orientation.z = encoded_pose[6] / codec_scale_factors["qy"]
+    pwc.pose.orientation.w = encoded_pose[3] / codec_scale_factors["qz"]
     # Build the new covariance matrix
-    sigma_x = encoded_pose[7] / CODEC_SCALE_FACTORS["between_factor"]["sigma_x"]
-    sigma_y = encoded_pose[8] / CODEC_SCALE_FACTORS["between_factor"]["sigma_y"]
-    sigma_z = encoded_pose[9] / CODEC_SCALE_FACTORS["between_factor"]["sigma_z"]
-    sigma_psi = encoded_pose[10] / CODEC_SCALE_FACTORS["between_factor"]["sigma_psi"]
-    rho_xy = encoded_pose[11] / CODEC_SCALE_FACTORS["between_factor"]["rho_xy"] if sigma_x and sigma_y else 0.0
-    rho_xpsi = encoded_pose[12] / CODEC_SCALE_FACTORS["between_factor"]["rho_xpsi"] if sigma_x and sigma_psi else 0.0
-    rho_ypsi = encoded_pose[13] / CODEC_SCALE_FACTORS["between_factor"]["rho_ypsi"] if sigma_y and sigma_psi else 0.0
-
+    sigma_x = encoded_pose[7] / codec_scale_factors["sigma_x"]
+    sigma_y = encoded_pose[8] / codec_scale_factors["sigma_y"]
+    sigma_z = encoded_pose[9] / codec_scale_factors["sigma_z"]
+    sigma_psi = encoded_pose[10] / codec_scale_factors["sigma_psi"]
+    if type == "between":
+        rho_xy = encoded_pose[11] / codec_scale_factors["rho_xy"] if sigma_x and sigma_y else 0.0
+        rho_xpsi = encoded_pose[12] / codec_scale_factors["rho_xpsi"] if sigma_x and sigma_psi else 0.0
+        rho_ypsi = encoded_pose[13] / codec_scale_factors["rho_ypsi"] if sigma_y and sigma_psi else 0.0
+    else:
+        rho_xy = 0.0
+        rho_xpsi = 0.0
+        rho_ypsi = 0.0
     # Build the covariance matrix
     pwc.covariance = np.zeros(36)
     pwc.covariance[0] = sigma_x ** 2  # x
