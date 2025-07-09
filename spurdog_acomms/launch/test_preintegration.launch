@@ -57,7 +57,7 @@
         <!-- Launch communication and graph managers-->
         <node name="preintegration_test" pkg="spurdog_acomms" type="test_preintegration.py" output="screen" />
 
-        <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
+        <node name="odometry" pkg="spurdog_acomms" type="odometry" output="screen">
             <param name="velocity_source" value="dvl" />
             <!-- <param name="accel_noise_sigma" value="0.05"/> -->
             <!-- <param name="gyro_noise_sigma" value="0.001"/> -->
