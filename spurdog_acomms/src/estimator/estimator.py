@@ -1,0 +1,138 @@
+from enum import Enum
+from abc import ABC, abstractmethod
+from attrs import define, field, validators
+from typing import Optional, Tuple, Union
+import numpy as np
+from numpy import ndarray
+from estimator_helpers import (
+    Key,
+    RangeMeasurement,
+    OdometryMeasurement,
+    DepthMeasurement,
+    EstimatorMode,
+    RelPoseCovar6,
+    Pose3D,
+    Pose2D,
+    Point2D,
+    Point3D,
+)
+
+class Estimator(ABC):
+    """
+    An abstract base class to define the interface for an estimator.
+    """
+
+    def __init__(self, mode: EstimatorMode, dimension: int):
+        self.mode: EstimatorMode = mode
+        self.dimension: int = dimension
+
+        if dimension not in [2, 3]:
+            raise ValueError(
+                f"Dimension must be 2 or 3, got {dimension}. This estimator is designed for 2D or 3D state estimation."
+            )
+
+    @abstractmethod
+    def add_range(self, range_measurement: RangeMeasurement):
+        """
+        Add a range measurement to the estimator.
+
+        Args:
+            range_measurement: The range measurement to be added.
+        """
+        pass
+
+    @abstractmethod
+    def add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
+        """
+        Add an odometry measurement to the estimator.
+
+        Args:
+            odometry_measurement: The odometry measurement to be added.
+        """
+        pass
+
+    @abstractmethod
+    def add_depth(self, depth_measurement: DepthMeasurement) -> None:
+        """
+        Add a depth measurement to the estimator.
+
+        Args:
+            depth_measurement: The depth measurement to be added.
+        """
+        pass
+
+    @abstractmethod
+    def get_current_pose(self) -> Union[Pose2D, Pose3D]:
+        """
+        Get the current pose of the estimator.
+
+        Returns:
+            The current pose of the estimator.
+        """
+        pass
+
+    @abstractmethod
+    def get_pose(self, key: Key) -> Union[Pose2D, Pose3D]:
+        """
+        Get the current state of the estimator.
+
+        Returns:
+            The current state of the estimator.
+        """
+        pass
+
+    @abstractmethod
+    def get_point(self, key: Key) -> Union[Point2D, Point3D]:
+        """
+        Get the current point estimate from the estimator.
+
+        Args:
+            key: The key for which to retrieve the point estimate.
+
+        Returns:
+            The point estimate corresponding to the given key.
+        """
+        pass
+
+    @abstractmethod
+    def update(self):
+        """
+        Update the estimator with the latest measurements.
+        This method should be called after adding all measurements.
+        """
+        pass
+
+class CoraEstimator(Estimator):
+    """
+    A concrete implementation of the Estimator interface using CORA.
+    This class should implement the CORA-specific logic for adding measurements and updating the state.
+    """
+
+    def __init__(self, mode: EstimatorMode, dimension: int):
+        super().__init__(mode, dimension)
+        # Initialize Cora-specific variables here
+
+    def add_range(self, range_measurement: RangeMeasurement) -> None:
+        raise NotImplementedError("Cora range measurement addition not implemented.")
+
+    def add_odometry(self, odometry_measurement: OdometryMeasurement) -> None:
+        raise NotImplementedError(
+            "Cora odometry measurement addition not implemented."
+        )
+
+    def add_depth(self, depth_measurement: DepthMeasurement) -> None:
+        raise NotImplementedError("Cora depth measurement addition not implemented.")
+
+    def get_pose(self, key: Key) -> Union[Pose2D, Pose3D]:
+        raise NotImplementedError("Cora get_pose not implemented.")
+
+    def get_point(self, key: Key) -> Union[Point2D, Point3D]:
+        raise NotImplementedError("Cora get_point not implemented.")
+
+    def update(self):
+        raise NotImplementedError("Cora update not implemented.")
+
+if __name__ == "__main__":
+    # Example usage
+    key1 = Key("X1")
+    key2 = Key("X1")
