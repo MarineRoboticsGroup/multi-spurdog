@@ -186,7 +186,7 @@ class CycleManager:
         elif nmea_type == "$CACMR": # Modem-to-host acknowledgement of a ping response
             src, dest, recieved_ping_time, owtt = parse_nmea_cacmr(data)
             if data[0] == "PNR" and src == self.local_address:
-                self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:1.0),cycles=1")
+                #self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:1.0),cycles=1")
                 measured_range = owtt * self.sound_speed
                 self.add_range_event_to_graph_update(dest, None, measured_range, sigma_range=self.range_sigma)
                 rospy.loginfo("[%s] Received Ping Response from %s" % (recieved_ping_time, self.address_to_name[dest]))
@@ -301,6 +301,7 @@ class CycleManager:
             msg (TestData): The test data message
         """
         rospy.logwarn("[%s] Processing Graph Update from %s" % (rospy.Time.now(), self.address_to_name[msg.sender_address]))
+        self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([100.0.150.50]:2.0),cycles=1")
         # Parse the graph update into PoseFactorStamped and RangeFactorStamped messages
         sender_address = msg.sender_address
         initial_key_index = msg.first_key_index
@@ -592,6 +593,7 @@ class CycleManager:
         self.graph_update_msg = GraphUpdate()  # Reset the message for the next cycle
         self.graph_update_msg.sender_address = int(self.local_address)
         rospy.loginfo("[%s] Sent Graph Update" % (rospy.Time.now()))
+        self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([0.255.0.50]:2.0),cycles=1")
         return
 
     # Sensor Callbacks:s
