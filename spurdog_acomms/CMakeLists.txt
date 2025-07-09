@@ -166,9 +166,9 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/spurdog_acomms_node.cpp)
-add_executable(imu_preintegrator src/imu_preintegrator.cpp)
-add_executable(manifold_preintegrator src/manifold_preintegrator.cpp)
-add_executable(gyro_preintegrator src/gyro_preintegrator.cpp)
+# add_executable(imu_preintegrator src/imu_preintegrator.cpp)
+# add_executable(manifold_preintegrator src/manifold_preintegrator.cpp)
+# add_executable(gyro_preintegrator src/gyro_preintegrator.cpp)
 add_executable(odometry src/odometry.cpp)
 # add_executable(dvl_integrator src/dvl_integrator.cpp)
 ## Rename C++ executable without prefix
@@ -186,21 +186,21 @@ add_executable(odometry src/odometry.cpp)
 #   ${catkin_LIBRARIES}
 # )
 # Some of these can be removed in the future:
-target_link_libraries(imu_preintegrator
-  ${catkin_LIBRARIES}
-  ${Boost_LIBRARIES}
-  gtsam
-)
-target_link_libraries(manifold_preintegrator
-  ${catkin_LIBRARIES}
-  ${Boost_LIBRARIES}
-  gtsam
-)
-target_link_libraries(gyro_preintegrator
-  ${catkin_LIBRARIES}
-  ${Boost_LIBRARIES}
-  gtsam
-)
+# target_link_libraries(imu_preintegrator
+#   ${catkin_LIBRARIES}
+#   ${Boost_LIBRARIES}
+#   gtsam
+# )
+# target_link_libraries(manifold_preintegrator
+#   ${catkin_LIBRARIES}
+#   ${Boost_LIBRARIES}
+#   gtsam
+# )
+# target_link_libraries(gyro_preintegrator
+#   ${catkin_LIBRARIES}
+#   ${Boost_LIBRARIES}
+#   gtsam
+# )
 target_link_libraries(odometry
   ${catkin_LIBRARIES}
   ${Boost_LIBRARIES}
@@ -211,7 +211,7 @@ target_link_libraries(odometry
 #   ${Boost_LIBRARIES}
 #   gtsam
 # )
-add_dependencies(imu_preintegrator manifold_preintegrator gyro_preintegrator odometry ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(odometry ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 #############
 ## Install ##
