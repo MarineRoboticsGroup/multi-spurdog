@@ -43,7 +43,8 @@ private:
   gtsam::Matrix3 dvl_noise_model_;
   bool in_water_;
   std::deque<sensor_msgs::Imu> imu_buffer_;
-  std::deque<geometry_msgs::TwistWithCovarianceStamped> vel_buffer_;
+  std::deque<geometry_msgs::TwistWithCovarianceStamped> vel_b_buffer_;
+  std::deque<geometry_msgs::TwistWithCovarianceStamped> vel_w_buffer_;
   std::tuple<ros::Time, gtsam::Pose3, gtsam::Matrix6> dr_state_and_cov_;
   gtsam::Rot3 R_ned_;
   std::pair<ros::Time, gtsam::Pose3> last_nav_report_;
@@ -74,7 +75,7 @@ public:
       spurdog_acomms::PreintegrateImu::Request &req,
       spurdog_acomms::PreintegrateImu::Response &res);
   std::pair<gtsam::Pose3, gtsam::Matrix6> deadReckonFromPreintegrate(
-      const ros::Time& final_time, const gtsam::Pose3& preint_pose, const gtsam::Matrix6& preint_cov);
+      const ros::Time& initial_time, const ros::Time& final_time, const gtsam::Pose3& preint_pose, const gtsam::Matrix6& preint_cov);
   void writePoseResultsToTum(const std::string& filename);
   gtsam::Matrix6 makePSD(const gtsam::Matrix6& input);
   gtsam::Rot3 convertRotNEDtoENU(const gtsam::Rot3& R_ned);
