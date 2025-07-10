@@ -47,6 +47,7 @@ private:
   std::deque<geometry_msgs::TwistWithCovarianceStamped> vel_w_buffer_;
   std::tuple<ros::Time, gtsam::Pose3, gtsam::Matrix6> dr_state_and_cov_;
   gtsam::Rot3 R_ned_;
+  gtsam::Vector3 Omega_ned_;
   std::pair<ros::Time, gtsam::Pose3> last_nav_report_;
   std::map<ros::Time, gtsam::Pose3> dead_reckon_map_;
   std::map<ros::Time, gtsam::Pose3> nav_state_map_;
