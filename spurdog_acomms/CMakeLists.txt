@@ -71,7 +71,8 @@ add_message_files(
   PoseFactorStamped.msg
   RangeFactorStamped.msg
   TestData.msg
-  GraphUpdate.msg
+  AdvancedGraphUpdate.msg
+  BasicGraphUpdate.msg
   BetweenFactor.msg
   RangeFactor.msg
   ReceivedSignalStats.msg
