@@ -95,12 +95,17 @@ void ImuPreintegratorNode::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
   Eigen::Quaterniond q(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
   q.normalize();
   R_ned_ = gtsam::Rot3::Quaternion(q.w(), q.x(), q.y(), q.z());
+  // ROtate Rned 180deg around the X axis only
+  // gtsam::Rot3 R_x180 = gtsam::Rot3::Rx(M_PI); // Rotate 180deg around X axis
+  // R_ned_ = R_x180 * R_ned_; // Apply the rotation to the NED rotation
+  // Rotate Rned 180deg around the X axis only
   Omega_ned_ = gtsam::Vector3(
       msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z);
   // If we're using constant vel, we need to add the tilt-compenstated velocity to the vel buffer
   if (vel_b_buffer_.empty()) { // A proxy for a lack of DVL or a DVL failure
     // Build a rotation from the IMU orientation in NED to the world ENU frame
     gtsam::Rot3 R_ned_to_enu((gtsam::Matrix3() << 0, 1, 0, 1, 0, 0, 0, 0, -1).finished());
+    // gtsam::Rot3 R_x180((gtsam::Matrix3() << 1, 0, 0, 0, -1, 0, 0, 0, -1).finished());
     gtsam::Rot3 R_enu = R_ned_to_enu * R_ned_; // Convert from NED to ENU
     // Apply the static rotation to the constant velocity model
     // gtsam::Vector3 vel_b_enu = R_ned_to_enu.rotate(constant_vel_model_);
@@ -148,8 +153,10 @@ void ImuPreintegratorNode::navStateCallback(const geometry_msgs::PoseStamped::Co
   // Get the pose from the message
   Eigen::Quaterniond q(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z);
   q.normalize(); // Normalize the quaternion to avoid numerical issues
+  // Build a rotation
+  gtsam::Rot3 R_ned = gtsam::Rot3::Quaternion(q.w(), q.x(), q.y(), q.z());
   gtsam::Pose3 reported_pose = gtsam::Pose3(
-      gtsam::Rot3::Quaternion(q.w(), q.x(), q.y(), q.z()),
+      R_ned,
       gtsam::Point3(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z));
   // Rotate the reported pose from Vehicles' quasi-NED to ENU
   reported_pose = convertVehicleNEDToVehicleENU(reported_pose);
@@ -317,13 +324,17 @@ gtsam::Pose3 ImuPreintegratorNode::convertVehicleNEDToVehicleENU(const gtsam::Po
     gtsam::Rot3 R_ned_to_enu((gtsam::Matrix3() << 0, 1, 0, 1, 0, 0, 0, 0, -1).finished());
     gtsam::Rot3 R_enu = R_ned_to_enu * R_ned_body; // Convert the rotation from NED to ENU
     // Then rotate the translation by 90deg around the Z axis CCW
-    gtsam::Rot3 R_z90 = gtsam::Rot3::Rz((M_PI/180)*14); // Rotate by 90 degrees around Z axis
-    gtsam::Rot3 R_enu_new = R_z90 * R_enu; // Apply the rotation to the body rotation
+    //gtsam::Rot3 R_dec = gtsam::Rot3::Rz((M_PI/180)*14); // Rotate by 90 degrees around Z axis
+    //gtsam::Rot3 R_enu_new = R_dec * R_enu; // Apply the rotation to the body rotation
+    // Rotate the frame by 180deg around the X axis
+    //gtsam::Rot3 R_x180 = gtsam::Rot3::Rx(M_PI); // Rotate 180deg around X axis
+    //R_enu_new = R_x180 * R_enu_new; // Apply the rotation to the ENU rotation
+    // Now we have
     // Apply the rotation to the translation
     // Convert the translation from NED to ENU
     gtsam::Point3 t_enu(t_ned.x(), t_ned.y(), -t_ned.z()); // Vehicle X, Y are already ENU, Z is flipped
     // Rebuild the pose in ENU
-    gtsam::Pose3 T_enu(R_enu_new, t_enu);
+    gtsam::Pose3 T_enu(R_enu, t_enu);
     return T_enu;
 }
 
@@ -395,12 +406,12 @@ std::tuple<double, gtsam::Rot3, gtsam::Matrix3> ImuPreintegratorNode::getPreinte
   gtsam::Vector3 rpy = deltaRij_body.rpy();  // [roll, pitch, yaw]
 
   // Flip the yaw angle (negate it)
-  double flipped_yaw = -rpy(2);  // rpy(2) is yaw
-  double roll = rpy(0);
-  double pitch = rpy(1);
+  // double flipped_yaw = -rpy(2);  // rpy(2) is yaw
+  // double roll = rpy(0);
+  // double pitch = rpy(1);
 
-  // Reconstruct the Rot3 with flipped yaw
-  deltaRij_body = gtsam::Rot3::RzRyRx(roll, pitch, flipped_yaw);
+  // // Reconstruct the Rot3 with flipped yaw
+  // deltaRij_body = gtsam::Rot3::RzRyRx(roll, pitch, flipped_yaw);
   gtsam::Matrix3 gyro_noise_hz = gyro_noise_ * mean_dt; // Convert to rad^2/s^2
   // Convert the covariance from NED to ENU
   gtsam::Matrix3 gyro_noise_hz_enu = R_ned_to_enu.matrix() * gyro_noise_hz * R_ned_to_enu.matrix().transpose();
@@ -507,7 +518,14 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getPreint
       gtsam::Matrix3 Sigmatij_body = std::get<2>(preint_translation);
       gtsam::Matrix3 J_tr_rot = std::get<3>(preint_translation); // Jacobian of translation w.r.t. rotation
       // Build the pose in the world, enu frame
+      //gtsam::Rot3 R_x = gtsam::Rot3::Rx(M_PI); // Rotate 180deg around X axis
+      // gtsam::Rot3 R_z = gtsam::Rot3::Rz(M_PI); // Rotate by 90deg around Z axis
+      //deltaRij_body = R_corr * deltaRij_body; // Apply the rotation to the deltaRij
+      // ROtate the translation by R_corr
+      //deltatij_body = R_corr.rotate(deltatij_body); // Rotate the translation
       gtsam::Pose3 Tij_body = gtsam::Pose3(deltaRij_body, deltatij_body); // Pose in body frame
+      //Tij_body = Tij_body.compose(gtsam::Pose3(R_x, gtsam::Point3(0, 0, 0))); // Apply the rotation to the pose
+      // Convert the pose from body to world frame
       // // Apply the rotation to the translation skew
       // gtsam::Matrix3 J_tr_rot = -gtsam::skewSymmetric(deltaTransij); // Jacobian of translation w.r.t. rotation
       // gtsam::Matrix3 CovRt = deltaRotCovij * J_tr_rot.transpose(); // Covariance of the rotation
