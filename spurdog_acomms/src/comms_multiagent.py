@@ -126,7 +126,7 @@ class CycleManager:
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
         self.cycle_status_pub = rospy.Publisher("comms_cycle_status", AcommsCycleStatus, queue_size=1)
-        self.recieved_signal_stats_pub = rospy.Publisher("recieved_signal_stats", ReceivedSignalStats, queue_size=1)
+        self.recieved_signal_stats_pub = rospy.Publisher("received_signal_stats", ReceivedSignalStats, queue_size=1)
 
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
@@ -544,8 +544,10 @@ class CycleManager:
                     self.send_ping(next_tgt)
                 elif self.send_data:
                     rospy.sleep(1)  # To account for formulating ping data
-                    self.send_graph_update()
-                    pass
+                    if self.message_mode == "basic":
+                        self.send_basic_graph_update()
+                    else:
+                        self.send_adv_graph_update()
                 else:
                     rospy.loginfo("[%s] No more targets to ping" % rospy.Time.now())
                 #self.tx_range_data.append([None, rospy.Time.now().to_sec()-self.ping_timeout/2, rospy.Time.now().to_sec(), self.local_address, target_addr, None, None, None, None, None, None])
@@ -599,7 +601,10 @@ class CycleManager:
                     self.send_ping(next_tgt)
                 elif self.send_data:
                     rospy.sleep(1)  # To account for formulating ping data
-                    self.send_graph_update()
+                    if self.message_mode == "basic":
+                        self.send_basic_graph_update()
+                    else:
+                        self.send_adv_graph_update()
                 else:
                     rospy.loginfo("[%s] No more targets to ping" % rospy.Time.now())
                 return
