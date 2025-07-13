@@ -97,6 +97,8 @@ void ImuPreintegratorNode::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
   // Update the R_ned_ with the current IMU orientation and velocity for converting other frames
   Eigen::Quaterniond q(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
   q.normalize();
+  // ROtate by 180deg about the z axis
+  gtsam::Rot3 R_x = gtsam::Rot3::Rz(M_PI); // Rotate by 180 degrees around Z axis
   R_ned_ = gtsam::Rot3::Quaternion(q.w(), q.x(), q.y(), q.z());
   Omega_ned_ = gtsam::Vector3(
       msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z);
@@ -197,7 +199,7 @@ void ImuPreintegratorNode::navStateCallback(const geometry_msgs::PoseStamped::Co
 
   // // Rotate from body-z-up to ENU
   gtsam::Rot3 R_wb_enu = gtsam::Rot3::Rx(M_PI) * R_wb_zu; // Convert from body-fixed z-down to world ENU frame
-  gtsam::Rot3 R_wb_enu_fixed = gtsam::Rot3::Rz(-M_PI/2) * R_wb_zu; // Convert from body-fixed z-up to world ENU frame
+  gtsam::Rot3 R_wb_enu_fixed = gtsam::Rot3::Rz(-M_PI/2) * R_wb_enu; // Convert from body-fixed z-up to world ENU frame
   // Construct a ENU pose
   gtsam::Point3 t_wb_enu = (gtsam::Point3(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z));
   gtsam::Pose3 reported_pose = gtsam::Pose3(R_wb_enu_fixed,
@@ -445,15 +447,16 @@ std::tuple<double, gtsam::Rot3, gtsam::Matrix3> ImuPreintegratorNode::getPreinte
   gtsam::Matrix3 H; // H is dR/db
   gtsam::Rot3 deltaRij_body = preint_rotation.biascorrectedDeltaRij(gyro_bias_zu, &H);
   // Get the roll, pitch, yaw angles (in radians)
-  //gtsam::Vector3 rpy = deltaRij_body.rpy();  // [roll, pitch, yaw]
+  gtsam::Vector3 rpy = deltaRij_body.rpy();  // [roll, pitch, yaw]
 
   // Flip the yaw angle (negate it)
-  // double flipped_yaw = -rpy(2);  // rpy(2) is yaw
-  // double roll = rpy(0);
-  // double pitch = rpy(1);
-
+  double flipped_yaw = -rpy(2);  // rpy(2) is yaw
+  double roll = rpy(0);
+  double pitch = rpy(1);
+  // Roate 180deg about the z axis
+  // Apply the rotation to the deltaRij_body
   // // Reconstruct the Rot3 with flipped yaw
-  // deltaRij_body = gtsam::Rot3::RzRyRx(roll, pitch, flipped_yaw);
+  deltaRij_body = gtsam::Rot3::RzRyRx(roll, pitch, flipped_yaw);
   gtsam::Matrix3 gyro_noise_hz = gyro_noise_ * mean_dt; // Convert to rad^2/s^2
   // Convert the covariance from NED to ENU
   gtsam::Matrix3 gyro_noise_hz_zu = R_zd_to_zu.matrix() * gyro_noise_hz * R_zd_to_zu.matrix().inverse();
@@ -560,14 +563,14 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getPreint
       gtsam::Matrix3 Sigmatij_body = std::get<2>(preint_translation);
       gtsam::Matrix3 J_tr_rot = std::get<3>(preint_translation); // Jacobian of translation w.r.t. rotation
       // Build the pose in the world, enu frame
-      gtsam::Rot3 R_x = gtsam::Rot3::Rx(M_PI); // Rotate 180deg around X axis
+      //gtsam::Rot3 R_x = gtsam::Rot3::Rx(M_PI); // Rotate 180deg around X axis
       // gtsam::Rot3 R_z = gtsam::Rot3::Rz(M_PI); // Rotate by 90deg around Z axis
       //deltaRij_body = R_corr * deltaRij_body; // Apply the rotation to the deltaRij
       // ROtate the translation by R_corr
       //deltatij_body = R_corr.rotate(deltatij_body); // Rotate the translation
       //gtsam::Rot3 deltaRij_body_u = gtsam::Rot3::Rx(M_PI) * deltaRij_body;
-      gtsam::Pose3 Tij_body_initial = gtsam::Pose3(deltaRij_body, deltatij_body); // Pose in body frame
-      gtsam::Pose3 Tij_body = gtsam::Pose3(R_x, gtsam::Point3(0,0,0)) * Tij_body_initial * gtsam::Pose3(R_x.inverse(), gtsam::Point3(0,0,0)); // Convert to ENU frame
+      gtsam::Pose3 Tij_body = gtsam::Pose3(deltaRij_body, deltatij_body); // Pose in body frame
+      //gtsam::Pose3 Tij_body = gtsam::Pose3(R_x, gtsam::Point3(0,0,0)) * Tij_body_initial * gtsam::Pose3(R_x.inverse(), gtsam::Point3(0,0,0)); // Convert to ENU frame
       // Convert the pose from body to world frame
       //Tij_body = Tij_body.compose(gtsam::Pose3(R_x, gtsam::Point3(0, 0, 0))); // Apply the rotation to the pose
       // Convert the pose from body to world frame
