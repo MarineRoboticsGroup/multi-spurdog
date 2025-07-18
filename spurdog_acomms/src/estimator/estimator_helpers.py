@@ -548,6 +548,17 @@ class Pose2D:
         metadata={"description": "Marginal covariance of the pose variable (optional)"},
     )
 
+    @property
+    def transformation_matrix(self) -> ndarray:
+        """
+        Returns the transformation matrix corresponding to the pose.
+        The transformation matrix is a 3x3 matrix in homogeneous coordinates.
+        """
+        theta = self.orientation
+        T = np.eye(3)
+        T[:2, :2] = get_rotation_matrix_from_theta(theta)
+        T[:2, 2] = np.array(self.position)
+        return T
 
 @define
 class Pose3D:
@@ -574,6 +585,17 @@ class Pose3D:
         metadata={"description": "Marginal covariance of the pose variable (optional)"},
     )
 
+    @property
+    def transformation_matrix(self) -> ndarray:
+        """
+        Returns the transformation matrix corresponding to the pose.
+        The transformation matrix is a 4x4 matrix in homogeneous coordinates.
+        """
+        R = get_rotation_matrix_from_quat(np.array(self.orientation))
+        T = np.eye(4)
+        T[:3, :3] = R
+        T[:3, 3] = np.array(self.position)
+        return T
 
 @define
 class Point2D:

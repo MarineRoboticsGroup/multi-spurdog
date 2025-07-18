@@ -52,6 +52,29 @@ class Estimator(ABC):
         pass
 
     @abstractmethod
+    def initialize_pose(self, pose: Union[Pose2D, Pose3D]) -> None:
+        """
+        Initialize the pose of a key in the estimator.
+
+        Args:
+            key: The key for which to initialize the pose.
+            pose: The initial pose to set for the key.
+        """
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
+    @abstractmethod
+    def initialize_point(self, point: Union[Point2D, Point3D]) -> None:
+        """
+        Initialize the point of a key in the estimator.
+
+        Args:
+            key: The key for which to initialize the point.
+            point: The initial point to set for the key.
+        """
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
+
+    @abstractmethod
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:
         """
         Add a depth measurement to the estimator.
