@@ -77,7 +77,9 @@ public:
       spurdog_acomms::PreintegrateImu::Request &req,
       spurdog_acomms::PreintegrateImu::Response &res);
   std::pair<gtsam::Pose3, gtsam::Matrix6> deadReckonFromPreintegrate(
-      const ros::Time& initial_time, const ros::Time& final_time, const gtsam::Pose3& preint_pose, const gtsam::Matrix6& preint_cov);
+      const ros::Time& initial_time, const ros::Time& final_time,
+      const gtsam::Pose3& Ti_w, const gtsam::Matrix6& Sigmai_w,
+      const gtsam::Pose3& Tij_b, const gtsam::Matrix6& SigmaTij_b);
   void writePoseResultsToTum(const std::string& filename);
   gtsam::Matrix6 makePSD(const gtsam::Matrix6& input);
   gtsam::Rot3 convertRotNEDtoENU(const gtsam::Rot3& R_ned);

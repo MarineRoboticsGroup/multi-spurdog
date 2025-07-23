@@ -635,118 +635,144 @@ std::tuple<double, gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::getPreint
 
 // Dead reckoning from preintegrated state
 std::pair<gtsam::Pose3, gtsam::Matrix6> ImuPreintegratorNode::deadReckonFromPreintegrate(
-    const ros::Time& initial_time, const ros::Time& final_time, const gtsam::Pose3& Ti_w, const gtsam::Matrix6& SigmaTi_w) {
+    const ros::Time& initial_time, const ros::Time& final_time,
+    const gtsam::Pose3& Ti_w, const gtsam::Matrix6& SigmaTi_w,
+    const gtsam::Pose3& Tij_b, const gtsam::Matrix6& SigmaTij_b) {
+    // Compose the new pose: Tj_w = Ti_w * Tij_b
+    gtsam::Matrix6 H_composeTi, H_composeTij;
+    gtsam::Pose3 Tj_w = Ti_w.compose(Tij_b, H_composeTi, H_composeTij);
+    // Overwrite the Tj_w z value to be the current depth
+    gtsam::Point3 t_j_w = Tj_w.translation();
+    double depth = last_nav_report_.second.translation().z(); // Get the current depth from the last nav report
+    t_j_w.z() = depth; // Set the z value to the current depth
+    // Overwrite the orientation to be the current orientation
+    gtsam::Vector3 tranformed_rpy = last_nav_report_.second.rotation().rpy(); // Get the current roll, pitch, yaw
+    double roll = tranformed_rpy(0);
+    double pitch = tranformed_rpy(1);
+    double yaw = tranformed_rpy(2);
+    // Reconstruct the rotation with the current roll, pitch, yaw
+    // Note: gtsam::Rot3::RzRyRx(roll, pitch, yaw) constructs a rotation from roll, pitch, yaw angles
+    Tj_w = gtsam::Pose3(gtsam::Rot3::RzRyRx(roll, pitch, yaw), t_j_w); // Rebuild the pose with the new orientation and z value
+    //Tj_w = gtsam::Pose3(Tj_w.rotation(), t_j_w); // Rebuild the pose with the new z value
+    // Propagate the covariance using first-order error propagation:
+    // SigmaTj_w = H1 * SigmaTi_w * H1^T + H2 * SigmaTij_b * H2^T
+    gtsam::Matrix6 SigmaTj_w =
+        H_composeTi * SigmaTi_w * H_composeTi.transpose() +
+        H_composeTij * SigmaTij_b * H_composeTij.transpose();
+
   // Iterate over the vel_w_buffer, integrating the velocities with respect to the initial time
-  if (vel_w_buffer_.empty()) {
-    ROS_WARN("Velocity buffer is empty, cannot dead reckon from preintegrated state");
-    return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
-  }
-  // Create the preintegration parameters
-  double deltaTimeij = 0.0;
-  gtsam::Pose3 Tj_w = Ti_w; // Initialize the pose in world frame
-  gtsam::Matrix6 SigmaTj_w = SigmaTi_w; // Initialize the covariance in world frame
-  ros::Time last_vel_time = initial_time;
-  bool initialized = false;
-  while (!vel_w_buffer_.empty()) {
-    const auto& vel_msg = vel_w_buffer_.front();
-    ros::Time t = vel_msg.header.stamp;
-    if (t < initial_time) {
-      ROS_WARN("Velocity message at time %f is before the initial time %f, ignoring", t.toSec(), initial_time.toSec());
-      vel_w_buffer_.pop_front(); // Remove this message
-      continue; // Skip this message
-    } else if (t > final_time) {
-      break; // Stop integrating if we exceed the final time
-    } else {
-      if (!initialized) {
-        last_vel_time = t;
-        initialized = true;
-        vel_w_buffer_.pop_front(); // Skip the first one (no dt)
-        continue;
-      }
-      double dt = (t - last_vel_time).toSec();
-      if (dt <= 0.0) {
-        ROS_WARN("Non-positive dt (%f), skipping velocity message", dt);
-        vel_w_buffer_.pop_front();
-        continue;
-      }
-      gtsam::Vector3 v_enu(vel_msg.twist.twist.linear.x, vel_msg.twist.twist.linear.y, vel_msg.twist.twist.linear.z);
-      // Get the delta position in the ENU frame
-      gtsam::Point3 delta_pos = gtsam::Point3(v_enu.x() * dt, v_enu.y() * dt, v_enu.z() * dt);
-      // Convert the current R_ned_ from R_wb_zd to R_wb_zu
-      //gtsam::Rot3 R_zd_to_zu((gtsam::Matrix3() << 1, 0, 0, 0, 1, 0, 0, 0, -1).finished());
-      //gtsam::Rot3 R_wb_zu = R_ned_ * R_zd_to_zu.inverse(); // Convert the rotation from NED to ENU
-      // Get a rotation matrix representing the orientation of the velocity vector in the world frame
-      // gtsam::Vector3 forward = gtsam::Vector3(v_enu.x(), v_enu.y(), v_enu.z()).normalized(); // Normalize the velocity vector
-      // double az = std::atan2(forward.y(), forward.x()); // Azimuth angle in radians
-      // double el = std::atan2(forward.z(), std::sqrt(forward.x() * forward.x() + forward.y() * forward.y())); // Elevation angle in radians
-      // gtsam::Rot3 R_yaw = gtsam::Rot3::Rz(az); // Rotation around Z axis (yaw)
-      // gtsam::Rot3 R_pitch = gtsam::Rot3::Ry(el); // Rotation around Y axis (pitch)
-      // gtsam::Rot3 R_vel_w = R_yaw * R_pitch; // Combined rotation for the velocity vector
-      // Get the current orientation in the world frame
-      //gtsam::Rot3 R_ned_to_enu((gtsam::Matrix3() << 0, 1, 0, 1, 0, 0, 0, 0, -1).finished());
-      // Convert the current orientation from NED to ENU
-      //gtsam::Rot3 R_enu_w = R_ned_to_enu * R_ned_;
-      // Rotate the velocity vector
-      // Compute the orientation of the
-      // Create the rotation matrix from the
-      //gtsam::Rot3 R_vel_w = gtsam::Rot3(x_positive_enu, y_positive, forward); // Rotation from ENU to velocity frame
-      // Add the delta position to the total translation
-      gtsam::Point3 tj_w = Tj_w.translation() + delta_pos; // Accumulate the translation
-      gtsam::Pose3 current_nav_state = last_nav_report_.second; // Get the last reported state
-      tj_w.z() = current_nav_state.translation().z(); // Reset the depth to the last reported:
-      Tj_w = gtsam::Pose3(R_enu_, tj_w); // Update the pose in world frame
-      gtsam::Matrix3 vel_covariance = gtsam::Matrix3::Zero();
-      // Upack the upper left 3x3 of the msg.twist.covariance into the vel_covariance matrix
-      for (size_t i = 0; i < 3; ++i) {
-        for (size_t j = 0; j < 3; ++j) {
-          vel_covariance(i, j) = vel_msg.twist.covariance[i * 6 + j]; // Copy the covariance from the message
-        }
-      }
-      gtsam::Matrix3 deltaTransCovij_enu = vel_covariance * dt * dt;
-      gtsam::Matrix3 deltaRotCovij = 4 * gyro_noise_ * dt * dt; // Covariance of the rotation in ENU frame
-      // Update the covariance of the pose rotation
-      SigmaTj_w.block<3, 3>(0, 0) += deltaRotCovij; // Covariance of the rotation
-      SigmaTj_w.block<3, 3>(0, 3) += gtsam::Matrix3::Zero(); // Cross-covariance of translation and rotation
-      SigmaTj_w.block<3, 3>(3, 0) += gtsam::Matrix3::Zero(); // Cross-covariance of translation and rotation
-      SigmaTj_w.block<3, 3>(3, 3) += deltaTransCovij_enu; // Covariance of the translation
-      // Ensure the covariance is positive semi-definite
-      // Get the covariance of the translation
-      // Update the deltaTij
-      deltaTimeij += dt; // Accumulate the time difference
-      last_vel_time = t;
-      vel_w_buffer_.pop_front(); // Remove the processed velocity message
-    }
-  }
+  // if (vel_w_buffer_.empty()) {
+  //   ROS_WARN("Velocity buffer is empty, cannot dead reckon from preintegrated state");
+  //   return std::make_pair(gtsam::Pose3(), gtsam::Matrix6::Zero());
+  // }
+  // // Create the preintegration parameters
+  // double deltaTimeij = 0.0;
+  // gtsam::Pose3 Tj_w = Ti_w; // Initialize the pose in world frame
+  // gtsam::Matrix6 SigmaTj_w = SigmaTi_w; // Initialize the covariance in world frame
+  // Compose Ti_w with Tij_w to get the initial pose
+
+  // ros::Time last_vel_time = initial_time;
+  // bool initialized = false;
+  // while (!vel_w_buffer_.empty()) {
+  //   const auto& vel_msg = vel_w_buffer_.front();
+  //   ros::Time t = vel_msg.header.stamp;
+  //   if (t < initial_time) {
+  //     ROS_WARN("Velocity message at time %f is before the initial time %f, ignoring", t.toSec(), initial_time.toSec());
+  //     vel_w_buffer_.pop_front(); // Remove this message
+  //     continue; // Skip this message
+  //   } else if (t > final_time) {
+  //     break; // Stop integrating if we exceed the final time
+  //   } else {
+  //     if (!initialized) {
+  //       last_vel_time = t;
+  //       initialized = true;
+  //       vel_w_buffer_.pop_front(); // Skip the first one (no dt)
+  //       continue;
+  //     }
+  //     double dt = (t - last_vel_time).toSec();
+  //     if (dt <= 0.0) {
+  //       ROS_WARN("Non-positive dt (%f), skipping velocity message", dt);
+  //       vel_w_buffer_.pop_front();
+  //       continue;
+  //     }
+  //     gtsam::Vector3 v_enu(vel_msg.twist.twist.linear.x, vel_msg.twist.twist.linear.y, vel_msg.twist.twist.linear.z);
+  //     // Get the delta position in the ENU frame
+  //     gtsam::Point3 delta_pos = gtsam::Point3(v_enu.x() * dt, v_enu.y() * dt, v_enu.z() * dt);
+  //     // Convert the current R_ned_ from R_wb_zd to R_wb_zu
+  //     //gtsam::Rot3 R_zd_to_zu((gtsam::Matrix3() << 1, 0, 0, 0, 1, 0, 0, 0, -1).finished());
+  //     //gtsam::Rot3 R_wb_zu = R_ned_ * R_zd_to_zu.inverse(); // Convert the rotation from NED to ENU
+  //     // Get a rotation matrix representing the orientation of the velocity vector in the world frame
+  //     // gtsam::Vector3 forward = gtsam::Vector3(v_enu.x(), v_enu.y(), v_enu.z()).normalized(); // Normalize the velocity vector
+  //     // double az = std::atan2(forward.y(), forward.x()); // Azimuth angle in radians
+  //     // double el = std::atan2(forward.z(), std::sqrt(forward.x() * forward.x() + forward.y() * forward.y())); // Elevation angle in radians
+  //     // gtsam::Rot3 R_yaw = gtsam::Rot3::Rz(az); // Rotation around Z axis (yaw)
+  //     // gtsam::Rot3 R_pitch = gtsam::Rot3::Ry(el); // Rotation around Y axis (pitch)
+  //     // gtsam::Rot3 R_vel_w = R_yaw * R_pitch; // Combined rotation for the velocity vector
+  //     // Get the current orientation in the world frame
+  //     //gtsam::Rot3 R_ned_to_enu((gtsam::Matrix3() << 0, 1, 0, 1, 0, 0, 0, 0, -1).finished());
+  //     // Convert the current orientation from NED to ENU
+  //     //gtsam::Rot3 R_enu_w = R_ned_to_enu * R_ned_;
+  //     // Rotate the velocity vector
+  //     // Compute the orientation of the
+  //     // Create the rotation matrix from the
+  //     //gtsam::Rot3 R_vel_w = gtsam::Rot3(x_positive_enu, y_positive, forward); // Rotation from ENU to velocity frame
+  //     // Add the delta position to the total translation
+  //     gtsam::Point3 tj_w = Tj_w.translation() + delta_pos; // Accumulate the translation
+  //     gtsam::Pose3 current_nav_state = last_nav_report_.second; // Get the last reported state
+  //     tj_w.z() = current_nav_state.translation().z(); // Reset the depth to the last reported:
+  //     Tj_w = gtsam::Pose3(R_enu_, tj_w); // Update the pose in world frame
+  //     gtsam::Matrix3 vel_covariance = gtsam::Matrix3::Zero();
+  //     // Upack the upper left 3x3 of the msg.twist.covariance into the vel_covariance matrix
+  //     for (size_t i = 0; i < 3; ++i) {
+  //       for (size_t j = 0; j < 3; ++j) {
+  //         vel_covariance(i, j) = vel_msg.twist.covariance[i * 6 + j]; // Copy the covariance from the message
+  //       }
+  //     }
+  //     gtsam::Matrix3 deltaTransCovij_enu = vel_covariance * dt * dt;
+  //     gtsam::Matrix3 deltaRotCovij = 4 * gyro_noise_ * dt * dt; // Covariance of the rotation in ENU frame
+  //     // Update the covariance of the pose rotation
+  //     SigmaTj_w.block<3, 3>(0, 0) += deltaRotCovij; // Covariance of the rotation
+  //     SigmaTj_w.block<3, 3>(0, 3) += gtsam::Matrix3::Zero(); // Cross-covariance of translation and rotation
+  //     SigmaTj_w.block<3, 3>(3, 0) += gtsam::Matrix3::Zero(); // Cross-covariance of translation and rotation
+  //     SigmaTj_w.block<3, 3>(3, 3) += deltaTransCovij_enu; // Covariance of the translation
+  //     // Ensure the covariance is positive semi-definite
+  //     // Get the covariance of the translation
+  //     // Update the deltaTij
+  //     deltaTimeij += dt; // Accumulate the time difference
+  //     last_vel_time = t;
+  //     vel_w_buffer_.pop_front(); // Remove the processed velocity message
+  //   }
+  // }
   // Convert R_ned_ to orienttaion in the world frame
   // gtsam::Rot3 R_ned_to_enu((gtsam::Matrix3() << 0, 1, 0, 1, 0, 0, 0, 0, -1).finished());
   // gtsam::Rot3 R_wb_zu = R_ned_ * R_ned_to_enu.inverse();
 
-  geometry_msgs::PoseWithCovarianceStamped dr_msg;
-  dr_msg.header.stamp = final_time;
-  dr_msg.header.frame_id = "world_enu"; // Use the same frame
-  dr_msg.pose.pose.position.x = Tj_w.x();
-  dr_msg.pose.pose.position.y = Tj_w.y();
-  dr_msg.pose.pose.position.z = Tj_w.z();
-  // Get the quaternion orientation from the NavState
-  gtsam::Quaternion q = Ti_w.rotation().toQuaternion();
-  dr_msg.pose.pose.orientation.w = q.w();
-  dr_msg.pose.pose.orientation.x = q.x();
-  dr_msg.pose.pose.orientation.y = q.y();
-  dr_msg.pose.pose.orientation.z = q.z();
-  // Fill the covariance
-  for (int i = 0; i < 6; ++i) {
-    for (int j = 0; j < 6; ++j) {
-      int src_i = (i < 3) ? i + 3 : i - 3;  // Swap translation (i<3) and rotation (i>=3)
-      int src_j = (j < 3) ? j + 3 : j - 3;
-      dr_msg.pose.covariance[i * 6 + j] = SigmaTj_w(src_i, src_j);
+    geometry_msgs::PoseWithCovarianceStamped dr_msg;
+    dr_msg.header.stamp = final_time;
+    dr_msg.header.frame_id = "world_enu"; // Use the same frame
+    dr_msg.pose.pose.position.x = Tj_w.x();
+    dr_msg.pose.pose.position.y = Tj_w.y();
+    dr_msg.pose.pose.position.z = Tj_w.z();
+    // Get the quaternion orientation from the NavState
+    gtsam::Quaternion q = Tj_w.rotation().toQuaternion();
+    dr_msg.pose.pose.orientation.w = q.w();
+    dr_msg.pose.pose.orientation.x = q.x();
+    dr_msg.pose.pose.orientation.y = q.y();
+    dr_msg.pose.pose.orientation.z = q.z();
+    // Fill the covariance
+    for (int i = 0; i < 6; ++i) {
+      for (int j = 0; j < 6; ++j) {
+        int src_i = (i < 3) ? i + 3 : i - 3;  // Swap translation (i<3) and rotation (i>=3)
+        int src_j = (j < 3) ? j + 3 : j - 3;
+        dr_msg.pose.covariance[i * 6 + j] = SigmaTj_w(src_i, src_j);
+      }
     }
-  }
-  // Publish the dead reckoned pose
-  dr_state_pub_.publish(dr_msg);
-  // Update DR state and covariance
-  dr_state_and_cov_ = std::make_tuple(final_time, Tj_w, SigmaTj_w);
-  dead_reckon_map_[final_time] = Tj_w;
-  return std::make_pair(Tj_w, SigmaTj_w);
+    // Publish the dead reckoned pose
+    dr_state_pub_.publish(dr_msg);
+    // Update DR state and covariance
+    dr_state_and_cov_ = std::make_tuple(final_time, Tj_w, SigmaTj_w);
+    dead_reckon_map_[final_time] = Tj_w;
+    return std::make_pair(Tj_w, SigmaTj_w);
 }
 
 // handlePreintegrate
@@ -805,7 +831,8 @@ bool ImuPreintegratorNode::handlePreintegrate(
   gtsam::Pose3 Ti_w = std::get<1>(dr_state_and_cov_); // Get the initial pose in world frame
   gtsam::Matrix6 SigmaTi_w = std::get<2>(dr_state_and_cov_); // Get the initial covariance in world frame
   // Call deadReckonFrom
-  auto dr_result = deadReckonFromPreintegrate(req.initial_time, req.final_time, Ti_w, SigmaTi_w);
+  auto dr_result = deadReckonFromPreintegrate(req.initial_time, req.final_time, Ti_w, SigmaTi_w,
+                                              Tij_body, SigmaTij_body);
   gtsam::Pose3 dr_pose = dr_result.first;
   gtsam::Matrix6 dr_cov = dr_result.second;
   // Get the euler angle orientation in degrees
