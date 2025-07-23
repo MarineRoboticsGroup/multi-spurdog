@@ -74,8 +74,11 @@
             <param name="sound_speed" value="1500" />
             <param name="sigma_range" value="1" />
             <param name="ping_timeout" value="4" />
+            <param name="cycle_mode" value="both" />
             <param name="send_data" value="true" />
+            <param name="message_mode" value="advanced" /> <!-- Can be "basic" or "advanced" -->
         </node>
+
         <node name="odometry" pkg="spurdog_acomms" type="odometry" output="log">
             <!-- <param name="gyro_noise_sigma" value="0.001"/>
             <param name="gyro_bias_rw_sigma" value="0.01"/> -->

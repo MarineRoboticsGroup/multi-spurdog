@@ -54,14 +54,13 @@ class CycleManager:
         full_ns = rospy.get_namespace()           # e.g., "/actor_0/comms_lbl/"
         rospy.loginfo("[%s] Full Namespace as %s"%(rospy.Time.now(), full_ns))
         # Config:
-        self.local_address = int(rospy.get_param(full_ns + "modem_address", 1))
+        self.local_address = int(rospy.get_param(full_ns + "modem_address", 0))
         self.num_agents = int(rospy.get_param(full_ns + "num_agents", 2))
         self.num_landmarks = int(rospy.get_param(full_ns + "num_landmarks", 2))
         self.landmarks = {
             "L0": rospy.get_param(full_ns + "landmarks/L0"),
             "L1": rospy.get_param(full_ns + "landmarks/L1")
         }
-        self.message_mode = "advanced"  # Can be "basic" or "advanced"
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
@@ -73,10 +72,12 @@ class CycleManager:
         self.gps_fix = [[1,2,3],[0,0,0,1],[1.7,1.7,3.5,0.1,0.1,0.1]] # [position, orientation, covariance]
         # Variables for acomms:
         self.ping_method = "ping with payload"
-        self.ping_timeout = float(rospy.get_param("~ping_timeout", 5))
-        self.sound_speed = float(rospy.get_param("~sound_speed", 1486))
-        self.range_sigma = float(rospy.get_param("~sigma_range", 1)) # meters, this is the expected error in the range measurement
+        self.cycle_mode = rospy.get_param("~cycle_mode", "both")  # Can be "normal" or "aggressive"
         self.send_data = rospy.get_param("~send_data", False)  # Whether to send data or not
+        self.message_mode = rospy.get_param("~message_mode", "basic")  # Can be "basic" or "advanced"
+        self.ping_timeout = float(rospy.get_param("~ping_timeout", 4))
+        self.sound_speed = float(rospy.get_param("~sound_speed", 1500))
+        self.range_sigma = float(rospy.get_param("~sigma_range", 1)) # meters, this is the expected error in the range measurement
         self.tdma_status = TdmaStatus()
         self.active_slot_seq = 0
         # Variables for Logging:
@@ -145,7 +146,17 @@ class CycleManager:
         self.address_to_name = {v[0]: k for k, v in self.modem_addresses.items()}
         rospy.loginfo("[%s] Address to name: %s" % (rospy.Time.now(), self.address_to_name))
         # make a list of modem addresses that don't include the local address (the int address, not the name)
-        ping_addresses = [value[0] for value in self.modem_addresses.values() if value[0] != self.local_address]
+        if self.cycle_mode == "both":
+            ping_addresses = [value[0] for value in self.modem_addresses.values() if value[0] != self.local_address]
+        elif self.cycle_mode == "agents":
+            # Only ping the agents, not the landmarks
+            ping_addresses = [value[0] for value in self.modem_addresses.values() if value[0] < self.num_agents-1 and value[0] != self.local_address]
+        elif self.cycle_mode == "landmarks":
+            # Only ping the landmarks, not the agents
+            ping_addresses = [value[0] for value in self.modem_addresses.values() if value[0] >= self.num_agents and value[0] != self.local_address]
+        else:
+            rospy.logerr("[%s] Invalid cycle mode: %s" % (rospy.Time.now(), self.cycle_mode))
+            return
         # Configure a list of cycle targets to ping (the modem addresses that don't include the local address)
         self.cycle_target_mapping = {
             "0": ping_addresses,
