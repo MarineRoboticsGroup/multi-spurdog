@@ -46,7 +46,7 @@
                     CST: 1
                     FC0: 25000
                     BW0: 5000
-                    SRC: 0
+                    SRC: 0 <!-- Source address -->
                     XST: 1
                     TAT: 50
                     pwramp.txlevel: 0
