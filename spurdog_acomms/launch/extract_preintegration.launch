@@ -8,11 +8,11 @@
 
 <launch>
     <!-- Args that we would change at agent-to-agent level-->
-    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
-    <arg name="source_addr" default="0" doc="int"/>
-    <arg name="num_agents" default="1" />
+    <arg name="agent_name" default="actor_1" doc="format: actor_0 or beacon_0"/>
+    <arg name="source_addr" default="1" doc="int"/>
+    <arg name="num_agents" default="2" />
     <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/>
-    <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/>
+    <arg name="active_slots" default="1" doc="comma-separated list of active TDMA slots"/>
 
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
@@ -29,7 +29,7 @@
         <!-- <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" /> -->
         <!-- <param name="num_slots" value="$(eval 2 * num_agents)" /> -->
         <param name="sigma_range" value="1" />
-        <param name="sound_speed" value="1486" />
+        <param name="sound_speed" value="1500" />
 
         <!-- Modem group -->
         <!-- <group ns="modem">
@@ -78,7 +78,7 @@
         <!-- <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="log" /> -->
         <!-- Log to rosbag -->
         <node name="rosbag" pkg="rosbag" type="record"
-            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /home/morrisjp/bags/June/27June/$(arg agent_name)_recovered_.bag'
+            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /home/morrisjp/bags/July/13July/$(arg agent_name)_recovered_.bag'
             output="screen" />
     </group>
 </launch>

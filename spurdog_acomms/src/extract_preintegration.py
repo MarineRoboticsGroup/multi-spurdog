@@ -42,8 +42,8 @@ class CycleManager:
     """
     def __init__(self):
         rospy.init_node('comms_cycle_manager', anonymous=True)
-        self.local_address = 0
-        self.num_agents = 1
+        self.local_address = rospy.get_param("modem_address", 0)  # Local address of the vehicle, default is 0
+        self.num_agents = rospy.get_param("num_agents", 1)
         self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
         self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]} # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
         self.sound_speed = float(rospy.get_param("sound_speed", 1486))
@@ -99,8 +99,9 @@ class CycleManager:
         self.pose_factor_sub = rospy.Subscriber("pose_factor", PoseFactorStamped, self.on_pose_factor, queue_size=1)
         self.range_factor_sub = rospy.Subscriber("range_factor", RangeFactorStamped, self.on_range_factor, queue_size=1)
         # Initialize the factor publishers
-        self.range_factor_pub = rospy.Publisher("range_factor_recovered", RangeFactorStamped, queue_size=1)
+        #self.range_factor_pub = rospy.Publisher("range_factor_recovered", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor_recovered", PoseFactorStamped, queue_size=1)
+        #self.integrated_state_pub = rospy.Publisher("integrated_state_recovered", PoseWithCovarianceStamped, queue_size=1)
         #self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
@@ -137,7 +138,15 @@ class CycleManager:
         """
         # Extract the timestamp, then call prientegration using this timestamp
         tj = msg.header.stamp
-        self.request_preintegration(tj, adv_pose=True)
+        # Check the pose factor key1 and key2, if they are for the local address, then we can proceed
+        local_chr = chr(ord("A") + self.local_address)
+        key1_chr = msg.key1[0]  # The first character is the local address
+        key1_index = int(msg.key1[1:])  # The rest is the index
+        if key1_chr != local_chr:
+            rospy.logwarn(f"Pose factor key1 {msg.key1} does not match local address {local_chr}, skipping")
+            return
+        else:
+            self.request_preintegration(tj, adv_pose=True)
         return
 
     def on_range_factor(self, msg: RangeFactorStamped):
@@ -151,7 +160,7 @@ class CycleManager:
         key1_rekeyed = local_chr + str(key1_index + 1)  # Re-key the range factor key1
         # Update the key1 in the message
         msg.key1 = key1_rekeyed
-        self.range_factor_pub.publish(msg)
+        #self.range_factor_pub.publish(msg)
         return
 
     # Sensor data handling
