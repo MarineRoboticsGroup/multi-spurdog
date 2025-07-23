@@ -6,7 +6,7 @@ import numpy as np
 # from datetime import datetime
 # import scipy.spatial.transform as spt
 from std_msgs.msg import Header, String, Time, Float32, Bool
-from geometry_msgs.msg import Point, Quaternion, Pose, PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import Point, Quaternion, Pose, PoseStamped, PoseWithCovariance, PoseWithCovarianceStamped
 from ros_acomms_msgs.msg import(
     TdmaStatus, QueueStatus, PingReply, CST, XST, ReceivedPacket
 )
@@ -303,10 +303,10 @@ class CycleManager:
             pass
         return
 
-    def on_graph_update(self, msg: BasicGraphUpdate):
+    def on_graph_update(self, msg):
         """This function receives test data from the modem
         Args:
-            msg (TestData): The test data message
+            msg (BasicGraphUpdate or AdvancedGraphUpdate): The graph update message
         """
         rospy.logwarn("[%s] Processing Graph Update from %s" % (rospy.Time.now(), self.address_to_name[msg.sender_address]))
         self.acomms_event_pub.publish("priority=2,pattern=([0.0.0.255]:0.5)([100.0.150.50]:2.0),cycles=1")
@@ -648,11 +648,13 @@ class CycleManager:
                 stamp=rospy.Time.now(),
                 frame_id="modem"
             ),
-            pose=Pose(
-                position=Point(x=0.0, y=0.0, z=0.0),
-                orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-            ),
-            covariance=[0.0] * 36  # Placeholder covariance
+            pose=PoseWithCovariance(
+                pose=Pose(
+                    position=Point(x=0.0, y=0.0, z=0.0),
+                    orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+                ),
+                covariance=[0.0] * 36  # Placeholder covariance
+            )
         )
         # Add Pose Prior to the graph update message
         self.add_prior_to_graph_update(prior_pose)
