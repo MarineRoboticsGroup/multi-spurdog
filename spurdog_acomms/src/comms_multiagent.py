@@ -61,7 +61,7 @@ class CycleManager:
             "L0": rospy.get_param(full_ns + "landmarks/L0"),
             "L1": rospy.get_param(full_ns + "landmarks/L1")
         }
-        self.message_mode = "basic"
+        self.message_mode = "advanced"  # Can be "basic" or "advanced"
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
