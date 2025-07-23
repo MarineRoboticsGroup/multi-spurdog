@@ -96,7 +96,7 @@ from estimator_helpers import (
     get_theta_from_rotation_matrix,
     get_translation_from_transformation_matrix,
     get_measurement_precisions_from_covariance_matrix,
-    get_diag_relpose_covar
+    get_diag_relpose_covar,
 )
 
 from typing import Union, List
@@ -256,9 +256,9 @@ def solve_with_levenberg_marquardt(
     try:
         optimizer = LevenbergMarquardtOptimizer(graph, initial_vals)
     except RuntimeError as e:
-        logger.error(f"Failed to create LevenbergMarquardtOptimizer: {e}")
-        print("Graph keys:", graph.keyVector())
-        print("Initial values keys:", initial_vals.keys())
+        logger.error(f"Failed to run LevenbergMarquardtOptimizer: {e}")
+        logger.error(f"Graph keys: {graph.keyVector()}")
+        logger.error(f"Initial values: {initial_vals.keys()}")
         raise e
 
     params = LevenbergMarquardtParams()
@@ -383,13 +383,42 @@ class GtsamEstimator(Estimator):
     def add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
         # the indices of the related poses in the odometry measurement
         i_symbol = get_symbol_from_name(odom_measurement.key1)
-        j_symbol = get_symbol_from_name(odom_measurement.key1)
+        j_symbol = get_symbol_from_name(odom_measurement.key2)
 
         # add the factor to the factor graph
         odom_factor = get_pose_to_pose_factor(
             odom_measurement, i_symbol, j_symbol, self.odom_factor_type
         )
         self.factor_graph.push_back(odom_factor)
+
+    def initialize_pose(self, pose: Union[Pose2D, Pose3D]) -> None:
+        """
+        Initialize the pose of a key in the estimator.
+
+        Args:
+            key: The key for which to initialize the pose.
+            pose: The initial pose to set for the key.
+        """
+        sym = get_symbol_from_name(pose.key)
+        if isinstance(pose, Pose2D):
+            pose_init = get_pose2_from_matrix(pose.transformation_matrix)
+        elif isinstance(pose, Pose3D):
+            pose_init = get_pose3_from_matrix(pose.transformation_matrix)
+        else:
+            raise ValueError(f"Unknown pose type: {type(pose)}")
+
+        self.initial_values.insert(sym, pose_init)
+
+    def initialize_point(self, point: Union[Point2D, Point3D]) -> None:
+        """
+        Initialize the point of a key in the estimator.
+
+        Args:
+            key: The key for which to initialize the point.
+            point: The initial point to set for the key.
+        """
+        sym = get_symbol_from_name(point.key)
+        self.initial_values.insert(sym, np.array(point.position))
 
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:
         """We will add a poor man's depth measurement by placing a prior
@@ -436,7 +465,30 @@ class GtsamEstimator(Estimator):
         Returns:
             The pose corresponding to the given key.
         """
-        raise NotImplementedError("GTSAM get_pose not implemented.")
+        pose_symbol = get_symbol_from_name(key)
+        if self.dimension == 2:
+            pose_result2d = self.gtsam_result.atPose2(pose_symbol)  # type:ignore
+            pose2d = Pose2D(
+                key=key,
+                position=(pose_result2d.x(), pose_result2d.y()),
+                orientation=get_theta_from_rotation_matrix(
+                    pose_result2d.rotation().matrix()
+                ),
+            )
+            return pose2d
+        elif self.dimension == 3:
+            pose_result3d = self.gtsam_result.atPose3(pose_symbol)  # type:ignore
+            pose3d = Pose3D(
+                key=key,
+                position=tuple(pose_result3d.translation()),
+                orientation=tuple(
+                    get_quat_from_rotation_matrix(pose_result3d.rotation().matrix())
+                ),
+            )
+            return pose3d
+        else:
+            raise ValueError(f"Unknown dimension: {self.dimension}")
+
 
     def get_point(self, key: Key) -> Union[Point2D, Point3D]:
         """
@@ -455,6 +507,7 @@ class GtsamEstimator(Estimator):
             self.factor_graph, self.initial_values, return_all_iterates=False
         )
 
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     logger.info("GTSAM Estimator module loaded successfully.")
@@ -468,24 +521,42 @@ if __name__ == "__main__":
 
     # Try to add two odometry measurements, representing going in a straight line
     poses = ["P0", "P1", "P2"]
-    covar = get_diag_relpose_covar(np.array([0.5]*6))
-    assert isinstance(covar, RelPoseCovar6), "Covariance must be a RelPoseCovar6 instance"
+    covar = get_diag_relpose_covar(np.array([0.5] * 6))
+    assert isinstance(
+        covar, RelPoseCovar6
+    ), "Covariance must be a RelPoseCovar6 instance"
 
     odom_measurement_1 = OdometryMeasurement3D(
         key_pair=KeyPair(poses[0], poses[1]),
         relative_translation=(1.0, 0.0, 0.0),  # Move 1 meter in the x direction
-        relative_rotation=tuple(get_quat_from_rotation_matrix(np.eye(3))),  # No rotation
-        covariance=covar
+        relative_rotation=tuple(
+            get_quat_from_rotation_matrix(np.eye(3))
+        ),  # No rotation
+        covariance=covar,
     )
     estimator.add_odometry(odom_measurement_1)
+    estimator.initialize_pose(
+        Pose3D(key=poses[0], position=(0.0, 0.0, 0.0), orientation=(0.0, 0.0, 0.0, 1.0))
+    )
+    random_quat = np.random.rand(4)
+    random_quat /= np.linalg.norm(random_quat)  # Normalize to get a valid
+    estimator.initialize_pose(
+        # Pose3D(key=poses[1], position=(0.0, 0.0, 0.0), orientation=(tuple(random_quat.astype(float))))
+        Pose3D(key=poses[1], position=(0.5, 0.0, 0.0), orientation=(0.0, 0.0, 0.0, 1.0))
+    )
 
     odom_measurement_2 = OdometryMeasurement3D(
         key_pair=KeyPair(poses[1], poses[2]),
         relative_translation=(1.0, 0.0, 0.0),
-        relative_rotation=tuple(get_quat_from_rotation_matrix(np.eye(3))),  # No rotation
-        covariance=covar
+        relative_rotation=tuple(
+            get_quat_from_rotation_matrix(np.eye(3))
+        ),  # No rotation
+        covariance=covar,
     )
     estimator.add_odometry(odom_measurement_2)
+    estimator.initialize_pose(
+        Pose3D(key=poses[2], position=(1.0, 0.0, 0.0), orientation=(0.0, 0.0, 0.0, 1.0))
+    )
 
     logger.info("Added two odometry measurements to the GTSAM estimator.")
 
@@ -497,4 +568,3 @@ if __name__ == "__main__":
         pose = estimator.get_pose(key)
         pose_estimates.append(pose)
         logger.info(f"Pose for {key}: {pose}")
-
