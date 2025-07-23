@@ -57,11 +57,11 @@
 
         <!-- Launch communication and graph managers-->
         <node name="comms_lbl" pkg="spurdog_acomms" type="comms_lbl.py" output="screen">
-            <param name="sound_speed" value="1504" />
+            <param name="sound_speed" value="1500" />
             <param name="sigma_range" value="1" />
             <param name="ping_timeout" value="4" />
         </node>
-        <node name="gyro_preintegrator" pkg="spurdog_acomms" type="gyro_preintegrator" output="screen">
+        <node name="odometry" pkg="spurdog_acomms" type="odometry" output="screen">
             <!-- <param name="gyro_noise_sigma" value="0.001"/> -->
             <!-- <param name="gyro_bias_rw_sigma" value="0.01"/>
             <param name="gyro_bias_x" value="-0.000223"/>

@@ -14,7 +14,7 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 from spurdog_acomms.msg import(
-    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, AcommsCycleStatus
+    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped, AcommsCycleStatus, ReceivedSignalStats
 )
 from spurdog_acomms.srv import(
     PreintegrateImu, PreintegrateImuResponse
@@ -29,8 +29,6 @@ from spurdog_acomms_utils.nmea_utils import (
     parse_nmea_cacma,
     parse_nmea_cacmr,
     parse_nmea_carfp,
-    parse_nmea_cacst,
-    parse_nmea_caxst,
     parse_nmea_carev,
     parse_nmea_catxf
 )
@@ -104,7 +102,7 @@ class CycleManager:
         self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         self.pose_factor_pub = rospy.Publisher("pose_factor", PoseFactorStamped, queue_size=1)
         self.cycle_status_pub = rospy.Publisher("comms_cycle_status", AcommsCycleStatus, queue_size=1)
-
+        self.recieved_signal_stats_pub = rospy.Publisher("received_signal_stats", ReceivedSignalStats, queue_size=1)
         # Initialize the modem addresses and cycle targets
         rospy.loginfo("[%s] Topics ready, initializing comms cycle" % rospy.Time.now())
         self.configure_comms_cycle()
@@ -193,12 +191,12 @@ class CycleManager:
 
         elif nmea_type == "$CAREV" and self.ping_method == None: # Modem-to-host $CAREV message to determine the firmware version
             firmware_version = parse_nmea_carev(data)
-            if firmware_version[0] == "3":
-                # New deckbox firmware
-                self.ping_method = "ping with payload"
-            else:
-                # Old deckbox firmware
-                self.ping_method = "no payload"
+            # if firmware_version[0] == "3":
+            #     # New deckbox firmware
+            #     self.ping_method = "ping with payload"
+            # else:
+            #     # Old deckbox firmware
+            #     self.ping_method = "no payload"
         elif nmea_type == "$CATXP": # Modem-to-host report of beginning transmission
             # This is a transmit report, we can ignore it for now
             #rospy.loginfo("[%s] Received $CATXP message: %s" % (rospy.Time.now(), data))
@@ -268,7 +266,8 @@ class CycleManager:
                 range_factor_msg.key2 = self.address_to_name[target_addr]
                 range_factor_msg.meas_range = measured_range
                 range_factor_msg.range_sigma = self.range_sigma
-                range_factor_msg.depth = self.depth
+                range_factor_msg.depth1 = self.depth
+                range_factor_msg.depth2 = -1.83
                 self.range_factor_pub.publish(range_factor_msg)
                 # Log all the fields
                 rospy.loginfo("[%s] Ping Complete %s to %s: timestamp=%s, owtt=%.4f, tat= %.4f, measured_range=%.2f" % (
@@ -278,10 +277,10 @@ class CycleManager:
                 self.request_preintegration(timestamp_ns, True) # Request a relative pose measurement (and advance the pose index)
                 # Publish a pose factor message
                 # Log the pose factor
-                pose_factor_msg = PoseFactorStamped()
-                pose_factor_msg.header.stamp = timestamp_ns
-                pose_factor_msg.header.frame_id = "modem"
-                self.pose_factor_pub.publish(pose_factor_msg)
+                # pose_factor_msg = PoseFactorStamped()
+                # pose_factor_msg.header.stamp = timestamp_ns
+                # pose_factor_msg.header.frame_id = "modem"
+                # self.pose_factor_pub.publish(pose_factor_msg)
                 # increment the pose index
                 local_chr = chr(ord("A") + self.local_address)
                 self.modem_addresses[local_chr][1] += 1
@@ -334,15 +333,15 @@ class CycleManager:
                 covariance = np.array(x_ij.pose.covariance).reshape((6, 6))
                 sigmas = np.sqrt(np.diag(covariance))
                 # Store the pose ing the preintegration data
-                self.preintegration_data.append({
-                    "ti": ti,
-                    "tj": tj,
-                    "key1": key1,
-                    "key2": key2,
-                    "position": position,
-                    "orientation": orientation,
-                    "sigmas": sigmas
-                })
+                # self.preintegration_data.append({
+                #     "ti": ti,
+                #     "tj": tj,
+                #     "key1": key1,
+                #     "key2": key2,
+                #     "position": position,
+                #     "orientation": orientation,
+                #     "sigmas": sigmas
+                # })
             else:
                 # This allows for calling preintegration to clear the queue without advancing the pose
                 pass
@@ -451,7 +450,7 @@ class CycleManager:
         src = msg.src
         dest = msg.dest
         # Append to range data
-        self.range_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
+        #self.range_data.append([xst_time, None, None, src, dest, None, None, None, None, None, None])
         return
 
     def on_range_log(self, msg: PingReply):
@@ -467,8 +466,8 @@ class CycleManager:
         owtt = msg.owtt
         measured_range = owtt * self.sound_speed if owtt is not None else None
         #tat = msg.tat
-        snr_in = msg.snr_in
-        snr_out = msg.snr_out
+        #snr_in = msg.snr_in
+        #snr_out = msg.snr_out
         # tx_level = msg.tx_level
         # mfd_peak = msg.cst.mfd_peak
         # mfd_pow = msg.cst.mfd_pow
@@ -486,14 +485,16 @@ class CycleManager:
         # num_frames = msg.cst.num_frames
         # bad_frames = msg.cst.bad_frames_num
         # snr_rss = msg.cst.snr_rss
-        stddev_noise = msg.cst.noise
+        #stddev_noise = msg.cst.noise
         # mse_error = msg.cst.mse
         # dqf = msg.cst.dqf
-        dop = msg.cst.dop
+        #dop = msg.cst.dop
         # Update the cycle status
         self.cycle_status["pings_successful"] += 1
-        self.cycle_status["last_range_interval"] = rospy.Duration(rospy.Time(range_timestamp).from_sec() - self.cycle_status["last_range_timestamp"])
-        self.cycle_status["last_range_timestamp"] = range_timestamp
+        self.cycle_status["last_range_interval"] = rospy.Duration.from_sec(
+            range_timestamp - self.cycle_status["last_range_timestamp"].to_sec()
+        )
+        self.cycle_status["last_range_timestamp"] = rospy.Time.from_sec(range_timestamp)
         self.cycle_status["last_range_target"] = dest
         self.cycle_status["last_range_distance"] = np.round(measured_range,4)
         if measured_range > self.cycle_status["max_range"]:
@@ -503,135 +504,166 @@ class CycleManager:
         else:
             pass
         # Add it to the existing XST-based data
-        for entry in self.range_data:
-            # If the entry has been filled, ignore
-            if entry[1] is not None:
-                continue
-            # If the entry matches the src and dest, fill it
-            elif entry[3] == src and entry[4] == dest:
-                entry[1] = range_timestamp
-                entry[2] = message_timestamp
-                entry[5] = owtt
-                entry[6] = measured_range
-                entry[7] = dop
-                entry[8] = stddev_noise
-                entry[9] = snr_in
-                entry[10] = snr_out
-            else:
-                # Make a new entry if no match is found
-                self.range_data.append([
-                    None,  # xst_timestamp
-                    range_timestamp,  # range_timestamp
-                    message_timestamp,  # cst_timestamp
-                    src,  # src
-                    dest,  # dest
-                    owtt,  # owtt
-                    measured_range,  # measured_range
-                    dop,  # dop(m/s)
-                    stddev_noise,  # stddev_noise
-                    snr_in,  # snr_in
-                    snr_out  # snr_out
-                ])
-        return
-
-    def summarize_range_data(self):
-        """This function summarizes the range data collected upon node shutdown"""
-        rospy.loginfo("[%s] Range Data Summary:" % rospy.Time.now())
-
-        # Report the number of completed ranges to each dest
-        range_summary = {}
-        for entry in self.range_data:
-            xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = entry
-            if dest not in range_summary:
-                range_summary[dest] = []
-            range_summary[dest].append(
-                (xst_timestamp, range_timestamp, cst_timestamp, measured_range, owtt, dop, stddev_noise, snr_in, snr_out)
-            )
-        for dest in range_summary.keys():
-            # if there are no ranges to this dest, skip it
-            if not range_summary[dest]:
-                rospy.loginfo("[%s] No ranges to %s" % (rospy.Time.now(), chr(ord("A") + dest)))
-            else:
-                #Check if there is an entry that includes a measured_range
-                has_measured_range = any(r[3] is not None for r in range_summary[dest])
-                if not has_measured_range:
-                    rospy.loginfo("[%s] Ranges to %s: 0 / %d valid" % (rospy.Time.now(), chr(ord("A") + dest), len(range_summary[dest])))
-                else:
-                    # Extract valid entries (measured_range not None)
-                    valid_range_set = [r for r in range_summary[dest] if r[3] is not None]
-
-                    # Extract only the ranges and timestamps
-                    valid_ranges = [r[3] for r in valid_range_set]
-                    valid_timestamps = [r[1] for r in valid_range_set]
-
-                    # Compute statistics
-                    num_valid = len(valid_ranges)
-                    min_range = np.min(valid_ranges)
-                    max_range = np.max(valid_ranges)
-                    mean_range = np.mean(valid_ranges)
-                    std_range = np.std(valid_ranges)
-
-                    # Compute time delta (assumes timestamps are rospy.Time
-                    time_delta = rospy.Time.from_sec(max(valid_timestamps)) - rospy.Time.from_sec(min(valid_timestamps))
-
-                    # Log or return as needed
-                    print(f"Valid Ranges: {num_valid}")
-                    print(f"Min: {min_range}, Max: {max_range}, Mean: {mean_range}, Std Dev: {std_range}")
-                    print(f"Time Span: {time_delta} seconds")
-                    rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), chr(ord("A") + dest), num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
-        # # Report the average time, min, max and std dev of the difference between cell[2] - cell[0]
-        # if not self.range_data:
-        #     rospy.logwarn("[%s] No Range Data Collected" % rospy.Time.now())
-        #     return
-        # # Calculate the time differences
-        # time_diffs_xst_cst = []
-        # time_diffs_ri_rj = []
-        # for i in range(len(self.range_data)):
-        #     xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.range_data[i]
-        #     if xst_timestamp is not None and cst_timestamp is not None:
-        #         time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
-        #     if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
-        #         time_diffs_ri_rj.append(range_timestamp[i+1] - range_timestamp[i])
-        # # Calculate statistics
-        # if time_diffs_xst_cst:
-        #     avg_time_xst_cst = np.mean(time_diffs_xst_cst)
-        #     min_time_xst_cst = np.min(time_diffs_xst_cst)
-        #     max_time_xst_cst = np.max(time_diffs_xst_cst)
-        #     std_time_xst_cst = np.std(time_diffs_xst_cst)
-        #     rospy.loginfo("[%s] Average Time XST to CST: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
-        #         rospy.Time.now(), avg_time_xst_cst.to_sec(), min_time_xst_cst.to_sec(), max_time_xst_cst.to_sec(), std_time_xst_cst.to_sec()))
-        # else:
-        #     rospy.logwarn("[%s] No valid time differences between XST and CST" % rospy.Time.now())
-        # if time_diffs_ri_rj:
-        #     avg_time_ri_rj = np.mean(time_diffs_ri_rj)
-        #     min_time_ri_rj = np.min(time_diffs_ri_rj)
-        #     max_time_ri_rj = np.max(time_diffs_ri_rj)
-        #     std_time_ri_rj = np.std(time_diffs_ri_rj)
-        #     rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
-        #         rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
-        return
-
-    def log_ranges_to_csv(self):
-        """ Log the range data to a csv file"""
-        if not self.range_data:
-            rospy.logwarn("[%s] No Range Data" % rospy.Time.now())
-            return
+        # for entry in self.range_data:
+        #     # If the entry has been filled, ignore
+        #     if entry[1] is not None:
+        #         continue
+        #     # If the entry matches the src and dest, fill it
+        #     elif entry[3] == src and entry[4] == dest:
+        #         entry[1] = range_timestamp
+        #         entry[2] = message_timestamp
+        #         entry[5] = owtt
+        #         entry[6] = measured_range
+        #         entry[7] = dop
+        #         entry[8] = stddev_noise
+        #         entry[9] = snr_in
+        #         entry[10] = snr_out
+        #     else:
+        #         # Make a new entry if no match is found
+        #         self.range_data.append([
+        #             None,  # xst_timestamp
+        #             range_timestamp,  # range_timestamp
+        #             message_timestamp,  # cst_timestamp
+        #             src,  # src
+        #             dest,  # dest
+        #             owtt,  # owtt
+        #             measured_range,  # measured_range
+        #             dop,  # dop(m/s)
+        #             stddev_noise,  # stddev_noise
+        #             snr_in,  # snr_in
+        #             snr_out  # snr_out
+        #         ])
+        # Create a ReceivedSignalStats message
+        received_signal_stats = ReceivedSignalStats()
+        received_signal_stats.header.stamp = rospy.Time.now()
+        received_signal_stats.header.frame_id = "modem"
+        received_signal_stats.toa = rospy.Time.from_sec(range_timestamp)
+        received_signal_stats.src = msg.src
+        received_signal_stats.dest = msg.dest
+        received_signal_stats.signal_type = "range"
+        received_signal_stats.carrier = msg.cst.carrier
+        received_signal_stats.bandwidth = msg.cst.bandwidth
+        received_signal_stats.rate_num = msg.cst.rate_num
+        # Get packet type from CST
+        packet_types = ["error", "FSK", "FSK_mini", "PSK", "PSK_mini", "PSK_FDP"]
+        if msg.cst.packet_type == -1:
+            received_signal_stats.packet_type = "unknown"
         else:
-            range_timestamp = self.range_data[0][0]
-
-        # Create the csv file:
-        log_dir = "/ros/logs/"
-        #log_dir = "/home/morrisjp/bags/June"
-        range_file = join(log_dir, f"range_data_{range_timestamp}.csv")
-        with open(range_file, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            # Write header
-            writer.writerow(["xst_timestamp","range_timestamp", "cst_timestamp", "src", "dest", "owtt", "measured_range", "dop(m/s)", "stddev_noise", "snr_in", "snr_out"])
-            # Write data rows
-            for entry in self.range_data:
-                writer.writerow(entry)
-            rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(), range_file))
+            received_signal_stats.packet_type = packet_types[msg.cst.packet_type] if msg.cst.packet_type < len(packet_types) else "unknown"
+        received_signal_stats.mfd_peak = msg.cst.mfd_peak
+        received_signal_stats.mfd_pow = msg.cst.mfd_pow
+        received_signal_stats.mfd_ratio = msg.cst.mfd_ratio
+        received_signal_stats.mfd_spl = msg.cst.mfd_spl
+        received_signal_stats.snr_rss = msg.cst.snr_rss
+        received_signal_stats.snr_in = msg.cst.snr_in
+        received_signal_stats.snr_out = msg.cst.snr_out
+        received_signal_stats.mse = msg.cst.mse
+        received_signal_stats.dop = msg.cst.dop
+        received_signal_stats.noise = msg.cst.noise
+        received_signal_stats.tx_level = msg.tx_level
+        received_signal_stats.owtt = msg.owtt
+        received_signal_stats.tat = msg.tat
+        self.recieved_signal_stats_pub.publish(received_signal_stats)
         return
+
+    # def summarize_range_data(self):
+    #     """This function summarizes the range data collected upon node shutdown"""
+    #     rospy.loginfo("[%s] Range Data Summary:" % rospy.Time.now())
+
+    #     # Report the number of completed ranges to each dest
+    #     range_summary = {}
+    #     for entry in self.range_data:
+    #         xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = entry
+    #         if dest not in range_summary:
+    #             range_summary[dest] = []
+    #         range_summary[dest].append(
+    #             (xst_timestamp, range_timestamp, cst_timestamp, measured_range, owtt, dop, stddev_noise, snr_in, snr_out)
+    #         )
+    #     for dest in range_summary.keys():
+    #         # if there are no ranges to this dest, skip it
+    #         if not range_summary[dest]:
+    #             rospy.loginfo("[%s] No ranges to %s" % (rospy.Time.now(), chr(ord("A") + dest)))
+    #         else:
+    #             #Check if there is an entry that includes a measured_range
+    #             has_measured_range = any(r[3] is not None for r in range_summary[dest])
+    #             if not has_measured_range:
+    #                 rospy.loginfo("[%s] Ranges to %s: 0 / %d valid" % (rospy.Time.now(), chr(ord("A") + dest), len(range_summary[dest])))
+    #             else:
+    #                 # Extract valid entries (measured_range not None)
+    #                 valid_range_set = [r for r in range_summary[dest] if r[3] is not None]
+
+    #                 # Extract only the ranges and timestamps
+    #                 valid_ranges = [r[3] for r in valid_range_set]
+    #                 valid_timestamps = [r[1] for r in valid_range_set]
+
+    #                 # Compute statistics
+    #                 num_valid = len(valid_ranges)
+    #                 min_range = np.min(valid_ranges)
+    #                 max_range = np.max(valid_ranges)
+    #                 mean_range = np.mean(valid_ranges)
+    #                 std_range = np.std(valid_ranges)
+
+    #                 # Compute time delta (assumes timestamps are rospy.Time
+    #                 time_delta = rospy.Time.from_sec(max(valid_timestamps)) - rospy.Time.from_sec(min(valid_timestamps))
+
+    #                 # Log or return as needed
+    #                 print(f"Valid Ranges: {num_valid}")
+    #                 print(f"Min: {min_range}, Max: {max_range}, Mean: {mean_range}, Std Dev: {std_range}")
+    #                 print(f"Time Span: {time_delta} seconds")
+    #                 rospy.loginfo("[%s] Ranges to %s: %d / %d valid, From %.2f - %.2fm, Mean: %.2fm, dT: %.2fsec" % (rospy.Time.now(), chr(ord("A") + dest), num_valid, len(range_summary[dest]), min_range, max_range, mean_range, time_delta))
+    #     # # Report the average time, min, max and std dev of the difference between cell[2] - cell[0]
+    #     # if not self.range_data:
+    #     #     rospy.logwarn("[%s] No Range Data Collected" % rospy.Time.now())
+    #     #     return
+    #     # # Calculate the time differences
+    #     # time_diffs_xst_cst = []
+    #     # time_diffs_ri_rj = []
+    #     # for i in range(len(self.range_data)):
+    #     #     xst_timestamp, range_timestamp, cst_timestamp, src, dest, owtt, measured_range, dop, stddev_noise, snr_in, snr_out = self.range_data[i]
+    #     #     if xst_timestamp is not None and cst_timestamp is not None:
+    #     #         time_diffs_xst_cst.append(cst_timestamp - xst_timestamp)
+    #     #     if range_timestamp[i] is not None and range_timestamp[i+1] is not None:
+    #     #         time_diffs_ri_rj.append(range_timestamp[i+1] - range_timestamp[i])
+    #     # # Calculate statistics
+    #     # if time_diffs_xst_cst:
+    #     #     avg_time_xst_cst = np.mean(time_diffs_xst_cst)
+    #     #     min_time_xst_cst = np.min(time_diffs_xst_cst)
+    #     #     max_time_xst_cst = np.max(time_diffs_xst_cst)
+    #     #     std_time_xst_cst = np.std(time_diffs_xst_cst)
+    #     #     rospy.loginfo("[%s] Average Time XST to CST: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+    #     #         rospy.Time.now(), avg_time_xst_cst.to_sec(), min_time_xst_cst.to_sec(), max_time_xst_cst.to_sec(), std_time_xst_cst.to_sec()))
+    #     # else:
+    #     #     rospy.logwarn("[%s] No valid time differences between XST and CST" % rospy.Time.now())
+    #     # if time_diffs_ri_rj:
+    #     #     avg_time_ri_rj = np.mean(time_diffs_ri_rj)
+    #     #     min_time_ri_rj = np.min(time_diffs_ri_rj)
+    #     #     max_time_ri_rj = np.max(time_diffs_ri_rj)
+    #     #     std_time_ri_rj = np.std(time_diffs_ri_rj)
+    #     #     rospy.loginfo("[%s] Average Time between Ranges: %.2f sec, Min: %.2f sec, Max: %.2f sec, Std Dev: %.2f sec" % (
+    #     #         rospy.Time.now(), avg_time_ri_rj.to_sec(), min_time_ri_rj.to_sec(), max_time_ri_rj.to_sec(), std_time_ri_rj.to_sec()))
+    #     return
+
+    # def log_ranges_to_csv(self):
+    #     """ Log the range data to a csv file"""
+    #     if not self.range_data:
+    #         rospy.logwarn("[%s] No Range Data" % rospy.Time.now())
+    #         return
+    #     else:
+    #         range_timestamp = self.range_data[0][0]
+
+    #     # Create the csv file:
+    #     log_dir = "/ros/logs/"
+    #     #log_dir = "/home/morrisjp/bags/June"
+    #     range_file = join(log_dir, f"range_data_{range_timestamp}.csv")
+    #     with open(range_file, mode='w', newline='') as csvfile:
+    #         writer = csv.writer(csvfile)
+    #         # Write header
+    #         writer.writerow(["xst_timestamp","range_timestamp", "cst_timestamp", "src", "dest", "owtt", "measured_range", "dop(m/s)", "stddev_noise", "snr_in", "snr_out"])
+    #         # Write data rows
+    #         for entry in self.range_data:
+    #             writer.writerow(entry)
+    #         rospy.loginfo("[%s] Range Data Written to File at: %s" % (rospy.Time.now(), range_file))
+    #     return
 
     # def legacy_log_ranges_to_csv(self):
     #     """ Log ranges, cst and xst data to csv"""
@@ -673,45 +705,45 @@ class CycleManager:
     #         rospy.loginfo("[%s] CAXST Data Written to File at: %s" % (rospy.Time.now(),xst_file))
     #     return
 
-    def log_pim_to_csv(self):
-        """Log the preintegration data to a csv file"""
-        if not self.preintegration_data:
-            rospy.logwarn("[%s] No Preintegration Data" % rospy.Time.now())
-            return
-        else:
-            preintegration_file = join("/ros/logs/", f"preintegration_data_{rospy.Time.now()}.csv")
-            with open(preintegration_file, mode='w', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                # Write header
-                writer.writerow(["ti","tj","key1", "key2", "position_x", "position_y", "position_z", "q_x", "q_y", "q_z", "q_w", "sig_x", "sig_y", "sig_z, sig_r, sig_p, sig_y"])
-                # Write data rows
-                for entry in self.preintegration_data:
-                    # Check that there is data before attemptin to access the indices
-                    if "position" not in entry or "orientation" not in entry or "sigmas" not in entry:
-                        rospy.logwarn("[%s] Preintegration Data Entry Missing Fields: %s" % (rospy.Time.now(), entry))
-                        continue
-                    # Extract the position, orientation and sigmas
-                    if not isinstance(entry["position"], (list, np.ndarray)) or not isinstance(entry["orientation"], (list, np.ndarray)) or not isinstance(entry["sigmas"], (list, np.ndarray)):
-                        rospy.logwarn("[%s] Preintegration Data Entry Fields are not lists or arrays: %s" % (rospy.Time.now(), entry))
-                        continue
-                    if len(entry["position"]) != 3 or len(entry["orientation"]) != 4 or len(entry["sigmas"]) != 6:
-                        rospy.logwarn("[%s] Preintegration Data Entry Fields have incorrect lengths: %s" % (rospy.Time.now(), entry))
-                        continue
-                    # Write the data
-                    position = entry["position"]
-                    orientation = entry["orientation"]
-                    sigmas = entry["sigmas"]
-                    writer.writerow([
-                        entry["ti"].to_sec(),
-                        entry["tj"].to_sec(),
-                        entry["key1"],
-                        entry["key2"],
-                        position[0], position[1], position[2],
-                        orientation[0], orientation[1], orientation[2], orientation[3],
-                        sigmas[0], sigmas[1], sigmas[2], sigmas[3], sigmas[4], sigmas[5]
-                    ])
-            rospy.loginfo("[%s] Preintegration Data Written to File at: %s" % (rospy.Time.now(), preintegration_file))
-        return
+    # def log_pim_to_csv(self):
+    #     """Log the preintegration data to a csv file"""
+    #     if not self.preintegration_data:
+    #         rospy.logwarn("[%s] No Preintegration Data" % rospy.Time.now())
+    #         return
+    #     else:
+    #         preintegration_file = join("/ros/logs/", f"preintegration_data_{rospy.Time.now()}.csv")
+    #         with open(preintegration_file, mode='w', newline='') as csvfile:
+    #             writer = csv.writer(csvfile)
+    #             # Write header
+    #             writer.writerow(["ti","tj","key1", "key2", "position_x", "position_y", "position_z", "q_x", "q_y", "q_z", "q_w", "sig_x", "sig_y", "sig_z, sig_r, sig_p, sig_y"])
+    #             # Write data rows
+    #             for entry in self.preintegration_data:
+    #                 # Check that there is data before attemptin to access the indices
+    #                 if "position" not in entry or "orientation" not in entry or "sigmas" not in entry:
+    #                     rospy.logwarn("[%s] Preintegration Data Entry Missing Fields: %s" % (rospy.Time.now(), entry))
+    #                     continue
+    #                 # Extract the position, orientation and sigmas
+    #                 if not isinstance(entry["position"], (list, np.ndarray)) or not isinstance(entry["orientation"], (list, np.ndarray)) or not isinstance(entry["sigmas"], (list, np.ndarray)):
+    #                     rospy.logwarn("[%s] Preintegration Data Entry Fields are not lists or arrays: %s" % (rospy.Time.now(), entry))
+    #                     continue
+    #                 if len(entry["position"]) != 3 or len(entry["orientation"]) != 4 or len(entry["sigmas"]) != 6:
+    #                     rospy.logwarn("[%s] Preintegration Data Entry Fields have incorrect lengths: %s" % (rospy.Time.now(), entry))
+    #                     continue
+    #                 # Write the data
+    #                 position = entry["position"]
+    #                 orientation = entry["orientation"]
+    #                 sigmas = entry["sigmas"]
+    #                 writer.writerow([
+    #                     entry["ti"].to_sec(),
+    #                     entry["tj"].to_sec(),
+    #                     entry["key1"],
+    #                     entry["key2"],
+    #                     position[0], position[1], position[2],
+    #                     orientation[0], orientation[1], orientation[2], orientation[3],
+    #                     sigmas[0], sigmas[1], sigmas[2], sigmas[3], sigmas[4], sigmas[5]
+    #                 ])
+    #         rospy.loginfo("[%s] Preintegration Data Written to File at: %s" % (rospy.Time.now(), preintegration_file))
+    #     return
 
     def send_acomms_status(self, event):
         """This function sends the ACOMMS status to the modem"""
@@ -742,10 +774,6 @@ if __name__ == "__main__":
     except Exception as e:
         rospy.logerr("[%s] Comms Cycle Mgr Error: %s" % (rospy.Time.now(), e))
     finally:
-        # Summarize the range data collected
-        #cycle_mgr.summarize_range_data()
-        #cycle_mgr.log_ranges_to_csv()
-        #cycle_mgr.log_pim_to_csv()
         rospy.loginfo("[%s] Comms Cycle Mgr Exiting" % rospy.Time.now())
         rospy.signal_shutdown("Comms Cycle Mgr Exiting")
         exit(0)
