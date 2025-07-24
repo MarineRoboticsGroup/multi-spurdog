@@ -314,42 +314,47 @@ class CycleManager:
         sender_address = msg.sender_address
         initial_key_index = msg.first_key_index
         num_poses = msg.num_poses
+
         # Build a list of pose keys to publish:
         pose_keys = []
         for i in range(num_poses+1): #0,1,2,3,4
             key_index = initial_key_index + i
             pose_key = chr(ord("A") + sender_address) + str(key_index)
             pose_keys.append(pose_key)
+
+        # If we're using the advanced message mode, we need to decode the pose prior
+        if self.message_mode == "advanced":
+            prefix = f"pose_prior_0_"
+            x = getattr(msg, prefix + "x")
+            y = getattr(msg, prefix + "y")
+            z = getattr(msg, prefix + "z")
+            qw = getattr(msg, prefix + "qw")
+            qx = getattr(msg, prefix + "qx")
+            qy = getattr(msg, prefix + "qy")
+            qz = getattr(msg, prefix + "qz")
+            sigma_x = getattr(msg, prefix + "sigma_x")
+            sigma_y = getattr(msg, prefix + "sigma_y")
+            sigma_z = getattr(msg, prefix + "sigma_z")
+            sigma_psi = getattr(msg, prefix + "sigma_psi")
+            encoded_pose = [x, y, z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, 0, 0, 0]
+            prior = decode_pwc_from_int(encoded_pose, "prior")
+            # Create a PoseFactorStamped message
+            pose_factor_msg = PoseFactorStamped()
+            pose_factor_msg.header.stamp = rospy.Time.now()  # Use the current time for the header
+            pose_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
+            pose_factor_msg.key1 = pose_keys[0]
+            pose_factor_msg.key2 = pose_keys[0]
+            pose_factor_msg.pose = prior
+            self.pose_factor_pub.publish(pose_factor_msg)
+            rospy.loginfo("[%s] Published Prior Factor: %s" % (rospy.Time.now(), key1))
+        else:  # Basic message mode
+            pass
+
         # Now, iterate over the poses and publish them
         for i in range(num_poses): #0,1,2,3
             key1 = pose_keys[i]
             key2 = pose_keys[i+1]
-            if self.message_mode == "advanced":
-                prefix = f"pose_prior_0_"
-                x = getattr(msg, prefix + "x")
-                y = getattr(msg, prefix + "y")
-                z = getattr(msg, prefix + "z")
-                qw = getattr(msg, prefix + "qw")
-                qx = getattr(msg, prefix + "qx")
-                qy = getattr(msg, prefix + "qy")
-                qz = getattr(msg, prefix + "qz")
-                sigma_x = getattr(msg, prefix + "sigma_x")
-                sigma_y = getattr(msg, prefix + "sigma_y")
-                sigma_z = getattr(msg, prefix + "sigma_z")
-                sigma_psi = getattr(msg, prefix + "sigma_psi")
-                encoded_pose = [x, y, z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, 0, 0, 0]
-                prior = decode_pwc_from_int(encoded_pose, "prior")
-                # Create a PoseFactorStamped message
-                pose_factor_msg = PoseFactorStamped()
-                pose_factor_msg.header.stamp = rospy.Time.now()  # Use the current time for the header
-                pose_factor_msg.header.frame_id = self.address_to_name[sender_address]  # e.g. "A"
-                pose_factor_msg.key1 = key1
-                pose_factor_msg.key2 = key1
-                pose_factor_msg.pose = prior
-                self.pose_factor_pub.publish(pose_factor_msg)
-                rospy.loginfo("[%s] Published Prior Factor: %s" % (rospy.Time.now(), key1))
-            else:  # Basic message mode
-                pass
+
             # Get the encoded pose data
             prefix = f"relative_pose_{i}_"
             x = getattr(msg, prefix + "x")
@@ -363,9 +368,14 @@ class CycleManager:
             sigma_y = getattr(msg, prefix + "sigma_y")
             sigma_z = getattr(msg, prefix + "sigma_z")
             sigma_psi = getattr(msg, prefix + "sigma_psi")
-            rho_xy = getattr(msg, prefix + "rho_xy")
-            rho_xpsi = getattr(msg, prefix + "rho_xpsi")
-            rho_ypsi = getattr(msg, prefix + "rho_ypsi")
+            if self.message_mode == "advanced":
+                rho_xy = 0.0
+                rho_xpsi = 0.0
+                rho_ypsi = 0.0
+            else:  # Basic message mode
+                rho_xy = getattr(msg, prefix + "rho_xy")
+                rho_xpsi = getattr(msg, prefix + "rho_xpsi")
+                rho_ypsi = getattr(msg, prefix + "rho_ypsi")
             encoded_pose = [x, y, z, qw, qx, qy, qz, sigma_x, sigma_y, sigma_z, sigma_psi, rho_xy, rho_xpsi, rho_ypsi]
             # Create a PoseWithCovariance message
             pose_with_covariance = decode_pwc_from_int(encoded_pose, "between")
@@ -379,6 +389,7 @@ class CycleManager:
             # Publish the pose factor message
             self.pose_factor_pub.publish(pose_factor_msg)
             rospy.loginfo("[%s] Published Pose Factor: %s -> %s" % (rospy.Time.now(), key1, key2))
+
         # Now iterative over the range events and publish them
         for i in range(num_poses): #0,1,2,3
             prefix = f"range_event_{i}_"
