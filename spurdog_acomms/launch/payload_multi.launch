@@ -54,7 +54,7 @@
             <node name="tdma_node" pkg="ros_acomms" type="tdma_node.py" output="log" required="true" respawn="false">
                 <param name="num_slots" value="$(arg num_slots)" />
                 <param name="active_slots" value="$(arg source_addr)"/>
-                <param name="slot_duration_seconds" value="20" /> <!-- 20sec for 2A:2L-->
+                <param name="slot_duration_seconds" value="25" /> <!-- 20sec for 2A:2L-->
                 <param name="miniframe_rate" value="1" />
                 <param name="dataframe_rate" value="1" />
                 <param name="guard_time_seconds" value="2.0" />
@@ -73,7 +73,7 @@
         <node name="comms_lbl" pkg="spurdog_acomms" type="comms_multiagent.py" output="screen">
             <param name="sound_speed" value="1501" />
             <param name="sigma_range" value="1" />
-            <param name="ping_timeout" value="4" />
+            <param name="ping_timeout" value="5" />
             <param name="cycle_mode" value="both" />
             <param name="send_data" value="true" />
             <param name="message_mode" value="advanced" /> <!-- Can be "basic" or "advanced" -->
