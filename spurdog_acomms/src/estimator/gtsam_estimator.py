@@ -391,6 +391,32 @@ class GtsamEstimator(Estimator):
         )
         self.factor_graph.push_back(odom_factor)
 
+    def add_pose_prior(self, pose: Union[Pose2D, Pose3D]) -> None:
+        """
+        Add a pose prior to the estimator.
+
+        Args:
+            pose: The pose to be added as a prior.
+        """
+        sym = get_symbol_from_name(pose.key)
+        assert pose.marginal_covariance is not None, "Pose marginal covariance must be set before adding a prior."
+        if isinstance(pose, Pose2D):
+            pose_init = get_pose2_from_matrix(pose.transformation_matrix)
+            noise_model = noiseModel.Diagonal.Sigmas(
+                np.sqrt(pose.marginal_covariance.diagonal())
+            )
+            prior_factor = PriorFactorPose2(sym, pose_init, noise_model)
+        elif isinstance(pose, Pose3D):
+            pose_init = get_pose3_from_matrix(pose.transformation_matrix)
+            noise_model = noiseModel.Diagonal.Sigmas(
+                np.sqrt(pose.marginal_covariance.diagonal())
+            )
+            prior_factor = PriorFactorPose3(sym, pose_init, noise_model)
+        else:
+            raise ValueError(f"Unknown pose type: {type(pose)}")
+
+        self.factor_graph.push_back(prior_factor)
+
     def initialize_pose(self, pose: Union[Pose2D, Pose3D]) -> None:
         """
         Initialize the pose of a key in the estimator.

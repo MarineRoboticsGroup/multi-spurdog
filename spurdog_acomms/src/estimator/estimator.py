@@ -73,6 +73,19 @@ class Estimator(ABC):
         """
         raise NotImplementedError("This method should be implemented by subclasses.")
 
+    @abstractmethod
+    def add_pose_prior(self, pose: Union[Pose2D, Pose3D]) -> None:
+        """
+        Add a pose prior to the estimator.
+
+        Args:
+            pose: The pose to be added as a prior.
+            key: The key associated with the pose.
+        """
+        assert pose.key is not None, "Pose key must be set before adding a prior."
+        assert pose.marginal_covariance is not None, "Pose marginal covariance must be set before adding a prior."
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
 
     @abstractmethod
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:

@@ -23,15 +23,20 @@ from estimator_helpers import (
     get_diag_relpose_covar,
 )
 
-from spurdog_acomms.msg import(
-    Bar30SoundSpeed, RangeFactorStamped, PoseFactorStamped,
-    AcommsCycleStatus, ReceivedSignalStats,
-    BasicGraphUpdate, AdvancedGraphUpdate,
+from spurdog_acomms.msg import (
+    Bar30SoundSpeed,
+    RangeFactorStamped,
+    PoseFactorStamped,
+    AcommsCycleStatus,
+    ReceivedSignalStats,
+    BasicGraphUpdate,
+    AdvancedGraphUpdate,
 )
 
 import rospy
 
 from typing import Union, List, Optional, Set
+
 
 class EstimatorManager:
     """
@@ -39,7 +44,12 @@ class EstimatorManager:
     measurements and retrieving poses.
     """
 
-    def __init__(self, mode: EstimatorMode = EstimatorMode.GTSAM_LM, dimension: int = 3, agents: Optional[Set[str]] = None):
+    def __init__(
+        self,
+        mode: EstimatorMode = EstimatorMode.GTSAM_LM,
+        dimension: int = 3,
+        agents: Optional[Set[str]] = None,
+    ):
         """
         Initializes the EstimatorManager with the specified mode and dimension.
         Args:
@@ -51,7 +61,9 @@ class EstimatorManager:
         # construct the estimator based on the mode
         if mode == EstimatorMode.GTSAM_LM:
             self.estimator = GtsamEstimator(
-                mode=EstimatorMode.GTSAM_LM, dimension=dimension, odom_factor_type="between"
+                mode=EstimatorMode.GTSAM_LM,
+                dimension=dimension,
+                odom_factor_type="between",
             )
         else:
             raise ValueError(f"Unsupported estimator mode: {mode}")
@@ -66,7 +78,6 @@ class EstimatorManager:
             self.agents = agents
         self._flexible_agents = agents is None
 
-
         # Initialize the ROS subscribers for pose and range factors
         self.pose_factor_listener = rospy.Subscriber(
             "pose_factor",
@@ -80,7 +91,6 @@ class EstimatorManager:
             self.handle_range_factor,
             queue_size=10,
         )
-
 
     def handle_pose_factor(self, msg: PoseFactorStamped):
         """
@@ -97,28 +107,27 @@ class EstimatorManager:
         # if keys are the same, then this is a pose prior
         if msg.key1 == msg.key2:
             # initialize the pose with the provided pose
-            self.estimator.initialize_pose(
-                Pose3D(
-                    key=msg.key1,
-                    position=(
-                        msg.pose.pose.position.x,
-                        msg.pose.pose.position.y,
-                        msg.pose.pose.position.z,
-                    ),
-                    orientation=(
-                        msg.pose.pose.orientation.x,
-                        msg.pose.pose.orientation.y,
-                        msg.pose.pose.orientation.z,
-                        msg.pose.pose.orientation.w,
-                    ),
-                    marginal_covariance=msg.pose.covariance,
-                )
+            position = (
+                msg.pose.pose.position.x,
+                msg.pose.pose.position.y,
+                msg.pose.pose.position.z,
             )
+            orientation = (
+                msg.pose.pose.orientation.x,
+                msg.pose.pose.orientation.y,
+                msg.pose.pose.orientation.z,
+                msg.pose.pose.orientation.w,
+            )
+            new_pose = Pose3D(
+                key=msg.key1,
+                position=position,
+                orientation=orientation,
+                marginal_covariance=msg.pose.covariance,
+            )
+            self.estimator.initialize_pose(new_pose)
+            self.estimator.add_pose_prior(new_pose)
 
-        raise NotImplementedError(
-            "handle_pose_factor method is not implemented yet."
-        )
-
+        raise NotImplementedError("handle_pose_factor method is not implemented yet.")
 
     def handle_range_factor(self, msg: RangeFactorStamped):
         """
@@ -135,8 +144,4 @@ class EstimatorManager:
         #   float32 depth2
 
         """
-        raise NotImplementedError(
-            "handle_range_factor method is not implemented yet."
-        )
-
-
+        raise NotImplementedError("handle_range_factor method is not implemented yet.")
