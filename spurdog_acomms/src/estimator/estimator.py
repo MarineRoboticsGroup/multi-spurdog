@@ -128,35 +128,6 @@ class Estimator(ABC):
         """
         pass
 
-class CoraEstimator(Estimator):
-    """
-    A concrete implementation of the Estimator interface using CORA.
-    This class should implement the CORA-specific logic for adding measurements and updating the state.
-    """
-
-    def __init__(self, mode: EstimatorMode, dimension: int):
-        super().__init__(mode, dimension)
-        # Initialize Cora-specific variables here
-
-    def add_range(self, range_measurement: RangeMeasurement) -> None:
-        raise NotImplementedError("Cora range measurement addition not implemented.")
-
-    def add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
-        raise NotImplementedError(
-            "Cora odometry measurement addition not implemented."
-        )
-
-    def add_depth(self, depth_measurement: DepthMeasurement) -> None:
-        raise NotImplementedError("Cora depth measurement addition not implemented.")
-
-    def get_pose(self, key: Key) -> Union[Pose2D, Pose3D]:
-        raise NotImplementedError("Cora get_pose not implemented.")
-
-    def get_point(self, key: Key) -> Union[Point2D, Point3D]:
-        raise NotImplementedError("Cora get_point not implemented.")
-
-    def update(self):
-        raise NotImplementedError("Cora update not implemented.")
 
 if __name__ == "__main__":
     # Example usage

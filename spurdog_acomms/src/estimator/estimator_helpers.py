@@ -370,6 +370,13 @@ class RangeMeasurement(PairMeasurement):
         """
         return self.depth1 is None and self.depth2 is None
 
+    @property
+    def precision(self) -> float:
+        """
+        Returns the precision (inverse of the variance) of the range measurement.
+        """
+        return 1.0 / self.variance
+
 
 @define
 class OdometryMeasurement3D(PairMeasurement):
