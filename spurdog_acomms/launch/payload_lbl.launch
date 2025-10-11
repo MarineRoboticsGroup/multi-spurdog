@@ -1,9 +1,11 @@
-<!-- Launch Script for testing comms dockside with WHOI Modem
+<!-- Launch Script for multi-agent ACOMMS experiments
     John P Morrison
     MIT/WHOI Joint Program
-    15 APR 2025
-    Modify the args for agent-to-agent level changes
-    Modify the params only for day-to-day changes
+    JUL 2025
+
+    FUNCTIONAL - USED IN JUN2025 FIELD TESTS
+    - A very simple single-agent node, pings landmarks alternately with no TDMA
+    - Collects range and odometry data, but doesn't try to do inter-agent comms or estimation
 -->
 
 <launch>

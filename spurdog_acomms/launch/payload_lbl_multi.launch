@@ -1,9 +1,12 @@
-<!-- Launch Script for testing comms dockside with WHOI Modem
+<!-- Launch Script for multi-agent ACOMMS experiments
     John P Morrison
     MIT/WHOI Joint Program
-    15 APR 2025
-    Modify the args for agent-to-agent level changes
-    Modify the params only for day-to-day changes
+    JUL 2025
+
+    NOT FUNCTIONAL YET - DO NOT USE
+    - An attempt to adapt the payload_lbl.launch to multi-agent using TDMA
+    - Pings landmarks/agents alternately with a ping slot
+    - Data collection only: less sophisticated than payload_multi.launch
 -->
 
 <launch>
