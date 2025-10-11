@@ -1,0 +1,28 @@
+<!-- Launch script for testing the MOOS-ROS UDP bridge
+    John P Morrison
+    MIT/WHOI Joint Program
+    14 JUN 2025
+-->
+
+<launch>
+    <!-- Args that we would change at agent-to-agent level-->
+    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
+    <arg name="record_bag" default="false" doc="set to true to record a rosbag"/>
+
+    <!-- Set the ROSCONSOLE_FORMAT -->
+    <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <!-- Start the agent node -->
+    <group ns="$(arg agent_name)">
+
+        <!-- Launch the MOOS interface bridge -->
+        <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="screen" />
+
+        <!-- Optionally launch the rosbag recording node -->
+        <group if="$(arg record_bag)">
+            <node name="rosbag_record" pkg="rosbag" type="record"
+                    args="-a -o $(arg bag_dir)/$(arg agent_name)_test_udp_"
+                    output="screen"/>
+        </group>
+    </group>
+</launch>

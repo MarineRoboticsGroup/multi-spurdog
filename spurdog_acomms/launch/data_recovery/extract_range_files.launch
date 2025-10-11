@@ -1,0 +1,39 @@
+<!-- Launch Script for testing comms dockside with WHOI Modem
+    John P Morrison
+    MIT/WHOI Joint Program
+    15 APR 2025
+    Modify the args for agent-to-agent level changes
+    Modify the params only for day-to-day changes
+-->
+
+<launch>
+    <!-- Args that we would change at agent-to-agent level-->
+    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
+    <arg name="source_addr" default="0" doc="int"/>
+    <arg name="num_agents" default="1" />
+    <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/>
+    <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/>
+
+    <!-- Set the ROSCONSOLE_FORMAT -->
+    <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <!-- Start the agent node -->
+    <group ns="$(arg agent_name)">
+
+        <!-- Shared Parameters -->
+        <!-- <param name="agent_name" value="$(arg agent_name)" />
+        <param name="modem_address" value="$(arg source_addr)" /> -->
+        <!-- <param name="source_addr" value="0" /> -->
+        <!-- <param name="num_agents" value="$(arg num_agents)" />
+        <param name="num_landmarks" value="2" /> -->
+        <!-- <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" /> -->
+        <!-- <param name="num_slots" value="$(eval 2 * num_agents)" /> -->
+        <!-- <param name="sigma_range" value="1" />
+        <param name="sound_speed" value="1500" /> -->
+
+        <!-- Modem group -->
+        <!-- Launch communication and graph managers-->
+        <node name="extract_range_files" pkg="spurdog_acomms" type="extract_range_data.py" output="screen" />
+
+    </group>
+</launch>

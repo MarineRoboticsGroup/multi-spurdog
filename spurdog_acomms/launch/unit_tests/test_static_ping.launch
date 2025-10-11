@@ -1,0 +1,53 @@
+<!-- Launch Script for performing a simple static ping test between a payload and two deckboxes
+    John P Morrison
+    MIT/WHOI Joint Program
+    15 JUN 2025
+    - May be used to perform a ping test between two deckboxes only
+    - Uses a common config file to ensure all modems are configured the same
+    - Intended for use as a static ping test, but could be used to test params on a moving vehicles
+-->
+
+<launch>
+    <!-- Args that we would change at agent-to-agent level-->
+    <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
+    <arg name="source_addr" default="0" doc="int"/>
+    <arg name="record_bag" default="false" doc="set to true to record a rosbag"/>
+
+    <!-- Set the ROSCONSOLE_FORMAT -->
+    <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
+
+    <!-- Start the agent node -->
+    <group ns="$(arg agent_name)">
+
+        <!-- Shared Parameters -->
+        <param name="agent_name" value="$(arg agent_name)" />
+        <param name="modem_address" value="$(arg source_addr)" />
+        <param name="num_landmarks" value="2" />
+
+        <!-- Launch the modem driver -->
+        <include file="$(find ros_acomms)/launch/landmark.launch">
+            <arg name="namespace" value="modem" />
+            <arg name="source_addr" value="$(arg modem_address)" />
+            <arg name="serial_port" value="/dev/ttyUSB0" />
+        </include>
+
+        <!-- Launch the ping test -->
+        <node name="ping_test" pkg="spurdog_acomms" type="ping_test.py" output="screen">
+            <param name="ping_timeout" value="5" />
+            <param name="pings_to_attempt" value="100" />
+            <param name="sound_speed" value="1500" />
+            <rosparam param="landmarks">
+                L0: [-74.5193539608157, -38.9298973079931, -1.83]
+                L1: [66.5150726324041, 25.969767675496275, -1.83]
+            </rosparam>
+        </node>
+
+        <!-- Optionally launch the rosbag recording node -->
+        <group if="$(arg record_bag)">
+            <node name="rosbag_record" pkg="rosbag" type="record"
+                args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o $(arg bag_dir)/$(arg agent_name)_test_static_ping_'
+                output="screen" />
+        </group>
+    </group>
+    </group>
+</launch>
