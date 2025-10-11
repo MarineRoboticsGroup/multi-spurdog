@@ -10,9 +10,9 @@
     <!-- Args that we would change at agent-to-agent level-->
     <arg name="agent_name" default="actor_0" doc="format: actor_0 or beacon_0"/>
     <arg name="source_addr" default="0" doc="int"/>
-    <arg name="num_agents" default="1" />
+    <arg name="num_agents" default="2" />
     <arg name="num_slots" default="2" doc="number of TDMA slots, must be even"/>
-    <arg name="active_slots" default="0,1" doc="comma-separated list of active TDMA slots"/>
+    <arg name="active_slots" default="0" doc="comma-separated list of active TDMA slots"/>
 
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
@@ -26,10 +26,11 @@
         <!-- <param name="source_addr" value="0" /> -->
         <param name="num_agents" value="$(arg num_agents)" />
         <param name="num_landmarks" value="2" />
-        <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" />
         <!-- <param name="num_slots" value="$(eval 2 * num_agents)" /> -->
-        <param name="sigma_range" value="1" />
-        <param name="sound_speed" value="1500" />
+        <rosparam param="landmarks">
+            L0: [-74.5193539608157, -38.9298973079931, -1.83]
+            L1: [66.5150726324041, 25.969767675496275, -1.83]
+        </rosparam>
 
         <!-- Modem group -->
         <group ns="modem">
@@ -41,47 +42,57 @@
                 <rosparam param="modem_config">
                     ALL: 0
                     BND: 0
-                    DOP: 1
                     MOD: 1
                     CST: 1
                     FC0: 25000
                     BW0: 5000
-                    SRC: 0
+                    SRC: 0 <!-- Source_addr -->
                     XST: 1
                     TAT: 50
-                    pwramp.txlevel: 3
+                    pwramp.txlevel: 0
                     psk.packet.mod_hdr_version: 1
                 </rosparam>
             </node>
 
             <node name="tdma_node" pkg="ros_acomms" type="tdma_node.py" output="log" required="true" respawn="false">
-                <param name="num_slots" value="$(arg num_slots)" />
-                <param name="active_slots" value="$(arg active_slots)"/>
-                <param name="slot_duration_seconds" value="12" />
+                <param name="num_slots" value="$(arg num_agents)" />
+                <param name="active_slots" value="$(arg source_addr)"/>
+                <param name="slot_duration_seconds" value="20" />
+                <param name="miniframe_rate" value="1" />
+                <param name="dataframe_rate" value="1" />
+                <param name="guard_time_seconds" value="2.0" />
+                <param name="packet_length_seconds" value="1.0" />
             </node>
-
-            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="screen">
+            <node name="message_queue_node" pkg="ros_acomms" type="message_queue_node.py" output="log">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
 
-            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="screen">
+            <node name="packet_dispatch" pkg="ros_acomms" type="packet_dispatch_node.py" output="log">
                 <param name="packet_codec_file" value="$(find spurdog_acomms)/launch/spurdog_message_codec_config.yaml" />
             </node>
         </group>
 
         <!-- Launch communication and graph managers-->
-        <node name="comms_cycle_test" pkg="spurdog_acomms" type="comms_cycle_mgr.py" output="screen" />
-        <node name="factor_graph_mgr" pkg="spurdog_acomms" type="factor_graph_mgr.py" output="log" />
-        <node name="imu_sensor_handler" pkg="spurdog_acomms" type="imu_sensor_handler.py" output="log">
-            <param name="buffer_size" value="1000"/>
-            <param name="imu_type" value="microstrain_cv7"/>
+        <node name="comms_lbl" pkg="spurdog_acomms" type="comms_multiagent.py" output="screen">
+            <param name="sound_speed" value="1500" />
+            <param name="sigma_range" value="1" />
+            <param name="ping_timeout" value="4" />
+            <param name="send_data" value="true" />
+        </node>
+        <node name="odometry" pkg="spurdog_acomms" type="odometry" output="log">
+            <!-- <param name="gyro_noise_sigma" value="0.001"/>
+            <param name="gyro_bias_rw_sigma" value="0.01"/> -->
+            <!-- <param name="gyro_bias_x" value="-0.000223"/>
+            <param name="gyro_bias_y" value="-0.0000675"/>
+            <param name="gyro_bias_z" value="0.0003616"/> -->
+            <param name="velocity_source" value="dvl"/>
         </node>
 
         <!-- Launch the MOOS interface bridge -->
         <node name="udp2ros" pkg="spurdog_moos_bridge" type="udp2ros" output="log" />
 
         <node name="rosbag" pkg="rosbag" type="record"
-            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /home/morrisjp/bags/June/$(arg agent_name).bag'
+            args='-a --exclude="/$(arg agent_name)/modem/carev|/$(arg agent_name)/modem/sst|/$(arg agent_name)/modem/tta" -o /ros/logs/$(arg agent_name).bag'
             output="screen" />
     </group>
 </launch>
