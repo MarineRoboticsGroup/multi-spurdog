@@ -4,36 +4,50 @@ from os.path import dirname, join, abspath
 import numpy as np
 from datetime import datetime
 import scipy.spatial.transform as spt
-from std_msgs.msg import Header, String, Time, Float32
-from geometry_msgs.msg import Point, Quaternion, Pose, PoseWithCovariance, PoseWithCovarianceStamped
-from ros_acomms_msgs.msg import(
-    TdmaStatus, QueueStatus
-)
 from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 
 class PingTest:
-    """This is a node to run the comms cycle for the vehicle."""
+    """
+    This node is for running basic static ping tests between modems.
+    - It also may be used to test modem params between a running AUV and fixed landmarks.
+    - It sends regular pings to a list of possible destinations
+    - It collects only the one way travel time (OWTT) and calculates the range
+    - It assumes that the ground-truth range between the modem locations is known
+    - It should be run with rosbag logging to capture the additional ping data
+      in the modem-to-host messages.
+    """
+
     def __init__(self):
+        # Initialize the node
         rospy.init_node('ping_test_manager', anonymous=True)
-        self.landmarks = {"L0":[-71.7845,-39.6078,1.5],
-                          "L1":[65.0832,25.6598,1.5],
-        }
-        # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
-        self.sound_speed = 1500
-        self.ping_timeout = 5 # seconds
+        self.landmarks = rospy.get_param("~landmarks", {})
+        self.sound_speed = rospy.get_param("~sound_speed", 1500) # m/s
+        self.ping_timeout = rospy.get_param("~ping_timeout", 5) # seconds
+        self.pings_to_attempt = rospy.get_param("~pings_to_attempt", 100)
         self.ping_sequence = 0
-        self.pings_to_attempt = 100
         self.expected_range = None
+        self.ping_targets = self.get_targets()
         self.range_data = []
-        # Check services
+        # Check for ping services
         rospy.loginfo("[%s] Waiting for services..." % rospy.Time.now())
         rospy.wait_for_service("modem/ping_modem")
         self.ping_client = rospy.ServiceProxy("modem/ping_modem", PingModem)
-        # Initialize the modem addresses and cycle targets
-        rospy.sleep(10) # allow for modem to configure
+        rospy.sleep(10) # Wait for the modem to be ready before trying to ping
         rospy.loginfo("[%s] Ping Test Manager Initialized" % rospy.Time.now())
+
+    def get_targets(self):
+        """Get the list of target addresses from the landmarks parameter."""
+        if not self.landmarks:
+            rospy.logwarn("[%s] No landmarks found in parameters." % rospy.Time.now())
+            return []
+        targets = []
+        # targets should be a list of integers starting from 1 and increasing to N+1 for N landmarks
+        for i in range(1, len(self.landmarks) + 1):
+            targets.append(i)
+        rospy.loginfo("[%s] Found %d landmarks: %s" % (rospy.Time.now(), len(targets), targets))
+        return targets
 
     def get_expected_range(self):
         # Get the cartesian range between the two landmarks
@@ -56,14 +70,16 @@ class PingTest:
     def run_ping_test(self):
         """Run the ping test."""
         rospy.loginfo("[%s] Running ping test" % rospy.Time.now())
-        # Start the ping test
         while self.ping_sequence <= self.pings_to_attempt:
-            self.send_ping()
-            rospy.sleep(1)
-        # Summarize the range data collected
+            # Get the target (round robin
+            target = self.ping_targets[self.ping_sequence % len(self.ping_targets)]
+            self.send_ping(target)
+            rospy.sleep(1) # prevents transmitting two pings too close together
+
+        # After the test, summarize the results
         self.summarize_range_data()
 
-    def send_ping(self):
+    def send_ping(self, dest):
         """This function sends a ping to the modem
         Args:
             target_addr (int): the target address
@@ -71,31 +87,20 @@ class PingTest:
         """
         # Set the ping request parameters
         ping_req = PingModemRequest()
-        ping_req.dest = 1
+        ping_req.dest = dest
         ping_req.rate = 1
         ping_req.cdr = 0
         ping_req.timeout_sec = self.ping_timeout
 
-        # Attempt the ping:
+        # Attempt the ping (will hold the while loop until timeout)
         try:
-            #rospy.loginfo("[%s] One Ping Only Vasily." % (rospy.Time.now()))
             ping_resp = self.ping_client(ping_req)
-            # Response
-            # bool timed_out
-            # float32 one_way_travel_time
-            # float32 tat
 
-            # int8 txlevel
-            # int8 timestamp_resolution
-            # int8 toa_mode
-            # int8 snv_on
-            # uint32 timestamp
-            # Check if the ping timed out
             if ping_resp.timed_out:
-                rospy.logwarn("[%s] Ping Timed Out" % (rospy.Time.now()))
-                self.range_data.append([rospy.Time.now().to_sec() -self.ping_timeout, 0, 1, None, None])
+                self.range_data.append([rospy.Time.now().to_sec() -self.ping_timeout, 0, dest, None, None])
+                rospy.logwarn("[%s] Ping %s Timed Out" % (rospy.Time.now(), self.ping_sequence))
             else:
-                rospy.loginfo("[%s] Ping %s Successful: "% (rospy.Time.now(), self.ping_sequence))
+                # Unpack the ping response
                 dest = ping_resp.cst.src
                 src = ping_resp.cst.dest
                 owtt = ping_resp.one_way_travel_time
@@ -103,10 +108,10 @@ class PingTest:
                 measured_range = owtt * self.sound_speed
                 timestamp = ping_resp.cst.toa - rospy.Duration.from_sec(owtt)
                 # Log all the fields
-                rospy.loginfo("[%s] Ping Response: timestamp=%s, src=%d, dest=%d, owtt=%.4f, tat= %.4f, measured_range=%.4f" % (rospy.Time.now(), timestamp, src, dest, owtt, tat, measured_range))
-                # Log the ping response
                 self.range_data.append([timestamp.to_sec(), src, dest, owtt, measured_range])
+                rospy.loginfo("[%s] Ping Successful: timestamp=%s, src=%d, dest=%d, owtt=%.4f, tat= %.4f, measured_range=%.4f" % (rospy.Time.now(), timestamp, src, dest, owtt, tat, measured_range))
             self.ping_sequence += 1
+
         except rospy.ServiceException as e:
             rospy.logerr("[%s] Ping Service Call Failed: %s" % (rospy.Time.now(), e))
         return
@@ -120,28 +125,25 @@ class PingTest:
 
         # Convert to numpy array for easier processing
         range_data_np = np.array(self.range_data)
-        # Print the summary
-        rospy.loginfo("[%s] Range Data Summary:" % rospy.Time.now())
-        # Print the success rate, mean, and standard deviation of the measured ranges
-        successful_pings = range_data_np[range_data_np[:, 3] != None]
-        if successful_pings.size == 0:
-            rospy.logwarn("[%s] No successful pings." % rospy.Time.now())
-            return
-        success_rate = len(successful_pings) / len(range_data_np) * 100
-        mean_owtt = np.mean(successful_pings[:,3])
-        mean_range = np.mean(successful_pings[:, 4])
-        std_range = np.std(successful_pings[:, 4])
-        rospy.loginfo("[%s] %s / %s pings, Success Rate: %.2f%%" % (rospy.Time.now(), len(successful_pings), len(range_data_np), success_rate))
-        rospy.loginfo("[%s] Mean Measured OWTT: %.4f sec" % (rospy.Time.now(), mean_owtt))
-        rospy.loginfo("[%s] Mean Measured Range: %.4f meters" % (rospy.Time.now(), mean_range))
-        rospy.loginfo("[%s] Standard Deviation of Measured Range: %.4f meters" % (rospy.Time.now(), std_range))
-        # Print the expected range
-        if self.expected_range is not None:
-            rospy.loginfo("[%s] Expected Range: %.4f meters" % (rospy.Time.now(), self.expected_range))
-            inferred_sound_speed = 1500 * (self.expected_range / mean_range)
-            rospy.loginfo("[%s] Inferred Sound Speed: %.4f m/s" % (rospy.Time.now(), inferred_sound_speed))
-        else:
-            rospy.logwarn("[%s] Expected range not calculated." % rospy.Time.now())
+        # Split by the dest address (3rd column) (i.e. all pings to landmark 1, all pings to landmark 2, etc.)
+        unique_dests = np.unique(range_data_np[:,2])
+        # Build a dictonary of responses for each dest
+        dest_dict = {}
+        for dest in unique_dests:
+            dest_dict[dest] = range_data_np[range_data_np[:,2] == dest]
+            successful_pings = dest_dict[dest][dest_dict[dest][:,3] > 0]
+            success_rate = len(successful_pings) / len(dest_dict[dest]) * 100
+            mean_owtt = np.mean(successful_pings[:,3])
+            mean_range = np.mean(successful_pings[:, 4])
+            max_range = np.max(successful_pings[:, 4])
+            min_range = np.min(successful_pings[:, 4])
+            std_range = np.std(successful_pings[:, 4])
+            # Display a nice stats table of the results
+            rospy.loginfo("---- Ping Statistics for Modem L%d ----" % int(dest-1))
+            rospy.loginfo("Completed %d/%d pings (%.2f%)" % (len(successful_pings), len(dest_dict[dest]), success_rate))
+            rospy.loginfo("Meas. Range (m): Min: %.4f, Mean: %.4f, Max: %.4f" % (min_range, mean_range, max_range))
+            rospy.loginfo("Std. Dev. of Range: %.4f m" % (std_range))
+        return
 
 if __name__ == "__main__":
 
@@ -150,10 +152,10 @@ if __name__ == "__main__":
         test_mgr.run_ping_test()
         rospy.spin()
     except rospy.ROSInterruptException:
-        rospy.loginfo("[%s] Comms Test Mgr Interrupted" % rospy.Time.now())
+        rospy.loginfo("[%s] Ping Test Mgr Interrupted" % rospy.Time.now())
     except Exception as e:
-        rospy.logerr("[%s] Comms Test Mgr Error: %s" % (rospy.Time.now(), e))
+        rospy.logerr("[%s] Ping Test Mgr Error: %s" % (rospy.Time.now(), e))
     finally:
-        rospy.loginfo("[%s] Comms Test Mgr Exiting" % rospy.Time.now())
-        rospy.signal_shutdown("Comms Test Mgr Exiting")
+        rospy.loginfo("[%s] Ping Test Mgr Exiting" % rospy.Time.now())
+        rospy.signal_shutdown("Ping Test Mgr Exiting")
         exit(0)
