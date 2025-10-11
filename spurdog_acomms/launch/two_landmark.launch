@@ -1,60 +1,24 @@
-<!-- Launch Script for testing comms dockside with WHOI Modem
+<!-- Launch Script for configuring two deckboxes as landmarks
     John P Morrison
     MIT/WHOI Joint Program
-    15 APR 2025
-    Modify the args for agent-to-agent level changes
-    Modify the params only for day-to-day changes
+    11 OCT 2025
 -->
 
 <launch>
-    <!-- Args that we would change at agent-to-agent level-->
+  <!-- Argument: starting SRC for first modem -->
+  <arg name="landmark_L0_src" default="1" />
 
-    <!-- Set the ROSCONSOLE_FORMAT -->
-    <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
+  <!-- Deckbox L0 (assumes ttyUSB0) -->
+  <include file="$(find ros_acomms)/launch/modem.launch">
+    <arg name="namespace" value="landmark_L0" />
+    <arg name="source_addr" value="$(arg landmark_L0_src)" />
+    <arg name="serial_port" value="/dev/ttyUSB0" />
+  </include>
 
-        <!-- Modem group -->
-        <group ns="modem_L0">
-            <node name="acomms_driver" pkg="ros_acomms" type="acomms_driver_node.py" respawn="true" respawn_delay="10" output="log">
-                <param name="modem_connection_type" value="serial" />
-                <param name="modem_serial_port" value="/dev/ttyUSB0" type="str" />
-                <param name="modem_baud_rate" value="19200" />
-                <param name="set_modem_time" value="true" />
-                <rosparam param="modem_config">
-                    ALL: 0
-                    BND: 0
-                    MOD: 1
-                    CST: 1
-                    FC0: 25000
-                    BW0: 5000
-                    SRC: 1
-                    XST: 1
-                    TAT: 50
-                    pwramp.txlevel: 0
-                    psk.packet.mod_hdr_version: 1
-                </rosparam>
-            </node>
-        </group>
-
-        <!-- Modem group-->
-        <group ns="modem_L1">
-            <node name="acomms_driver" pkg="ros_acomms" type="acomms_driver_node.py" respawn="true" respawn_delay="10" output="log">
-                <param name="modem_connection_type" value="serial" />
-                <param name="modem_serial_port" value="/dev/ttyUSB1" type="str" />
-                <param name="modem_baud_rate" value="19200" />
-                <param name="set_modem_time" value="true" />
-                <rosparam param="modem_config">
-                    ALL: 0
-                    BND: 0
-                    MOD: 1
-                    CST: 1
-                    FC0: 25000
-                    BW0: 5000
-                    SRC: 2
-                    XST: 1
-                    TAT: 50
-                    pwramp.txlevel: 0
-                    psk.packet.mod_hdr_version: 1
-                </rosparam>
-            </node>
-        </group>
+  <!-- Deckbox L1 (fixed ttyUSB1) -->
+  <include file="$(find ros_acomms)/launch/modem.launch">
+    <arg name="namespace" value="landmark_L1" />
+    <arg name="source_addr" value="$(eval int(arg('landmark_L0_src')) + 1)" />
+    <arg name="serial_port" value="/dev/ttyUSB1" />
+  </include>
 </launch>

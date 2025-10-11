@@ -1,0 +1,37 @@
+<!-- Launch script for configuring a modem deckbox
+    John P Morrison
+    MIT/WHOI Joint Program
+    11 OCT 2025
+-->
+
+<launch>
+  <arg name="source_addr" default="1" />
+  <arg name="serial_port" default="/dev/ttyUSB0" />
+  <arg name="namespace" default="landmark" />
+  <arg name="record_bag" default="false" doc="Set true to record rosbag" />
+  <arg name="bag_dir" default="$(env HOME)/bags" doc="Bag output directory" />
+
+  <group ns="$(arg namespace)">
+    <!-- Load the basic modem configuration parameters -->
+    <rosparam file="$(find spurdog_acomms)/launch/basic_modem_config.yaml" command="load" />
+
+    <!-- Override the default serial port and source address -->
+    <param name="modem_serial_port" value="$(arg serial_port)" />
+    <param name="modem_config/SRC" value="$(arg source_addr)" />
+
+    <!-- Launch the ros_acomms driver node -->
+    <node name="acomms_driver"
+          pkg="ros_acomms"
+          type="acomms_driver_node.py"
+          respawn="true"
+          respawn_delay="10"
+          output="log" />
+
+    <!-- Optionally record all topics to a rosbag -->
+    <group if="$(arg record_bag)">
+      <node name="rosbag_record" pkg="rosbag" type="record"
+            args="-a -o $(arg bag_dir)/$(arg namespace)"
+            output="screen"/>
+    </group>
+  </group>
+</launch>

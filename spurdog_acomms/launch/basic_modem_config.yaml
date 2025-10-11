@@ -1,0 +1,17 @@
+modem_connection_type: serial
+modem_serial_port: "/dev/ttyUSB0"    # Default port
+modem_baud_rate: 19200
+set_modem_time: true
+
+modem_config:
+  SRC: 0      # Default address
+  ALL: 0
+  BND: 0
+  MOD: 1
+  CST: 1
+  FC0: 25000
+  BW0: 5000
+  XST: 1
+  TAT: 50
+  pwramp.txlevel: 0
+  psk.packet.mod_hdr_version: 1
