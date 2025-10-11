@@ -45,8 +45,8 @@ class CycleManager:
         self.local_address = rospy.get_param("modem_address", 0)  # Local address of the vehicle, default is 0
         self.num_agents = rospy.get_param("num_agents", 1)
         self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
-        self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]} # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
-        self.sound_speed = float(rospy.get_param("sound_speed", 1486))
+        self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,-1.83], "L1":[66.5150726324041,25.969767675496275,-1.83]} # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        self.sound_speed = 1501
         # Variables for addressing
         self.modem_addresses = {}
         self.cycle_target_mapping = {}
@@ -96,11 +96,12 @@ class CycleManager:
         #self.nav_state_sub = rospy.Subscriber("nav_state", PoseStamped, self.on_nav_state, queue_size=1)
         #self.acomms_event_pub = rospy.Publisher("led_command", String, queue_size=1)
         #self.range_logging_sub = rospy.Subscriber("modem/ping_reply",PingReply, self.on_ping_reply, queue_size=1)
+        self.range_logging_sub = rospy.Subscriber("modem/ping_reply",PingReply, self.on_ping_reply, queue_size=1)
         self.pose_factor_sub = rospy.Subscriber("pose_factor", PoseFactorStamped, self.on_pose_factor, queue_size=1)
         self.range_factor_sub = rospy.Subscriber("range_factor", RangeFactorStamped, self.on_range_factor, queue_size=1)
         # Initialize the factor publishers
-        #self.range_factor_pub = rospy.Publisher("range_factor_recovered", RangeFactorStamped, queue_size=1)
-        self.pose_factor_pub = rospy.Publisher("pose_factor_recovered", PoseFactorStamped, queue_size=1)
+        self.range_factor_pub = rospy.Publisher("range_factor_recovered", RangeFactorStamped, queue_size=1)
+        #self.pose_factor_pub = rospy.Publisher("pose_factor_recovered", PoseFactorStamped, queue_size=1)
         #self.integrated_state_pub = rospy.Publisher("integrated_state_recovered", PoseWithCovarianceStamped, queue_size=1)
         #self.range_factor_pub = rospy.Publisher("range_factor", RangeFactorStamped, queue_size=1)
         # Initialize the modem addresses and cycle targets

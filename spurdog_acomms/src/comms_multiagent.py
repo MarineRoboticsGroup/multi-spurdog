@@ -229,7 +229,8 @@ class CycleManager:
                             "key2": payload,  # e.g. "L0" or "A2"
                             "remote_address": src,
                             "index": None,  # This will be filled later when the msg is received
-                            "measured_range": None,  # This will be filled later when the msg is received
+                            "measure"
+                            "d_range": None,  # This will be filled later when the msg is received
                             "sigma_range": None,    # This will be filled later when the msg is received
                             "depth1": self.depth,
                             "depth2": None  # This will be filled later when the msg is received
