@@ -1,4 +1,5 @@
-# GraphUpdate.msg
+# AdvancedGraphUpdate.msg
+# - 4 poses + 4 range events + Origin State
 # Header Info (4 bytes)
 uint8 sender_address
 uint16 first_key_index

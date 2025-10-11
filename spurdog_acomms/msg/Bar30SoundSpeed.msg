@@ -1,3 +1,5 @@
+# Bar30SoundSpeed.msg
+# - Reads T/D data from MOOS-driven pressure sensor
 Header header
 float32 water_temp      # Water temperature (degC)
 float32 temp_sigma      # Temperature Sigma (degC)

@@ -1,3 +1,5 @@
+# AcommsCycleStatus
+# - Used to communicate status from ROS -> MOOS
 Header header
 uint16 pings_attempted
 uint16 pings_successful

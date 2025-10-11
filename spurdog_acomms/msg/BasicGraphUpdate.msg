@@ -1,4 +1,5 @@
-# GraphUpdate.msg
+# BasicGraphUpdate.msg
+# - 4 poses + 4 range events
 # Header Info
 uint8 sender_address
 uint16 first_key_index
