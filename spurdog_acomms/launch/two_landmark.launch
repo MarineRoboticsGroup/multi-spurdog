@@ -9,14 +9,14 @@
   <arg name="landmark_L0_src" default="1" />
 
   <!-- Deckbox L0 (assumes ttyUSB0) -->
-  <include file="$(find ros_acomms)/launch/modem.launch">
+  <include file="$(find spurdog_acomms)/launch/modem.launch">
     <arg name="namespace" value="landmark_L0" />
     <arg name="source_addr" value="$(arg landmark_L0_src)" />
     <arg name="serial_port" value="/dev/ttyUSB0" />
   </include>
 
   <!-- Deckbox L1 (fixed ttyUSB1) -->
-  <include file="$(find ros_acomms)/launch/modem.launch">
+  <include file="$(find spurdog_acomms)/launch/modem.launch">
     <arg name="namespace" value="landmark_L1" />
     <arg name="source_addr" value="$(eval int(arg('landmark_L0_src')) + 1)" />
     <arg name="serial_port" value="/dev/ttyUSB1" />
