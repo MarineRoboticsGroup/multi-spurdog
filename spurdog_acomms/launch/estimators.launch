@@ -12,7 +12,7 @@
 			roslaunch spurdog_acomms estimators.launch agents:='actor_0,actor_1'
 	-->
 
-	<arg name="agents" default="" />
+	<arg name="agents" default="actor_0,actor_1" />
 	<arg name="estimator_rate" default="1.0" />
 	<arg name="dimension" default="3" />
 
@@ -22,7 +22,7 @@
 		<param name="rate" value="$(arg estimator_rate)"/>
 		<param name="dimension" value="$(arg dimension)"/>
 		<!-- Also pass as argv in case the script expects args -->
-		<arg name="agents_arg" value="$(arg agents)"/>
+		<!-- <arg name="agents_arg" value="$(arg agents)"/> -->
 	</node>
 
 </launch>

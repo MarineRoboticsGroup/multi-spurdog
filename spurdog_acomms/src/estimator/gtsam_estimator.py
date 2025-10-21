@@ -90,15 +90,12 @@ from typing import Union, List
 VALID_BETWEEN_FACTOR_MODELS = ["SESync", "between"]
 
 
-def get_symbol_from_name(name: str) -> symbol:
+def get_gtsam_symbol_from_key(key: Key) -> symbol:
     """
-    Returns the symbol from a variable name
+    Returns the symbol from a variable key
     """
-    assert isinstance(name, str)
-    capital_letters_pattern = re.compile(r"^[A-Z][0-9]+$")
-    assert capital_letters_pattern.match(name) is not None, "Invalid name"
-
-    return symbol(name[0], int(name[1:]))
+    assert isinstance(key, Key), "Key must be of type Key"
+    return symbol(key.char, key.index)
 
 
 def get_pose2_from_matrix(pose_matrix: np.ndarray) -> Pose2:
@@ -332,16 +329,17 @@ class GtsamEstimator(Estimator):
         self.odom_factor_type = odom_factor_type
         self.gtsam_result = Values()
 
-    def add_range(self, range_measurement: RangeMeasurement) -> None:
-        pose_symbol = get_symbol_from_name(range_measurement.key1)
-        landmark_symbol = get_symbol_from_name(range_measurement.key2)
+    def _specific_add_range(self, range_measurement: RangeMeasurement) -> None:
+        pose_symbol = get_gtsam_symbol_from_key(range_measurement.key1)
+        landmark_symbol = get_gtsam_symbol_from_key(range_measurement.key2)
 
         variance = range_measurement.variance
         range_noise = noiseModel.Isotropic.Sigma(1, variance)
         dist = range_measurement.distance
 
         # If the landmark is actually secretly a pose, then we use RangeFactorPose2
-        if "L" not in range_measurement.key2:
+        is_pose_landmark_measure = range_measurement.key2.is_landmark
+        if not is_pose_landmark_measure:
             if self.dimension == 2:
                 range_factor = RangeFactorPose2(
                     pose_symbol, landmark_symbol, dist, range_noise
@@ -366,10 +364,10 @@ class GtsamEstimator(Estimator):
 
         self.factor_graph.push_back(range_factor)
 
-    def add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
+    def _specific_add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
         # the indices of the related poses in the odometry measurement
-        i_symbol = get_symbol_from_name(odom_measurement.key1)
-        j_symbol = get_symbol_from_name(odom_measurement.key2)
+        i_symbol = get_gtsam_symbol_from_key(odom_measurement.key1)
+        j_symbol = get_gtsam_symbol_from_key(odom_measurement.key2)
 
         # add the factor to the factor graph
         odom_factor = get_pose_to_pose_factor(
@@ -384,7 +382,7 @@ class GtsamEstimator(Estimator):
         Args:
             pose: The pose to be added as a prior.
         """
-        sym = get_symbol_from_name(pose.key)
+        sym = get_gtsam_symbol_from_key(pose.key)
         assert pose.marginal_covariance is not None, "Pose marginal covariance must be set before adding a prior."
         if isinstance(pose, Pose2D):
             pose_init = get_pose2_from_matrix(pose.transformation_matrix)
@@ -403,15 +401,16 @@ class GtsamEstimator(Estimator):
 
         self.factor_graph.push_back(prior_factor)
 
-    def initialize_pose(self, pose: Union[Pose2D, Pose3D]) -> None:
+    def _specific_initialize_pose(self, pose: Union[Pose2D, Pose3D]) -> None:
         """
-        Initialize the pose of a key in the estimator.
+        Estimator-specific code to initialize the pose of a key in the
+        estimator.
 
         Args:
             key: The key for which to initialize the pose.
             pose: The initial pose to set for the key.
         """
-        sym = get_symbol_from_name(pose.key)
+        sym = get_gtsam_symbol_from_key(pose.key)
         if isinstance(pose, Pose2D):
             pose_init = get_pose2_from_matrix(pose.transformation_matrix)
         elif isinstance(pose, Pose3D):
@@ -421,7 +420,7 @@ class GtsamEstimator(Estimator):
 
         self.initial_values.insert(sym, pose_init)
 
-    def initialize_point(self, point: Union[Point2D, Point3D]) -> None:
+    def _specific_initialize_point(self, point: Union[Point2D, Point3D]) -> None:
         """
         Initialize the point of a key in the estimator.
 
@@ -429,7 +428,8 @@ class GtsamEstimator(Estimator):
             key: The key for which to initialize the point.
             point: The initial point to set for the key.
         """
-        sym = get_symbol_from_name(point.key)
+        assert isinstance(point, (Point2D, Point3D)), "Point must be of type Point2D or Point3D"
+        sym = get_gtsam_symbol_from_key(point.key)
         self.initial_values.insert(sym, np.array(point.position))
 
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:
@@ -445,7 +445,7 @@ class GtsamEstimator(Estimator):
         other_translation_precision = (
             depth_precision / 100000.0
         )  # very low precision for x and y
-        pose_symbol = get_symbol_from_name(depth_measurement.key)
+        pose_symbol = get_gtsam_symbol_from_key(depth_measurement.key)
 
         # how many dimensions do we need to fill for a psuedo depth measurement?
         fill_dim = self.dimension - 1
@@ -467,7 +467,7 @@ class GtsamEstimator(Estimator):
         )
         self.factor_graph.push_back(prior_factor)
 
-    def get_pose(self, key: Key) -> Union[Pose2D, Pose3D]:
+    def get_pose_from_estimator(self, key: Key) -> Union[Pose2D, Pose3D]:
         """
         Get the current pose from the GTSAM estimator.
 
@@ -477,7 +477,7 @@ class GtsamEstimator(Estimator):
         Returns:
             The pose corresponding to the given key.
         """
-        pose_symbol = get_symbol_from_name(key)
+        pose_symbol = get_gtsam_symbol_from_key(key)
         if self.dimension == 2:
             pose_result2d = self.gtsam_result.atPose2(pose_symbol)  # type:ignore
             pose2d = Pose2D(
@@ -502,7 +502,7 @@ class GtsamEstimator(Estimator):
             raise ValueError(f"Unknown dimension: {self.dimension}")
 
 
-    def get_point(self, key: Key) -> Union[Point2D, Point3D]:
+    def get_point_from_estimator(self, key: Key) -> Union[Point2D, Point3D]:
         """
         Get the current point estimate from the GTSAM estimator.
 
@@ -521,61 +521,4 @@ class GtsamEstimator(Estimator):
 
 
 if __name__ == "__main__":
-    rospy.loginfo("GTSAM Estimator module loaded successfully.")
-    # You can add test cases or example usage here if needed.
-
-    # Example usage
-    estimator = GtsamEstimator(
-        mode=EstimatorMode.GTSAM_LM, dimension=3, odom_factor_type="between"
-    )
-    rospy.loginfo("GTSAM Estimator instance created successfully.")
-
-    # Try to add two odometry measurements, representing going in a straight line
-    poses = ["P0", "P1", "P2"]
-    covar = get_diag_relpose_covar(np.array([0.5] * 6))
-    assert isinstance(
-        covar, RelPoseCovar6
-    ), "Covariance must be a RelPoseCovar6 instance"
-
-    odom_measurement_1 = OdometryMeasurement3D(
-        key_pair=KeyPair(poses[0], poses[1]),
-        relative_translation=(1.0, 0.0, 0.0),  # Move 1 meter in the x direction
-        relative_rotation=tuple(
-            get_quat_from_rotation_matrix(np.eye(3))
-        ),  # No rotation
-        covariance=covar,
-    )
-    estimator.add_odometry(odom_measurement_1)
-    estimator.initialize_pose(
-        Pose3D(key=poses[0], position=(0.0, 0.0, 0.0), orientation=(0.0, 0.0, 0.0, 1.0))
-    )
-    random_quat = np.random.rand(4)
-    random_quat /= np.linalg.norm(random_quat)  # Normalize to get a valid
-    estimator.initialize_pose(
-        # Pose3D(key=poses[1], position=(0.0, 0.0, 0.0), orientation=(tuple(random_quat.astype(float))))
-        Pose3D(key=poses[1], position=(0.5, 0.0, 0.0), orientation=(0.0, 0.0, 0.0, 1.0))
-    )
-
-    odom_measurement_2 = OdometryMeasurement3D(
-        key_pair=KeyPair(poses[1], poses[2]),
-        relative_translation=(1.0, 0.0, 0.0),
-        relative_rotation=tuple(
-            get_quat_from_rotation_matrix(np.eye(3))
-        ),  # No rotation
-        covariance=covar,
-    )
-    estimator.add_odometry(odom_measurement_2)
-    estimator.initialize_pose(
-        Pose3D(key=poses[2], position=(1.0, 0.0, 0.0), orientation=(0.0, 0.0, 0.0, 1.0))
-    )
-
-    rospy.loginfo("Added two odometry measurements to the GTSAM estimator.")
-
-    # see if we can get a state estimate and print it
-    estimator.update()
-    pose_estimates = []
-    for key in poses:
-        rospy.loginfo(f"Getting pose for key: {key}")
-        pose = estimator.get_pose(key)
-        pose_estimates.append(pose)
-        rospy.loginfo(f"Pose for {key}: {pose}")
+    pass

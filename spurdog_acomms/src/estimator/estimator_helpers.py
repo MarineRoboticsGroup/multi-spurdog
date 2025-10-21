@@ -6,8 +6,6 @@ import numpy as np
 from numpy import ndarray
 import scipy.spatial.transform
 
-Key = str  # Assuming Key is a string for simplicity, can be replaced with a more complex type if needed
-
 #### Validators ####
 
 
@@ -122,8 +120,56 @@ def _check_rotation_matrix(R: np.ndarray, assert_test: bool = False) -> None:
         if assert_test:
             raise ValueError(f"R det incorrect {np.linalg.det(R)}")
 
+def _check_valid_key(instance, attribute, key: str) -> None:
+    """
+    Checks that a key is valid (non-empty string starting with a capital letter followed by numbers).
+
+    Args:
+        key (Key): the key to check
+    Raises:
+        ValueError: if the key is not valid
+    """
+    first_is_cap_letter = key[0].isupper()
+    rest_are_numbers = key[1:].isdigit()
+    if not (first_is_cap_letter and rest_are_numbers):
+        raise ValueError(f"Invalid key: {key}")
 
 #### Data Classes ###
+
+@define
+class Key:
+    """
+    A type alias for keys used in the estimator.
+    Typically, these are strings that uniquely identify variables.
+    """
+    key: str = field(
+        validator=validators.and_(
+            validators.instance_of(str),
+            _check_valid_key,
+        ),
+        metadata={"description": "The unique key identifier."},
+    )
+
+    def __hash__(self) -> int:
+        return hash(self.key)
+
+    def __str__(self):
+        return self.key
+
+    def check(self) -> None:
+        _check_valid_key(self, "key", self.key)
+
+    @property
+    def is_landmark(self) -> bool:
+        return self.key[0] == "L"
+
+    @property
+    def char(self) -> str:
+        return self.key[0]
+
+    @property
+    def index(self) -> int:
+        return int(self.key[1:])
 
 
 @define
@@ -292,8 +338,8 @@ class KeyPair:
     It is used to identify two variables (typically connected by a measurement)
     """
 
-    key1: Key = field(metadata={"description": "The first key"})
-    key2: Key = field(metadata={"description": "The second key"})
+    key1: Key = field(metadata={"description": "The first key"}, validator=validators.instance_of(Key))
+    key2: Key = field(metadata={"description": "The second key"}, validator=validators.instance_of(Key))
 
     def __str__(self):
         return f"KeyPair({self.key1}, {self.key2})"
@@ -346,12 +392,10 @@ class RangeMeasurement(PairMeasurement):
     )
     depth1: Optional[float] = field(
         default=None,
-        validator=validators.optional(validators.le(0.0)),
         metadata={"description": "Depth of the first point (optional)"},
     )
     depth2: Optional[float] = field(
         default=None,
-        validator=validators.optional(validators.le(0.0)),
         metadata={"description": "Depth of the second point (optional)"},
     )
 
@@ -362,6 +406,10 @@ class RangeMeasurement(PairMeasurement):
                 "Both depths must be provided or both must be None. "
                 f"Got depth1={self.depth1}, depth2={self.depth2}."
             )
+
+        # first key should be a vehicle, second key can be vehicle or landmark
+        if self.key1.is_landmark:
+            raise ValueError(f"First key in range measurement cannot be a landmark: {self.key1}")
 
     @property
     def is_2d(self) -> bool:
@@ -397,6 +445,11 @@ class OdometryMeasurement3D(PairMeasurement):
         metadata={"description": "Covariance of the odometry measurement (optional)"}
     )
 
+    # after init, check the keys are valid and not landmarks
+    def __attrs_post_init__(self):
+        if self.key1.is_landmark or self.key2.is_landmark:
+            raise ValueError(f"OdometryMeasurement3D cannot have landmark keys: {self.key_pair}")
+
     @property
     def rotation_matrix(self) -> ndarray:
         return get_rotation_matrix_from_quat(np.array(self.relative_rotation))
@@ -407,6 +460,17 @@ class OdometryMeasurement3D(PairMeasurement):
         Returns the translation vector as a numpy array.
         """
         return np.array(self.relative_translation)
+
+    @property
+    def transformation_matrix(self) -> ndarray:
+        """
+        Returns the homogeneous transformation matrix corresponding to the odometry measurement.
+        The transformation matrix is a 4x4 matrix in homogeneous coordinates.
+        """
+        T = np.eye(4)
+        T[:3, :3] = self.rotation_matrix
+        T[:3, 3] = np.array(self.relative_translation)
+        return T
 
     @property
     def rotation_precision(self) -> float:
@@ -445,6 +509,11 @@ class OdometryMeasurement2D(PairMeasurement):
         metadata={"description": "Covariance of the odometry measurement (optional)"}
     )
 
+    # after init, check the keys are valid and not landmarks
+    def __attrs_post_init__(self):
+        if self.key1.is_landmark or self.key2.is_landmark:
+            raise ValueError(f"OdometryMeasurement2D cannot have landmark keys: {self.key_pair}")
+
     @property
     def rotation_matrix(self) -> ndarray:
         """
@@ -461,6 +530,17 @@ class OdometryMeasurement2D(PairMeasurement):
         Returns the translation vector as a numpy array.
         """
         return np.array(self.relative_translation)
+
+    @property
+    def transformation_matrix(self) -> ndarray:
+        """
+        Returns the homogeneous transformation matrix corresponding to the odometry measurement.
+        The transformation matrix is a 3x3 matrix in homogeneous coordinates.
+        """
+        T = np.eye(3)
+        T[:2, :2] = self.rotation_matrix
+        T[:2, 2] = np.array(self.relative_translation)
+        return T
 
     @property
     def rotation_precision(self) -> float:
@@ -637,6 +717,17 @@ class Pose3D:
         T[:3, :3] = R
         T[:3, 3] = np.array(self.position)
         return T
+
+    # after construction, check that marginal covariance either None or 6x6 PSD matrix
+    def __attrs_post_init__(self):
+        if self.marginal_covariance is not None:
+            if self.marginal_covariance.shape != (6, 6):
+                raise ValueError(
+                    "Marginal covariance must be a 6x6 matrix if provided."
+                )
+            _check_symmetric(self.marginal_covariance)
+            if not np.all(np.linalg.eigvals(self.marginal_covariance) > 0):
+                raise ValueError("Marginal covariance must be positive definite.")
 
 @define
 class Point2D:
@@ -839,6 +930,18 @@ def get_quat_from_rotation_matrix(mat: np.ndarray) -> np.ndarray:
 
     return quat
 
+def get_quat_from_theta(theta: float) -> np.ndarray:
+    """Returns the quaternion from theta in scalar-last (x, y, z, w) format.
+
+    Args:
+        theta (float): the angle of rotation
+
+    Returns:
+        np.ndarray: the quaternion
+    """
+    R = np.eye(3)
+    R[:2, :2] = get_rotation_matrix_from_theta(theta)
+    return get_quat_from_rotation_matrix(R)
 
 def get_measurement_precisions_from_info_matrix(
     info_mat: np.ndarray, matrix_dim: Optional[int] = None

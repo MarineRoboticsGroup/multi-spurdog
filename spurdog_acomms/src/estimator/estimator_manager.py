@@ -42,6 +42,41 @@ from typing import Union, List, Optional, Set, Dict, Tuple
 import math
 import numpy as np
 
+
+def get_agent_name_from_key(key: Key) -> str:
+    """Extract the agent name from a key string.
+
+    Args:
+        key (Key): The key string, expected to be in the format "<Agent Char><Index>".
+        where the agent character is a letter and index is an integer.
+
+    Returns:
+        str: The extracted agent name. (the character
+    """
+    # check first character is a letter and rest are digits
+    if len(key) < 2 or not key[0].isalpha() or not key[1:].isdigit():
+        raise ValueError(f"Invalid key format: {key}")
+
+    return key[0]
+
+
+def get_key_idx(key: Key) -> int:
+    """Extract the index from a key string.
+
+    Args:
+        key (Key): The key string, expected to be in the format "<Agent Char><Index>".
+        where the agent character is a letter and index is an integer.
+
+    Returns:
+        int: The extracted index as an integer.
+    """
+    # check first character is a letter and rest are digits
+    if len(key) < 2 or not key[0].isalpha() or not key[1:].isdigit():
+        raise ValueError(f"Invalid key format: {key}")
+
+    return int(key[1:])
+
+
 class EstimatorManager:
     def __init__(
         self,
@@ -58,6 +93,7 @@ class EstimatorManager:
         """
         self.dimension = dimension
         self.agent_name = agent_name
+        self.most_recent_pose_keys: Dict[str, str] = {}
 
         # construct the estimator based on the mode
         if mode == EstimatorMode.GTSAM_LM:
@@ -68,6 +104,7 @@ class EstimatorManager:
             )
         elif mode == EstimatorMode.CORA:
             from .cora_estimator import CoraEstimator
+
             self.estimator = CoraEstimator(mode=EstimatorMode.CORA, dimension=dimension)
         else:
             raise ValueError(f"Unsupported estimator mode: {mode}")
@@ -85,6 +122,10 @@ class EstimatorManager:
         )
 
         self.has_received_data = False
+
+    @property
+    def agents_seen(self) -> Set[str]:
+        return set(self.most_recent_pose_keys.keys())
 
     def _add_pose_prior(self, msg: PoseFactorStamped):
         """
@@ -109,13 +150,38 @@ class EstimatorManager:
             msg.pose.pose.orientation.z,
             msg.pose.pose.orientation.w,
         )
+
+        # if position is all zeros, do not add the prior and print a warning
+        position_zeros = np.allclose(position, 0.0)
+        rotation_default = np.allclose(orientation, (0.0, 0.0, 0.0, 1.0))
+        if position_zeros and rotation_default:
+            rospy.logwarn(
+                f"Pose prior for key {msg.key1} has zero position and default orientation, skipping prior addition."
+            )
+            return
+        elif position_zeros:
+            rospy.logwarn(
+                f"Pose prior for key {msg.key1} has zero position. Allowing prior addition, but this may be unintended."
+            )
+        elif rotation_default:
+            rospy.logwarn(
+                f"Pose prior for key {msg.key1} has default orientation. Allowing prior addition, but this may be unintended."
+            )
+
+
         # covariance needs to be a 6x6 matrix
+        assert len(msg.pose.covariance) == 36, f"Pose covariance must have 36 elements, got {len(msg.pose.covariance)}"
+        pose_covariance = np.array(msg.pose.covariance).reshape((6, 6))
+        if np.allclose(pose_covariance, 0.0):
+            pose_covariance[:3, :3] = np.eye(3) * 1e-2
+            pose_covariance[3:, 3:] = np.eye(3) * 1e-3
         new_pose = Pose3D(
             key=msg.key1,
             position=position,
             orientation=orientation,
-            marginal_covariance=np.array(msg.pose.covariance),
+            marginal_covariance=pose_covariance,
         )
+        # print(f"Adding pose prior for key {msg.key1} with covariance:\n{pose_covariance}")
         # initialize and add prior
         try:
             rospy.logdebug(f"Initializing pose for key: {msg.key1}")
@@ -134,6 +200,24 @@ class EstimatorManager:
             raise ValueError(
                 f"Odometry measurement must have different keys, got {msg.key1} and {msg.key2}"
             )
+
+        agent1 = get_agent_name_from_key(msg.key1)
+        agent2 = get_agent_name_from_key(msg.key2)
+        assert (
+            agent1 == agent2
+        ), f"Odometry measurement: agents should be the same, got {agent1} and {agent2}"
+
+        idx1 = get_key_idx(msg.key1)
+        idx2 = get_key_idx(msg.key2)
+        assert (
+            idx2 == idx1 + 1
+        ), f"Odometry measurement keys must be consecutive, got {msg.key1} and {msg.key2}"
+        assert msg.key1 == self.most_recent_pose_keys.get(
+            agent1, msg.key1
+        ), f"Odometry measurement key1 {msg.key1} does not match most recent pose key for agent {agent1}: {self.most_recent_pose_keys.get(agent1, msg.key1)}"
+
+        # update the most recent pose key for the agent
+        self.most_recent_pose_keys[agent2] = msg.key2
 
         tx = msg.pose.pose.position.x
         ty = msg.pose.pose.position.y
@@ -168,18 +252,27 @@ class EstimatorManager:
         rho_xpsi = float(cov_mat[0, 3] / (sx * spsi)) if (sx * spsi) != 0 else 0.0
         rho_ypsi = float(cov_mat[1, 3] / (sy * spsi)) if (sy * spsi) != 0 else 0.0
 
-        covar = RelPoseCovar6(
-            relative_pose_sigma_x=sx,
-            relative_pose_sigma_y=sy,
-            relative_pose_sigma_z=sz,
-            relative_pose_sigma_psi=spsi,
-            relative_pose_rho_xy=rho_xy,
-            relative_pose_rho_xpsi=rho_xpsi,
-            relative_pose_rho_ypsi=rho_ypsi,
-        )
+        try:
+            covar = RelPoseCovar6(
+                relative_pose_sigma_x=sx,
+                relative_pose_sigma_y=sy,
+                relative_pose_sigma_z=sz,
+                relative_pose_sigma_psi=spsi,
+                relative_pose_rho_xy=rho_xy,
+                relative_pose_rho_xpsi=rho_xpsi,
+                relative_pose_rho_ypsi=rho_ypsi,
+            )
+        except Exception as e:
+            if msg.key1 == "A0" and msg.key2 == "A1":
+                covar = get_diag_relpose_covar(np.array([0.1]*3 + [0.05]*3))
+                assert isinstance(covar, RelPoseCovar6)
+                rospy.logwarn(f"Using default diagonal RelPoseCovar6 for odometry measurement between {msg.key1} and {msg.key2} due to error: {e}")
+            else:
+                rospy.logerr(f"Failed to create RelPoseCovar6 for odometry measurement between {msg.key1} and {msg.key2}: {e}")
+                raise e
 
         odom = OdometryMeasurement3D(
-            key_pair=KeyPair(msg.key1, msg.key2),
+            key_pair=KeyPair(Key(msg.key1), Key(msg.key2)),
             relative_translation=(tx, ty, tz),
             relative_rotation=(qx, qy, qz, qw),
             covariance=covar,
@@ -243,7 +336,7 @@ class EstimatorManager:
                     f"Range measurement must have different keys, got {msg.key1} and {msg.key2}"
                 )
 
-            kp = KeyPair(msg.key1, msg.key2)
+            kp = KeyPair(Key(msg.key1), Key(msg.key2))
             # treat range_sigma as standard deviation
             try:
                 variance = float(msg.range_sigma) ** 2
@@ -295,6 +388,7 @@ class EstimatorManager:
             rospy.logwarn(f"Estimator update failed: {e}")
 
         self.has_received_data = False
+
 
 class EstimatorBankManager:
     """

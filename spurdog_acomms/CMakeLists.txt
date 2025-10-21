@@ -240,6 +240,7 @@ catkin_install_python(PROGRAMS
   src/extract_preintegration.py
   src/test_timing.py
   src/estimator_node.py
+  src/measurement_graph_viz.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

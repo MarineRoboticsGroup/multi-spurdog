@@ -1,0 +1,12 @@
+<launch>
+  <!-- Visualize measurement graph for a specific agent namespace -->
+  <arg name="agent" default="actor_1"/>
+  <arg name="frame_id" default="map"/>
+  <arg name="rate" default="2.0"/>
+
+  <node pkg="spurdog_acomms" type="measurement_graph_viz.py" name="measurement_graph_viz" output="screen">
+    <param name="agent" value="$(arg agent)"/>
+    <param name="frame_id" value="$(arg frame_id)"/>
+    <param name="rate" value="$(arg rate)"/>
+  </node>
+</launch>
