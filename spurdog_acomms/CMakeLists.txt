@@ -239,6 +239,7 @@ catkin_install_python(PROGRAMS
   src/test_preintegration.py
   src/extract_preintegration.py
   src/test_timing.py
+  src/estimator_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

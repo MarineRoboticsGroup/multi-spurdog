@@ -1,20 +1,6 @@
 import numpy as np
 import re
-
-import logging, coloredlogs
-
-logger = logging.getLogger(__name__)
-field_styles = {
-    "filename": {"color": "green"},
-    "filename": {"color": "green"},
-    "levelname": {"bold": True, "color": "black"},
-    "name": {"color": "blue"},
-}
-coloredlogs.install(
-    level="INFO",
-    fmt="[%(filename)s:%(lineno)d] %(name)s %(levelname)s - %(message)s",
-    field_styles=field_styles,
-)
+import rospy # type: ignore
 
 from gtsam.gtsam import (
     NonlinearFactorGraph,
@@ -50,33 +36,33 @@ from gtsam.gtsam import (
 try:
     from gtsam import SESyncFactor2d as RelativePose2dFactor
 
-    logger.debug("Found C++ SESyncFactor2d")
+    rospy.logdebug("Found C++ SESyncFactor2d")
 except ImportError:
-    logger.warning("Using python SESyncFactor2d - will be much slower")
-    from custom_factors.SESyncFactor2d import RelativePose2dFactor
+    rospy.logwarn("Using python SESyncFactor2d - will be much slower")
+    from .custom_factors.SESyncFactor2d import RelativePose2dFactor
 
 try:
     from gtsam import SESyncFactor3d as RelativePose3dFactor
 
-    logger.debug("Found C++ SESyncFactor3d")
+    rospy.logdebug("Found C++ SESyncFactor3d")
 except ImportError:
-    logger.warning("Using python SESyncFactor3d - will be much slower")
-    from custom_factors.SESyncFactor3d import RelativePose3dFactor
+    rospy.logwarn("Using python SESyncFactor3d - will be much slower")
+    from .custom_factors.SESyncFactor3d import RelativePose3dFactor
 
 try:
     from gtsam_unstable import PoseToPointFactor2D as PoseToPoint2dFactor
     from gtsam_unstable import PoseToPointFactor3D as PoseToPoint3dFactor
 
-    logger.info("Found C++ PoseToPointFactor for 2D and 3D")
+    rospy.loginfo("Found C++ PoseToPointFactor for 2D and 3D")
 except ImportError:
-    logger.warning("Using python PoseToPointFactor - will be much slower")
-    from custom_factors.PoseToPointFactor import (
+    rospy.logwarn("Using python PoseToPointFactor - will be much slower")
+    from .custom_factors.PoseToPointFactor import (
         PoseToPoint2dFactor,
         PoseToPoint3dFactor,
     )
 
-from estimator import Estimator
-from estimator_helpers import (
+from .estimator import Estimator
+from .estimator_helpers import (
     Key,
     KeyPair,
     RangeMeasurement,
@@ -159,7 +145,7 @@ def get_relative_pose_from_odom_measurement(
         )
     else:
         err = f"Unknown odometry measurement type: {type(odom_measurement)}"
-        logger.error(err)
+        rospy.logerr(err)
         raise ValueError(err)
 
 
@@ -243,7 +229,7 @@ def solve_with_isam2(
 
     parameters = ISAM2Params()
     parameters.setOptimizationParams(ISAM2DoglegParams())
-    logger.debug(f"ISAM Params: {parameters}")
+    rospy.logdebug(f"ISAM Params: {parameters}")
     isam_solver = ISAM2(parameters)
     isam_solver.update(graph, initial_vals)
     result = isam_solver.calculateEstimate()
@@ -256,9 +242,9 @@ def solve_with_levenberg_marquardt(
     try:
         optimizer = LevenbergMarquardtOptimizer(graph, initial_vals)
     except RuntimeError as e:
-        logger.error(f"Failed to run LevenbergMarquardtOptimizer: {e}")
-        logger.error(f"Graph keys: {graph.keyVector()}")
-        logger.error(f"Initial values: {initial_vals.keys()}")
+        rospy.logerr(f"Failed to run LevenbergMarquardtOptimizer: {e}")
+        rospy.logerr(f"Graph keys: {graph.keyVector()}")
+        rospy.logerr(f"Initial values: {initial_vals.keys()}")
         raise e
 
     params = LevenbergMarquardtParams()
@@ -535,15 +521,14 @@ class GtsamEstimator(Estimator):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    logger.info("GTSAM Estimator module loaded successfully.")
+    rospy.loginfo("GTSAM Estimator module loaded successfully.")
     # You can add test cases or example usage here if needed.
 
     # Example usage
     estimator = GtsamEstimator(
         mode=EstimatorMode.GTSAM_LM, dimension=3, odom_factor_type="between"
     )
-    logger.info("GTSAM Estimator instance created successfully.")
+    rospy.loginfo("GTSAM Estimator instance created successfully.")
 
     # Try to add two odometry measurements, representing going in a straight line
     poses = ["P0", "P1", "P2"]
@@ -584,13 +569,13 @@ if __name__ == "__main__":
         Pose3D(key=poses[2], position=(1.0, 0.0, 0.0), orientation=(0.0, 0.0, 0.0, 1.0))
     )
 
-    logger.info("Added two odometry measurements to the GTSAM estimator.")
+    rospy.loginfo("Added two odometry measurements to the GTSAM estimator.")
 
     # see if we can get a state estimate and print it
     estimator.update()
     pose_estimates = []
     for key in poses:
-        logger.info(f"Getting pose for key: {key}")
+        rospy.loginfo(f"Getting pose for key: {key}")
         pose = estimator.get_pose(key)
         pose_estimates.append(pose)
-        logger.info(f"Pose for {key}: {pose}")
+        rospy.loginfo(f"Pose for {key}: {pose}")

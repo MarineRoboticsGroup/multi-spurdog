@@ -346,12 +346,12 @@ class RangeMeasurement(PairMeasurement):
     )
     depth1: Optional[float] = field(
         default=None,
-        validator=validators.optional(validators.ge(0.0)),
+        validator=validators.optional(validators.le(0.0)),
         metadata={"description": "Depth of the first point (optional)"},
     )
     depth2: Optional[float] = field(
         default=None,
-        validator=validators.optional(validators.ge(0.0)),
+        validator=validators.optional(validators.le(0.0)),
         metadata={"description": "Depth of the second point (optional)"},
     )
 
@@ -500,6 +500,40 @@ class OdometryMeasurement2D(PairMeasurement):
         """
         return self.relative_rotation
 
+def convert_odom3_to_odom2(odom3: OdometryMeasurement3D) -> OdometryMeasurement2D:
+    """
+    Converts a 3D odometry measurement to a 2D odometry measurement by projecting the translation
+    onto the XY plane and extracting the yaw (psi) in global frame from the quaternion.
+
+    Args:
+        odom3 (OdometryMeasurement3D): The 3D odometry measurement to convert.
+
+    Returns:
+        OdometryMeasurement2D: The converted 2D odometry measurement.
+    """
+    x, y, _ = odom3.relative_translation
+    quat = odom3.relative_rotation
+    # Convert quaternion to Euler angles (roll, pitch, yaw)
+    euler = scipy.spatial.transform.Rotation.from_quat(quat).as_euler("xyz")
+    psi = euler[2]  # Yaw angle
+
+    # Create a new RelPoseCovar3 from the RelPoseCovar6
+    covar6 = odom3.covariance
+    covar3 = RelPoseCovar3(
+        relative_pose_sigma_x=covar6.relative_pose_sigma_x,
+        relative_pose_sigma_y=covar6.relative_pose_sigma_y,
+        relative_pose_sigma_psi=covar6.relative_pose_sigma_psi,
+        relative_pose_rho_xy=covar6.relative_pose_rho_xy,
+        relative_pose_rho_xpsi=covar6.relative_pose_rho_xpsi,
+        relative_pose_rho_ypsi=covar6.relative_pose_rho_ypsi,
+    )
+
+    return OdometryMeasurement2D(
+        key_pair=odom3.key_pair,
+        relative_translation=(x, y),
+        relative_rotation=psi,
+        covariance=covar3,
+    )
 
 OdometryMeasurement = Union[
     OdometryMeasurement2D,

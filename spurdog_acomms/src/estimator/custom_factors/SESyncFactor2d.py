@@ -1,7 +1,7 @@
 import gtsam
 import numpy as np
 from typing import List, Optional
-from estimator_helpers import get_rotation_matrix_from_theta
+from ..estimator_helpers import get_rotation_matrix_from_theta
 
 
 def tangent_matrix(omega: float):
