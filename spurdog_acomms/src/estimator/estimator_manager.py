@@ -43,39 +43,6 @@ import math
 import numpy as np
 
 
-def get_agent_name_from_key(key: Key) -> str:
-    """Extract the agent name from a key string.
-
-    Args:
-        key (Key): The key string, expected to be in the format "<Agent Char><Index>".
-        where the agent character is a letter and index is an integer.
-
-    Returns:
-        str: The extracted agent name. (the character
-    """
-    # check first character is a letter and rest are digits
-    if len(key) < 2 or not key[0].isalpha() or not key[1:].isdigit():
-        raise ValueError(f"Invalid key format: {key}")
-
-    return key[0]
-
-
-def get_key_idx(key: Key) -> int:
-    """Extract the index from a key string.
-
-    Args:
-        key (Key): The key string, expected to be in the format "<Agent Char><Index>".
-        where the agent character is a letter and index is an integer.
-
-    Returns:
-        int: The extracted index as an integer.
-    """
-    # check first character is a letter and rest are digits
-    if len(key) < 2 or not key[0].isalpha() or not key[1:].isdigit():
-        raise ValueError(f"Invalid key format: {key}")
-
-    return int(key[1:])
-
 
 class EstimatorManager:
     def __init__(
@@ -93,7 +60,7 @@ class EstimatorManager:
         """
         self.dimension = dimension
         self.agent_name = agent_name
-        self.most_recent_pose_keys: Dict[str, str] = {}
+        self.most_recent_pose_keys: Dict[str, Key] = {}
 
         # construct the estimator based on the mode
         if mode == EstimatorMode.GTSAM_LM:
@@ -122,6 +89,15 @@ class EstimatorManager:
         )
 
         self.has_received_data = False
+
+    def get_all_estimated_variables(self) -> Dict[Key, Union[Pose2D, Pose3D, Point2D, Point3D]]:
+        """
+        Return a dictionary of all estimated variables (poses and points) for this agent.
+        Returns:
+            Dict[Key, Union[Pose2D, Pose3D, Point2D, Point3D]]: All current estimated variables.
+        """
+        return self.estimator.current_estimate.all_variable_map
+
 
     @property
     def agents_seen(self) -> Set[str]:
@@ -168,9 +144,10 @@ class EstimatorManager:
                 f"Pose prior for key {msg.key1} has default orientation. Allowing prior addition, but this may be unintended."
             )
 
-
         # covariance needs to be a 6x6 matrix
-        assert len(msg.pose.covariance) == 36, f"Pose covariance must have 36 elements, got {len(msg.pose.covariance)}"
+        assert (
+            len(msg.pose.covariance) == 36
+        ), f"Pose covariance must have 36 elements, got {len(msg.pose.covariance)}"
         pose_covariance = np.array(msg.pose.covariance).reshape((6, 6))
         if np.allclose(pose_covariance, 0.0):
             pose_covariance[:3, :3] = np.eye(3) * 1e-2
@@ -201,23 +178,25 @@ class EstimatorManager:
                 f"Odometry measurement must have different keys, got {msg.key1} and {msg.key2}"
             )
 
-        agent1 = get_agent_name_from_key(msg.key1)
-        agent2 = get_agent_name_from_key(msg.key2)
+        key1, key2 = Key(msg.key1), Key(msg.key2)
+        agent1, agent2 = key1.char, key2.char
         assert (
             agent1 == agent2
         ), f"Odometry measurement: agents should be the same, got {agent1} and {agent2}"
+        assert not (
+            key1.is_landmark or key2.is_landmark
+        ), f"Odometry measurement keys cannot be landmarks, got {key1} and {key2}"
 
-        idx1 = get_key_idx(msg.key1)
-        idx2 = get_key_idx(msg.key2)
+        idx1, idx2 = key1.index, key2.index
         assert (
             idx2 == idx1 + 1
-        ), f"Odometry measurement keys must be consecutive, got {msg.key1} and {msg.key2}"
-        assert msg.key1 == self.most_recent_pose_keys.get(
-            agent1, msg.key1
-        ), f"Odometry measurement key1 {msg.key1} does not match most recent pose key for agent {agent1}: {self.most_recent_pose_keys.get(agent1, msg.key1)}"
+        ), f"Odometry measurement keys must be consecutive, got {key1} and {key2}"
+        assert key1 == self.most_recent_pose_keys.get(
+            agent1, key1
+        ), f"Odometry measurement key1 {key1} does not match most recent pose key for agent {agent1}: {self.most_recent_pose_keys.get(agent1, key1)}"
 
         # update the most recent pose key for the agent
-        self.most_recent_pose_keys[agent2] = msg.key2
+        self.most_recent_pose_keys[agent2] = key2
 
         tx = msg.pose.pose.position.x
         ty = msg.pose.pose.position.y
@@ -264,11 +243,15 @@ class EstimatorManager:
             )
         except Exception as e:
             if msg.key1 == "A0" and msg.key2 == "A1":
-                covar = get_diag_relpose_covar(np.array([0.1]*3 + [0.05]*3))
+                covar = get_diag_relpose_covar(np.array([0.1] * 3 + [0.05] * 3))
                 assert isinstance(covar, RelPoseCovar6)
-                rospy.logwarn(f"Using default diagonal RelPoseCovar6 for odometry measurement between {msg.key1} and {msg.key2} due to error: {e}")
+                rospy.logwarn(
+                    f"Using default diagonal RelPoseCovar6 for odometry measurement between {msg.key1} and {msg.key2} due to error: {e}"
+                )
             else:
-                rospy.logerr(f"Failed to create RelPoseCovar6 for odometry measurement between {msg.key1} and {msg.key2}: {e}")
+                rospy.logerr(
+                    f"Failed to create RelPoseCovar6 for odometry measurement between {msg.key1} and {msg.key2}: {e}"
+                )
                 raise e
 
         odom = OdometryMeasurement3D(
