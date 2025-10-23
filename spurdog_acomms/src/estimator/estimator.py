@@ -62,7 +62,7 @@ class Estimator(ABC):
         key1, key2 = range_measurement.key1, range_measurement.key2
         key1_exists = key1 in self.current_estimate.pose_map
         if not key1_exists:
-            rospy.logdebug(
+            rospy.loginfo(
                 f"Pose for key {key1} not initialized yet, delaying range measurement for landmark {key2}."
             )
             self.delayed_range_inits[key1] = range_measurement
@@ -88,6 +88,7 @@ class Estimator(ABC):
             else:
                 raise ValueError(f"Unknown dimension: {self.dimension}")
             self.initialize_point(init_point)
+
         self._specific_add_range(range_measurement)
         self.range_measurement_pairs.add((key1, key2))
 
@@ -127,33 +128,122 @@ class Estimator(ABC):
                     raise ValueError(f"Unknown dimension: {self.dimension}")
                 self.initialize_pose(init_pose)
 
-        _handle_first_pose_initialization()
-        pose1 = self.current_estimate.get_variable(key1)
-        assert isinstance(
-            pose1, (Pose2D, Pose3D)
-        ), f"Expected pose for key {key1} to be Pose2D or Pose3D, got {type(pose1)}"
-        transform1 = pose1.transformation_matrix
-        rel_transform = odom_measurement.transformation_matrix
-        expected_transform2 = transform1 @ rel_transform
-        expected_rot = expected_transform2[0 : self.dimension, 0 : self.dimension]
-        expected_trans = expected_transform2[0 : self.dimension, self.dimension]
-        if self.dimension == 2:
-            expected_pose2 = Pose2D(
-                key=key2,
-                position=tuple(expected_trans),
-                orientation=get_theta_from_rotation_matrix(expected_rot),
+        # 1) First-pose initialization
+        try:
+            _handle_first_pose_initialization()
+        except Exception as e:
+            rospy.logerr(
+                f"[add_odometry:init_first_pose] Failed initializing first pose for key {key1}: {e}"
             )
-            self.initialize_pose(expected_pose2)
-        elif self.dimension == 3:
-            expected_pose2 = Pose3D(
-                key=key2,
-                position=tuple(expected_trans),
-                orientation=tuple(get_quat_from_rotation_matrix(expected_rot)),
+            raise
+
+        # 2) Retrieve pose1 from current estimates
+        try:
+            pose1 = self.current_estimate.get_variable(key1)
+        except Exception as e:
+            rospy.logerr(
+                f"[add_odometry:get_pose1] Failed to retrieve pose for key {key1}: {e}"
             )
-            self.initialize_pose(expected_pose2)
-        else:
-            raise ValueError(f"Unknown dimension: {self.dimension}")
-        self._specific_add_odometry(odom_measurement)
+            raise
+
+        if not isinstance(pose1, (Pose2D, Pose3D)):
+            err = f"[add_odometry:pose1_type] Expected Pose2D or Pose3D for key {key1}, got {type(pose1)}"
+            rospy.logerr(err)
+            raise TypeError(err)
+
+        # 3) Get transformation matrices
+        try:
+            transform1 = pose1.transformation_matrix
+        except Exception as e:
+            rospy.logerr(
+                f"[add_odometry:transform1] Failed to get transformation_matrix from pose1 (key {key1}): {e}"
+            )
+            raise
+
+        try:
+            rel_transform = odom_measurement.transformation_matrix
+        except Exception as e:
+            rospy.logerr(
+                f"[add_odometry:rel_transform] Failed to get transformation_matrix from odometry measurement ({key1}->{key2}): {e}"
+            )
+            raise
+
+        # 4) Compose expected transform for pose2
+        try:
+            expected_transform2 = transform1 @ rel_transform
+        except Exception as e:
+            rospy.logerr(
+                f"[add_odometry:compose] Failed matrix multiplication for expected transform (key {key1}->{key2})."
+                f" Shapes: t1={getattr(transform1,'shape',None)}, t_rel={getattr(rel_transform,'shape',None)} | Error: {e}"
+            )
+            raise
+
+        # 5) Extract rotation and translation blocks
+        try:
+            expected_rot = expected_transform2[0 : self.dimension, 0 : self.dimension]
+            expected_trans = expected_transform2[0 : self.dimension, self.dimension]
+        except Exception as e:
+            rospy.logerr(
+                f"[add_odometry:slice_expected] Failed slicing expected transform (dim={self.dimension}) for key {key2}: {e}"
+            )
+            raise
+
+        # 6) Build expected pose2 and initialize
+        try:
+            if self.dimension == 2:
+                try:
+                    theta = get_theta_from_rotation_matrix(expected_rot)
+                except Exception as e:
+                    rospy.logerr(
+                        f"[add_odometry:theta_from_rot] Failed to compute theta from rotation for key {key2}: {e}"
+                    )
+                    raise
+                expected_pose2 = Pose2D(
+                    key=key2,
+                    position=tuple(expected_trans),
+                    orientation=theta,
+                )
+                try:
+                    self.initialize_pose(expected_pose2)
+                except Exception as e:
+                    rospy.logerr(
+                        f"[add_odometry:init_pose2_2d] Failed to initialize pose2 for key {key2}: {e}"
+                    )
+                    raise
+            elif self.dimension == 3:
+                try:
+                    quat = tuple(get_quat_from_rotation_matrix(expected_rot))
+                except Exception as e:
+                    rospy.logerr(
+                        f"[add_odometry:quat_from_rot] Failed to compute quaternion from rotation for key {key2}: {e}"
+                    )
+                    raise
+                expected_pose2 = Pose3D(
+                    key=key2,
+                    position=tuple(expected_trans),
+                    orientation=quat,
+                )
+                try:
+                    self.initialize_pose(expected_pose2)
+                except Exception as e:
+                    rospy.logerr(
+                        f"[add_odometry:init_pose2_3d] Failed to initialize pose2 for key {key2}: {e}"
+                    )
+                    raise
+            else:
+                raise ValueError(f"Unknown dimension: {self.dimension}")
+        except Exception:
+            # re-raise after logging
+            raise
+
+        # 7) Add odometry to backend-specific implementation
+        try:
+            self._specific_add_odometry(odom_measurement)
+        except Exception as e:
+            rospy.logerr(
+                f"[add_odometry:backend_add] Backend-specific add_odometry failed for {key1}->{key2}: {e}"
+            )
+            raise
 
     @abstractmethod
     def _specific_add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
@@ -175,13 +265,15 @@ class Estimator(ABC):
         ), "Pose must be of type Pose2D or Pose3D"
         self.current_estimate.update_variable(pose)
         self._specific_initialize_pose(pose)
-        rospy.logdebug(f"[estimator] Initialized pose for key {pose.key}")
+        rospy.loginfo(f"[estimator] Initialized pose for key {pose.key}")
+
         if pose.key in self.delayed_range_inits:
             range_measurement = self.delayed_range_inits.pop(pose.key)
-            rospy.logdebug(
-                f"Processing delayed initialization for landmark {pose.key} after pose initialization."
+            rospy.loginfo(
+                f"Processing delayed range measurement between {range_measurement.key1} and {range_measurement.key2} after pose initialization."
             )
             self.add_range(range_measurement)
+
 
     @abstractmethod
     def _specific_initialize_pose(self, pose: Union[Pose2D, Pose3D]) -> None:
@@ -272,5 +364,84 @@ class Estimator(ABC):
         """
         pass
 
+    def print_current_estimate(self):
+        """
+        Print the current estimate of poses and points.
+        """
+        rospy.loginfo("Current Estimator Values:")
+        output_lines = []
+        output_lines.append("Poses:")
+        for key, pose in self.current_estimate.pose_map.items():
+            output_lines.append(f"Key: {key} | Position: {np.round(pose.position, 2)} | Orientation: {np.round(pose.orientation, 2)}")
+        output_lines.append("")
+        output_lines.append("Points:")
+        for key, point in self.current_estimate.point_map.items():
+            output_lines.append(f"Key: {key} | Position: {np.round(point.position, 2)}")
+        rospy.loginfo("\n".join(output_lines))
+
+    def print_difference_between_estimates(
+        self,
+        other_values: EstimatorValues,
+    ) -> None:
+        """
+        Print the difference between the current estimate and another set of estimator values.
+        Args:
+            other_values: The other estimator values to compare against.
+        """
+        # check that other_values has the same keys as current_estimate
+        if set(self.current_estimate.all_keys) != set(other_values.all_keys):
+            curr_keys = set(self.current_estimate.all_keys)
+            other_keys = set(other_values.all_keys)
+            missing_in_other = curr_keys - other_keys
+            missing_in_current = other_keys - curr_keys
+            rospy.logwarn(
+                f"Warning: Key sets do not match between current estimate and other values. Will only compare common keys.\n"
+                f"Keys missing in other values: {missing_in_other}\n"
+                f"Keys missing in current estimate: {missing_in_current}"
+            )
+
+        rospy.loginfo("Difference Between Current Estimate and Other Estimate:")
+        output_lines = []
+        output_lines.append("Poses Differences:")
+        differences_found = False
+        for key, pose in self.current_estimate.pose_map.items():
+            if key in other_values.pose_map:
+                key_diffs_found = False
+                other_pose = other_values.pose_map[key]
+                pos_diff = np.array(pose.position) - np.array(other_pose.position)
+                if self.dimension == 2:
+                    ori_diff = np.array(pose.orientation) - np.array(other_pose.orientation)
+                elif self.dimension == 3:
+                    ori_diff = np.array(pose.orientation) - np.array(other_pose.orientation)
+
+                key_info = f"Key: {key} "
+                if np.any(np.abs(pos_diff) > 1e-3):
+                    key_diffs_found = True
+                    key_info += f"| Position Diff: {np.round(pos_diff, 2)} "
+                if np.any(np.abs(ori_diff) > 1e-3):
+                    key_diffs_found = True
+                    key_info += f"| Orientation Diff: {np.round(ori_diff, 2)}"
+                if not key_diffs_found:
+                    key_info += "| No significant differences."
+                differences_found = differences_found or key_diffs_found
+                output_lines.append(key_info)
+
+        output_lines.append("")
+        output_lines.append("Points Differences:")
+        for key, point in self.current_estimate.point_map.items():
+            if key in other_values.point_map:
+                key_diffs_found = False
+                other_point = other_values.point_map[key]
+                pos_diff = np.array(point.position) - np.array(other_point.position)
+                key_info = f"Key: {key} "
+                if np.any(np.abs(pos_diff) > 1e-3):
+                    key_diffs_found = True
+                    key_info += f"| Position Diff: {np.round(pos_diff, 2)}"
+                if not key_diffs_found:
+                    key_info += "| No significant differences."
+                differences_found = differences_found or key_diffs_found
+                output_lines.append(key_info)
+
+        rospy.loginfo("\n".join(output_lines))
 
 # No main routine: this module is intended as an abstract interface only.

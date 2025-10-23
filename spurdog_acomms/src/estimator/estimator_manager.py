@@ -36,6 +36,7 @@ from spurdog_acomms.msg import (
 )
 
 import rospy
+import threading
 
 from typing import Union, List, Optional, Set, Dict, Tuple
 
@@ -61,6 +62,8 @@ class EstimatorManager:
         self.dimension = dimension
         self.agent_name = agent_name
         self.most_recent_pose_keys: Dict[str, Key] = {}
+        # Re-entrant lock to guard estimator access (updates and other calls)
+        self._lock = threading.RLock()
 
         # construct the estimator based on the mode
         if mode == EstimatorMode.GTSAM_LM:
@@ -96,7 +99,8 @@ class EstimatorManager:
         Returns:
             Dict[Key, Union[Pose2D, Pose3D, Point2D, Point3D]]: All current estimated variables.
         """
-        return self.estimator.current_estimate.all_variable_map
+        with self._lock:
+            return self.estimator.current_estimate.all_variable_map
 
 
     @property
@@ -161,14 +165,16 @@ class EstimatorManager:
         # print(f"Adding pose prior for key {msg.key1} with covariance:\n{pose_covariance}")
         # initialize and add prior
         try:
-            rospy.logdebug(f"Initializing pose for key: {msg.key1}")
-            self.estimator.initialize_pose(new_pose)
+            with self._lock:
+                rospy.logdebug(f"Initializing pose for key: {msg.key1}")
+                self.estimator.initialize_pose(new_pose)
         except Exception:
             # initialization may be a no-op for some estimator implementations
             rospy.logdebug(f"initialize_pose failed for {msg.key1}")
         try:
-            rospy.logdebug(f"Adding pose prior for key: {msg.key1}")
-            self.estimator.add_pose_prior(new_pose)
+            with self._lock:
+                rospy.logdebug(f"Adding pose prior for key: {msg.key1}")
+                self.estimator.add_pose_prior(new_pose)
         except Exception as e:
             rospy.logwarn(f"add_pose_prior failed: {e}")
 
@@ -269,10 +275,11 @@ class EstimatorManager:
                 return
 
         try:
-            rospy.logdebug(f"Adding odometry measurement: {odom}")
-            self.estimator.add_odometry(odom)
+            with self._lock:
+                rospy.logdebug(f"Adding odometry measurement: {odom}")
+                self.estimator.add_odometry(odom)
         except Exception as e:
-            rospy.logerr(f"Failed to add odometry measurement: {e}")
+            rospy.logerr(f"Failed to add odometry measurement | odom: {odom} | error: {e}")
 
     def handle_pose_factor(self, msg: PoseFactorStamped):
         """
@@ -289,6 +296,7 @@ class EstimatorManager:
         # if keys are the same, then this is a pose prior
         try:
             if msg.key1 == msg.key2:
+                rospy.logwarn(f"[EstimatorManager] Adding pose prior for key: {msg.key1}")
                 self._add_pose_prior(msg)
             else:
                 self._add_odom_measurement(msg)
@@ -296,7 +304,8 @@ class EstimatorManager:
         except Exception as e:
             rospy.logerr(f"Error in handle_pose_factor: {e}")
 
-        self.has_received_data = True
+        with self._lock:
+            self.has_received_data = True
 
     def handle_range_factor(self, msg: RangeFactorStamped):
         """
@@ -348,76 +357,30 @@ class EstimatorManager:
             )
 
             try:
-                self.estimator.add_range(range_meas)
+                with self._lock:
+                    self.estimator.add_range(range_meas)
             except Exception as e:
                 rospy.logwarn(f"Failed to add range measurement: {e}")
 
         except Exception as e:
             rospy.logerr(f"Error in handle_range_factor: {e}")
 
-        self.has_received_data = True
+        with self._lock:
+            self.has_received_data = True
 
     def update(self):
         """
         Update the estimator with the current measurements.
         """
-        if not self.has_received_data:
-            rospy.logdebug("No new data received, skipping update.")
-            return
+        with self._lock:
+            if not self.has_received_data:
+                rospy.logdebug("No new data received, skipping update.")
+                return
 
-        try:
-            self.estimator.update()
-        except Exception as e:
-            rospy.logwarn(f"Estimator update failed: {e}")
-
-        self.has_received_data = False
-
-
-class EstimatorBankManager:
-    """
-    Manages a collection of estimators (one per agent name provided) and
-    provides a unified interface for adding measurements and retrieving poses.
-    """
-
-    def __init__(
-        self,
-        agents: Set[str],
-        mode: EstimatorMode = EstimatorMode.GTSAM_LM,
-        dimension: int = 3,
-    ):
-        """
-        Initializes the EstimatorManager with the specified mode and dimension.
-        Args:
-            agents (Set[str]): A set of agent names to initialize the estimator for.
-            mode (EstimatorMode): The mode of the estimator.
-            dimension (int): The dimension of the state space (2 or 3).
-        """
-        if agents is None:
-            raise ValueError("Agents set cannot be None")
-        if len(agents) == 0:
-            raise ValueError("Agents set cannot be empty")
-
-        # set the dimension
-        self.dimension = dimension
-        self.agents = agents
-        self.estimators: Dict[str, EstimatorManager] = {}
-
-        for a in agents:
-            if not isinstance(a, str) or len(a) == 0:
-                raise ValueError(f"Invalid agent name: '{a}'")
-
-            self.estimators[a] = EstimatorManager(
-                agent_name=a,
-                mode=mode,
-                dimension=dimension,
-            )
-
-    def update_estimators(self):
-        """
-        Update all estimators in the bank.
-        """
-        for agent, estimator in self.estimators.items():
             try:
-                estimator.update()
+                self.estimator.update()
             except Exception as e:
-                rospy.logwarn(f"Estimator update failed for agent {agent}: {e}")
+                rospy.logerr(f"Estimator update failed: {e}")
+
+            self.has_received_data = False
+

@@ -1,6 +1,6 @@
 from typing import Union, List, Optional, Set
 
-from estimator import Estimator
+from .estimator import Estimator
 from .estimator_helpers import (
     Key,
     KeyPair,
@@ -33,7 +33,12 @@ import rospy  # type: ignore
 
 
 def get_cora_symbol_from_key(key: Key) -> cora.Symbol:
-    return cora.Symbol(key.char, key.index)
+    assert isinstance(key, Key), f"Key must be of type Key, got {type(key)}"
+    assert isinstance(key.char, str) and len(key.char) == 1, f"Key char must be a single character string, got {key.char}"
+    assert isinstance(key.index, int), f"Key index must be an integer, got {type(key.index)}"
+    sym = cora.Symbol(key.char, key.index)
+    rospy.logdebug(f"Constructed symbol {sym} from key {key}")
+    return sym
 
 
 class CoraEstimator(Estimator):
@@ -48,28 +53,36 @@ class CoraEstimator(Estimator):
         ), f"Tried constructing CORA estimator but mode is {mode}."
         rospy.logdebug("Constructing CORA estimator")
         super().__init__(mode, dimension)
-        self._dimension = dimension
         self._problem = cora.Problem(dimension, dimension + 1)
-        self._current_estimate_val = cora.Values()
         self._solver_results = None
+        self.cora_estimate = cora.Values()
         rospy.logdebug("CORA estimator constructed.")
+
+    @property
+    def current_estimate_matrix(self) -> np.ndarray:
+        """
+        Returns the current estimate as a numpy array.
+        """
+        self._check_current_estimate()
+        return cora.getVarMatrixFromValues(self._problem, self.cora_estimate)
 
     def _specific_initialize_pose(self, pose: Union[Pose2D, Pose3D]) -> None:
         rospy.logdebug(f"Initializing CORA pose for key: {pose.key}")
-        if self._dimension == 2:
+        if self.dimension == 2:
             assert isinstance(pose, Pose2D), "2D pose must be of type Pose2D"
             rotation_matrix = get_rotation_matrix_from_theta(pose.orientation)
-        elif self._dimension == 3:
+        elif self.dimension == 3:
             assert isinstance(pose, Pose3D), "3D pose must be of type Pose3D"
             rotation_matrix = get_rotation_matrix_from_quat(np.array(pose.orientation))
         else:
             raise ValueError(f"Unknown dimension: {self.dimension}")
         translation_vector = np.array(pose.position)
         assert (
-            len(translation_vector) == self._dimension
-        ), "Translation vector has incorrect dimension"
+            len(translation_vector) == self.dimension
+        ), f"Translation vector has incorrect dimension {len(translation_vector)} (should be {self.dimension})"
 
-        self._current_estimate_val.set_pose(
+        self._problem.addPoseVariable(get_cora_symbol_from_key(pose.key))
+        self.cora_estimate.set_pose(
             get_cora_symbol_from_key(pose.key), rotation_matrix, translation_vector
         )
         rospy.logdebug(f"CORA pose for key {pose.key} initialized.")
@@ -78,10 +91,11 @@ class CoraEstimator(Estimator):
         rospy.logdebug(f"Initializing CORA point for key: {point.key}")
         position_vector = np.array(point.position)
         assert (
-            len(position_vector) == self._dimension
-        ), f"Position vector has incorrect dimension {position_vector.shape} (should be {self._dimension})"
+            len(position_vector) == self.dimension
+        ), f"Position vector has incorrect dimension {position_vector.shape} (should be {self.dimension})"
 
-        self._current_estimate_val.set_landmark(
+        self._problem.addLandmarkVariable(get_cora_symbol_from_key(point.key))
+        self.cora_estimate.set_landmark(
             get_cora_symbol_from_key(point.key), position_vector
         )
         rospy.logdebug(f"CORA point for key {point.key} initialized.")
@@ -95,6 +109,7 @@ class CoraEstimator(Estimator):
             range_measurement.variance,
         )
         self._problem.addRangeMeasurement(range_measure)
+        self._problem.updateProblemData()
         rospy.logdebug("CORA range measurement added.")
 
     def _specific_add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
@@ -115,28 +130,44 @@ class CoraEstimator(Estimator):
             )
         else:
             raise ValueError(f"Unknown dimension: {self.dimension}")
+        sym1 = get_cora_symbol_from_key(odom_measurement.key1)
+        sym2 = get_cora_symbol_from_key(odom_measurement.key2)
         translation_vector = np.array(odom_measurement.relative_translation)
         covar = odom_measurement.covariance.covariance_matrix
+
+        rospy.logdebug(f"Adding odometry between symbols: {sym1}, {sym2}")
+        rospy.logdebug(f"Constructed symbols: {sym1}, {sym2}")
+        rospy.logdebug(f"Constructed translation vector: {translation_vector}")
+        rospy.logdebug(f"Constructed rotation matrix:\n{rotation_matrix}")
+
         rel_pose_measure = cora.RelativePoseMeasurement(
-            get_cora_symbol_from_key(odom_measurement.key1),
-            get_cora_symbol_from_key(odom_measurement.key2),
+            sym1,
+            sym2,
             rotation_matrix,
             translation_vector,
             covar,
         )
+        rospy.logdebug(f"Constructed relative pose measurement: {rel_pose_measure}")
         self._problem.addRelativePoseMeasurement(rel_pose_measure)
         rospy.logdebug("CORA odometry measurement added.")
+        self._problem.updateProblemData()
+        rospy.logdebug("CORA problem data updated after adding odometry.")
 
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:
         raise NotImplementedError("Cora depth measurement addition not implemented.")
 
     def get_pose_from_estimator(self, key: Key) -> Union[Pose2D, Pose3D]:
-        rospy.logdebug(f"Getting CORA pose for key: {key}")
+        rospy.logdebug(f"\n\n\n\nGetting CORA pose for key: {key}")
+        self._problem.updateProblemData()
+        rospy.logdebug(f"Current problem {self._problem}")
+        rospy.logdebug(f"Current estimate matrix {self.current_estimate_matrix}")
+        sym = get_cora_symbol_from_key(key)
+        rospy.logdebug(f"Getting pose for symbol: {sym} \n\n\n\n")
         self._check_current_estimate()
-        assert isinstance(self._current_estimate, np.ndarray)
         (rot, trans) = cora.extractRelaxedPose(
-            self._problem, self._current_estimate, get_cora_symbol_from_key(key)
+            self._problem, self.current_estimate_matrix, get_cora_symbol_from_key(key)
         )
+        rospy.logdebug(f"Extracted rotation: {rot}, translation: {trans}")
         if self.dimension == 2:
             theta = get_theta_from_rotation_matrix(rot)
             return Pose2D(key=key, position=tuple(trans), orientation=theta)
@@ -148,10 +179,10 @@ class CoraEstimator(Estimator):
 
     def get_point_from_estimator(self, key: Key) -> Union[Point2D, Point3D]:
         rospy.logdebug(f"Getting CORA point for key: {key}")
+        self._problem.updateProblemData()
         self._check_current_estimate()
-        assert isinstance(self._current_estimate, np.ndarray)
         point = cora.extractRelaxedPoint(
-            self._problem, self._current_estimate, get_cora_symbol_from_key(key)
+            self._problem, self.current_estimate_matrix, get_cora_symbol_from_key(key)
         )
         assert isinstance(point, np.ndarray), "2D point must be a numpy array"
         if self.dimension == 2:
@@ -163,19 +194,63 @@ class CoraEstimator(Estimator):
         else:
             raise ValueError(f"Unknown dimension: {self.dimension}")
 
+    def add_pose_prior(self, pose: Union[Pose2D, Pose3D]) -> None:
+        assert (
+            pose.marginal_covariance is not None
+        ), "Pose prior must have marginal covariance"
+        rospy.logdebug(f"Adding CORA pose prior for key: {pose.key}")
+
+        self._problem.addPosePrior(
+            cora.PosePrior(
+                id=get_cora_symbol_from_key(pose.key),
+                R=(
+                    get_rotation_matrix_from_theta(pose.orientation)  # type: ignore
+                    if self.dimension == 2
+                    else get_rotation_matrix_from_quat(np.array(pose.orientation))
+                ),
+                t=np.array(pose.position),
+                cov=pose.marginal_covariance,
+            )
+        )
+
     def update(self):
         rospy.logdebug("Updating CORA current estimate")
         self._check_current_estimate()
-        assert isinstance(self._current_estimate, np.ndarray)
-        (self._solver_results, self._current_estimate) = cora.solveCORA(
+        (self._solver_results, iterate_history) = cora.solveCORA(
             problem=self._problem,
-            x0=self._current_estimate,
+            x0=self.current_estimate_matrix,
             max_relaxation_rank=6,
-            verbose=False,
+            verbose=True,
             log_iterates=False,
             show_iterates=False,
         )
         rospy.logdebug("CORA current estimate updated.")
+        assert isinstance(self._solver_results.x, np.ndarray), f"Estimate matrix must be a numpy array, got {type(self._solver_results.x)}"
+
+        try:
+            self.cora_estimate = cora.getValuesFromVarMatrix(
+                self._problem, self._solver_results.x
+            )
+        except Exception as e:
+            rospy.logerr(f"Error converting variable matrix to CORA values: {e}")
+            raise e
+
+        for key in self.current_estimate.pose_map.keys():
+            rospy.logdebug(f"Updated pose for key {key}: {self.get_pose_from_estimator(key)}")
+            try:
+                self.current_estimate.update_variable(self.get_pose_from_estimator(key))
+            except Exception as e:
+                err_msg = f"Error updating pose for key {key}: {e}"
+                rospy.logerr(err_msg)
+                raise Exception(err_msg)
+        for key in self.current_estimate.point_map.keys():
+            rospy.logdebug(f"Updated point for key {key}: {self.get_point_from_estimator(key)}")
+            try:
+                self.current_estimate.update_variable(self.get_point_from_estimator(key))
+            except Exception as e:
+                err_msg = f"Error updating point for key {key}: {e}"
+                rospy.logerr(err_msg)
+                raise Exception(err_msg)
 
     def parse_pyfg(self, filepath: str) -> None:
         rospy.logdebug(f"Parsing CORA problem from file: {filepath}")
@@ -183,11 +258,11 @@ class CoraEstimator(Estimator):
 
     def _check_current_estimate(self):
         rospy.logdebug("Checking CORA current estimate is valid")
-        if self._current_estimate is None:
+        if self.current_estimate is None:
             raise ValueError(
                 "Current estimate is None. Please set an initial estimate before querying poses or points."
             )
-        if not isinstance(self._current_estimate, np.ndarray):
+        if not isinstance(self.cora_estimate, cora.Values):
             raise TypeError(
-                f"Current estimate must be a numpy array. Is type {type(self._current_estimate)}"
+                f"Current estimate must be of type cora.Values. Is type {type(self.cora_estimate)}"
             )

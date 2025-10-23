@@ -5,7 +5,7 @@ Simple ROS node that wraps EstimatorManager and publishes periodic state estimat
 
 
 import rospy
-from estimator.estimator_manager import EstimatorBankManager, EstimatorManager
+from estimator.estimator_manager import EstimatorManager
 from estimator.estimator_helpers import EstimatorMode, get_quat_from_theta, Pose2D, Pose3D, Point2D, Point3D, Key
 from spurdog_acomms.msg import PoseFactorStamped
 from visualization_msgs.msg import Marker, MarkerArray
@@ -17,7 +17,7 @@ def main() -> None:
     rospy.init_node("estimator_node")
 
     dimension = rospy.get_param("~dimension", 3)
-    mode_name = rospy.get_param("~mode", "GTSAM_LM")
+    mode_name = rospy.get_param("~mode", "CORA")
     agents = rospy.get_param("~agents", ["actor_0"])
 
     if isinstance(agents, str):
@@ -55,12 +55,15 @@ def main() -> None:
         var: Any,
         color: Tuple[float, float, float, float],
         shape: int = Marker.SPHERE,
-        scale: float = 0.2
+        scale: float = 0.2,
+    ns: str = "estimator",
+    text: Optional[str] = None,
+        z_offset: float = 0.0
     ) -> Marker:
         m = Marker()
         m.header.frame_id = "map"
         m.header.stamp = rospy.Time.now()
-        m.ns = "estimator"
+        m.ns = ns
         m.id = idx
         m.type = shape
         m.action = Marker.ADD
@@ -68,12 +71,15 @@ def main() -> None:
             pos = var.position
             m.pose.position.x = float(pos[0])
             m.pose.position.y = float(pos[1])
-            m.pose.position.z = float(pos[2]) if len(pos) > 2 else 0.0
+            m.pose.position.z = (float(pos[2]) if len(pos) > 2 else 0.0) + z_offset
         m.pose.orientation.w = 1.0
         m.scale.x = m.scale.y = m.scale.z = scale
         m.color.r, m.color.g, m.color.b, m.color.a = color
         m.lifetime = rospy.Duration(0)
-        m.text = str(key) if shape == Marker.TEXT_VIEW_FACING else ""
+        if shape == Marker.TEXT_VIEW_FACING:
+            m.text = text if text is not None else str(key)
+        else:
+            m.text = ""
         return m
 
     def publish_pose_msgs(manager: EstimatorManager, pose_pub: rospy.Publisher) -> None:
@@ -116,32 +122,45 @@ def main() -> None:
 
     def create_node_and_label_markers(
         all_vars: Dict[Key, Any]
-    ) -> Tuple[List[Marker], List[Key], Dict[Key, Tuple[float, float, float]]]:
-        """Return node and label markers, pose_keys (Key), and pose_positions (Key: tuple)."""
+    ) -> Tuple[List[Marker], List[Key], Dict[Key, Tuple[float, float, float]], Dict[Key, Tuple[float, float, float]]]:
+        """Return node and label markers, pose_keys (Key), and pose_positions (Key: tuple). Also adds single-letter and key labels in separate namespaces for toggling."""
         marker_arr: List[Marker] = []
         idx = 0
         color_pose: Tuple[float, float, float, float] = (0.1, 0.4, 1.0, 1.0)
         color_point: Tuple[float, float, float, float] = (0.0, 1.0, 0.2, 1.0)
         color_label: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 0.9)
+        color_letter: Tuple[float, float, float, float] = (1.0, 0.7, 0.2, 1.0)
         pose_keys: List[Key] = []
         pose_positions: Dict[Key, Tuple[float, float, float]] = {}
+        point_positions: Dict[Key, Tuple[float, float, float]] = {}
         for key, var in all_vars.items():
             if isinstance(var, (Pose2D, Pose3D)):
-                marker_arr.append(make_marker(idx, key, var, color_pose, shape=Marker.SPHERE, scale=0.25))
+                marker_arr.append(make_marker(idx, key, var, color_pose, shape=Marker.SPHERE, scale=0.25, ns="estimator"))
                 pose_keys.append(key)
                 pos = var.position
                 pose_positions[key] = (float(pos[0]), float(pos[1]), float(pos[2]) if len(pos) > 2 else 0.0)
                 idx += 1
-                label = make_marker(10000+idx, key, var, color_label, shape=Marker.TEXT_VIEW_FACING, scale=0.18)
+                # Full key label (in its own namespace, above the node)
+                label = make_marker(10000+idx, key, var, color_label, shape=Marker.TEXT_VIEW_FACING, scale=0.18, ns="estimator_labels", text=str(key), z_offset=0.35)
                 marker_arr.append(label)
+                idx += 1
+                # Single-letter label (in its own namespace, above the node, slightly offset)
+                letter_marker = make_marker(20000+idx, key, var, color_letter, shape=Marker.TEXT_VIEW_FACING, scale=0.16, ns="estimator_letters", text=key.char, z_offset=0.22)
+                marker_arr.append(letter_marker)
                 idx += 1
             elif isinstance(var, (Point2D, Point3D)):
-                marker_arr.append(make_marker(idx, key, var, color_point, shape=Marker.SPHERE, scale=0.18))
+                point_positions[key] = (float(var.position[0]), float(var.position[1]), float(var.position[2]) if len(var.position) > 2 else 0.0)
+                marker_arr.append(make_marker(idx, key, var, color_point, shape=Marker.SPHERE, scale=0.18, ns="estimator"))
                 idx += 1
-                label = make_marker(10000+idx, key, var, color_label, shape=Marker.TEXT_VIEW_FACING, scale=0.14)
+                # Full key label (in its own namespace, above the point)
+                label = make_marker(10000+idx, key, var, color_label, shape=Marker.TEXT_VIEW_FACING, scale=0.14, ns="estimator_labels", text=str(key), z_offset=0.22)
                 marker_arr.append(label)
                 idx += 1
-        return marker_arr, pose_keys, pose_positions
+                # Single-letter label (in its own namespace, above the point, slightly offset)
+                letter_marker = make_marker(20000+idx, key, var, color_letter, shape=Marker.TEXT_VIEW_FACING, scale=0.12, ns="estimator_letters", text=key.char, z_offset=0.13)
+                marker_arr.append(letter_marker)
+                idx += 1
+        return marker_arr, pose_keys, pose_positions, point_positions
 
     def create_edge_marker(
         pose_keys: List[Key],
@@ -183,7 +202,7 @@ def main() -> None:
 
     def create_range_edge_marker(
         manager: EstimatorManager,
-        pose_positions: Dict[Key, Tuple[float, float, float]]
+        var_positions: Dict[Key, Tuple[float, float, float]]
     ) -> Optional[Marker]:
         """Return a Marker for range edges (range factors) between variables, using Key objects and coordinate tuples."""
         # This assumes manager.estimator.range_measurement_pairs is a list of (Key, Key)
@@ -204,13 +223,14 @@ def main() -> None:
         marker.lifetime = rospy.Duration(0)
         marker.points = []
         for k1, k2 in range_edges:
-            if k1 in pose_positions and k2 in pose_positions:
-                p1 = pose_positions[k1]
-                p2 = pose_positions[k2]
+            if k1 in var_positions and k2 in var_positions:
+                p1 = var_positions[k1]
+                p2 = var_positions[k2]
                 pt1 = ROSPoint(x=p1[0], y=p1[1], z=p1[2])
                 pt2 = ROSPoint(x=p2[0], y=p2[1], z=p2[2])
                 marker.points.append(pt1)
                 marker.points.append(pt2)
+
         return marker if marker.points else None
 
     def timer_cb(event) -> None:
@@ -226,14 +246,15 @@ def main() -> None:
         # --- RViz visualization ---
         all_vars = manager.get_all_estimated_variables()
         rospy.loginfo_throttle(5.0, f"Publishing {len(all_vars)} estimated variables as markers")
-        node_label_markers, pose_keys, pose_positions = create_node_and_label_markers(all_vars)
+        node_label_markers, pose_keys, pose_positions, point_positions = create_node_and_label_markers(all_vars)
         marker_arr = MarkerArray()
         marker_arr.markers.extend(node_label_markers)
         edge_marker = create_edge_marker(pose_keys, pose_positions)
         if edge_marker:
             marker_arr.markers.append(edge_marker)
         # Add range edge marker
-        range_edge_marker = create_range_edge_marker(manager, pose_positions)
+        var_positions = {**pose_positions, **point_positions}
+        range_edge_marker = create_range_edge_marker(manager, var_positions)
         if range_edge_marker:
             marker_arr.markers.append(range_edge_marker)
         marker_pub.publish(marker_arr)

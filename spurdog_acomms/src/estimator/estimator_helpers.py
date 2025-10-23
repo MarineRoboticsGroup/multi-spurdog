@@ -156,6 +156,9 @@ class Key:
     def __str__(self):
         return self.key
 
+    def __repr__(self) -> str:
+        return f"Key({self.key})"
+
     def check(self) -> None:
         _check_valid_key(self, "key", self.key)
 
@@ -411,6 +414,9 @@ class RangeMeasurement(PairMeasurement):
         if self.key1.is_landmark:
             raise ValueError(f"First key in range measurement cannot be a landmark: {self.key1}")
 
+    def __repr__(self) -> str:
+        return f"Range({self.key_pair}, distance={self.distance})"
+
     @property
     def is_2d(self) -> bool:
         """
@@ -449,6 +455,9 @@ class OdometryMeasurement3D(PairMeasurement):
     def __attrs_post_init__(self):
         if self.key1.is_landmark or self.key2.is_landmark:
             raise ValueError(f"OdometryMeasurement3D cannot have landmark keys: {self.key_pair}")
+
+    def __repr__(self) -> str:
+        return f"Odom3D({self.key_pair})"
 
     @property
     def rotation_matrix(self) -> ndarray:
@@ -513,6 +522,9 @@ class OdometryMeasurement2D(PairMeasurement):
     def __attrs_post_init__(self):
         if self.key1.is_landmark or self.key2.is_landmark:
             raise ValueError(f"OdometryMeasurement2D cannot have landmark keys: {self.key_pair}")
+
+    def __repr__(self) -> str:
+        return f"Odom2D({self.key_pair})"
 
     @property
     def rotation_matrix(self) -> ndarray:

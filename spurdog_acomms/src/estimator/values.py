@@ -24,7 +24,7 @@ from .estimator_helpers import (
 )
 from attrs import define, field
 import numpy as np
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Set
 
 @define
 class EstimatorValues:
@@ -89,10 +89,14 @@ class EstimatorValues:
         key = variable.key
         if key.is_landmark:
             assert isinstance(variable, (Point2D, Point3D)), "Expected a Point2D or Point3D for landmark key."
+            val_before = self.point_map.get(key, None)
             self.point_map[key] = variable
         else:
             assert isinstance(variable, (Pose2D, Pose3D)), "Expected a Pose2D or Pose3D for pose key."
+            val_before = self.pose_map.get(key, None)
             self.pose_map[key] = variable
+
+        # print(f"Updated variable for key {key}. Previous value: {val_before}, New value: {variable}")
 
     @property
     def all_variable_map(self) -> Dict[Key, Union[Pose2D, Pose3D, Point2D, Point3D]]:
@@ -103,3 +107,13 @@ class EstimatorValues:
             A list of all estimated Pose2D, Pose3D, Point2D, and Point3D.
         """
         return {**self.pose_map, **self.point_map}
+
+    @property
+    def all_keys(self) -> Set[Key]:
+        """
+        Get a set of all keys in the current estimates.
+
+        Returns:
+            A set of all keys.
+        """
+        return set(self.pose_map.keys()).union(set(self.point_map.keys()))

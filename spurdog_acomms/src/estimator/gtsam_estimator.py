@@ -1,6 +1,6 @@
 import numpy as np
 import re
-import rospy # type: ignore
+import rospy  # type: ignore
 
 from gtsam.gtsam import (
     NonlinearFactorGraph,
@@ -33,33 +33,17 @@ from gtsam.gtsam import (
     Symbol,
 )
 
-try:
-    from gtsam import SESyncFactor2d as RelativePose2dFactor
+rospy.logwarn("Using python SESyncFactor2d - will be much slower")
+from .custom_factors.SESyncFactor2d import RelativePose2dFactor
 
-    rospy.logdebug("Found C++ SESyncFactor2d")
-except ImportError:
-    rospy.logwarn("Using python SESyncFactor2d - will be much slower")
-    from .custom_factors.SESyncFactor2d import RelativePose2dFactor
+rospy.logwarn("Using python SESyncFactor3d - will be much slower")
+from .custom_factors.SESyncFactor3d import RelativePose3dFactor
 
-try:
-    from gtsam import SESyncFactor3d as RelativePose3dFactor
-
-    rospy.logdebug("Found C++ SESyncFactor3d")
-except ImportError:
-    rospy.logwarn("Using python SESyncFactor3d - will be much slower")
-    from .custom_factors.SESyncFactor3d import RelativePose3dFactor
-
-try:
-    from gtsam_unstable import PoseToPointFactor2D as PoseToPoint2dFactor
-    from gtsam_unstable import PoseToPointFactor3D as PoseToPoint3dFactor
-
-    rospy.loginfo("Found C++ PoseToPointFactor for 2D and 3D")
-except ImportError:
-    rospy.logwarn("Using python PoseToPointFactor - will be much slower")
-    from .custom_factors.PoseToPointFactor import (
-        PoseToPoint2dFactor,
-        PoseToPoint3dFactor,
-    )
+rospy.logwarn("Using python PoseToPointFactor - will be much slower")
+from .custom_factors.PoseToPointFactor import (
+    PoseToPoint2dFactor,
+    PoseToPoint3dFactor,
+)
 
 from .estimator import Estimator
 from .estimator_helpers import (
@@ -90,7 +74,7 @@ from typing import Union, List
 VALID_BETWEEN_FACTOR_MODELS = ["SESync", "between"]
 
 
-def get_gtsam_symbol_from_key(key: Key) -> symbol:
+def get_gtsam_symbol_from_key(key: Key) -> int:
     """
     Returns the symbol from a variable key
     """
@@ -120,7 +104,7 @@ def get_pose3_from_matrix(pose_matrix: np.ndarray) -> Pose3:
     _check_transformation_matrix(pose_matrix, dim=3)
     rot_matrix = pose_matrix[:3, :3]
     tx, ty, tz = pose_matrix[:3, 3]
-    return Pose3(Rot3(rot_matrix), np.array([tx, ty, tz]))
+    return Pose3(Rot3(rot_matrix), np.array([tx, ty, tz]))  # type: ignore
 
 
 def get_relative_pose_from_odom_measurement(
@@ -150,13 +134,13 @@ def _get_between_factor(
     odom_measurement: OdometryMeasurement, i_sym: int, j_sym: int
 ) -> Union[BetweenFactorPose2, BetweenFactorPose3]:
     odom_noise = noiseModel.Diagonal.Sigmas(
-        np.diag(odom_measurement.covariance.covariance_matrix)
+        np.diag(odom_measurement.covariance.covariance_matrix)  # type: ignore
     )
     rel_pose = get_relative_pose_from_odom_measurement(odom_measurement)
     if isinstance(odom_measurement, OdometryMeasurement2D):
-        odom_factor = BetweenFactorPose2(i_sym, j_sym, rel_pose, odom_noise)
+        odom_factor = BetweenFactorPose2(i_sym, j_sym, rel_pose, odom_noise)  # type: ignore
     elif isinstance(odom_measurement, OdometryMeasurement3D):
-        odom_factor = BetweenFactorPose3(i_sym, j_sym, rel_pose, odom_noise)
+        odom_factor = BetweenFactorPose3(i_sym, j_sym, rel_pose, odom_noise)  # type: ignore
     else:
         raise ValueError(f"Unknown measurement type: {type(odom_measurement)}")
     return odom_factor
@@ -195,7 +179,9 @@ def get_pose_to_pose_factor(
     i_symbol: int,
     j_symbol: int,
     factor_model: str = "between",
-) -> Union[BetweenFactorPose2, BetweenFactorPose3]:
+) -> Union[
+    BetweenFactorPose2, BetweenFactorPose3, RelativePose2dFactor, RelativePose3dFactor
+]:
     """Get the odometry factor from the odometry measurement.
 
     Args:
@@ -236,17 +222,6 @@ def solve_with_isam2(
 def solve_with_levenberg_marquardt(
     graph: NonlinearFactorGraph, initial_vals: Values, return_all_iterates: bool = False
 ) -> Union[Values, List[Values]]:
-    try:
-        optimizer = LevenbergMarquardtOptimizer(graph, initial_vals)
-    except RuntimeError as e:
-        rospy.logerr(f"Failed to run LevenbergMarquardtOptimizer: {e}")
-        rospy.logerr(f"Graph keys: {graph.keyVector()}")
-        rospy.logerr(f"Initial values: {initial_vals.keys()}")
-        raise e
-
-    params = LevenbergMarquardtParams()
-    params.setVerbosityLM("SUMMARY")
-    # params.setVerbosityLM("LAMBDA") # set to be very verbose
 
     def _check_all_variables_have_initialization():
         # check that the variables in the graph are all in the initial values
@@ -274,39 +249,61 @@ def solve_with_levenberg_marquardt(
 
     _check_all_variables_have_initialization()
 
-    if not return_all_iterates:
-        optimizer.optimize()
-        result = optimizer.values()
-        return result
-    else:
-        results = [optimizer.values()]
-        currentError = np.inf
-        newError = optimizer.error()
-        rel_err_tol = params.getRelativeErrorTol()
-        abs_err_tol = params.getAbsoluteErrorTol()
-        err_tol = params.getErrorTol()
-        max_iter = params.getMaxIterations()
+    params = LevenbergMarquardtParams()
+    params.setMaxIterations(50)
+    params.setRelativeErrorTol(0.0)
+    params.setAbsoluteErrorTol(0.0)
+    params.setVerbosity("TERMINATION")
+    params.setVerbosityLM("LAMBDA")
+    try:
+        rospy.logerr("Running Levenberg-Marquardt optimization...")
+        optimizer = LevenbergMarquardtOptimizer(graph, initial_vals, params)
+        result = optimizer.optimize()
+    except RuntimeError as e:
+        rospy.logerr(f"Failed to run LevenbergMarquardtOptimizer: {e}")
+        rospy.logerr(f"Graph keys: {graph.keyVector()}")
+        rospy.logerr(f"Initial values: {initial_vals.keys()}")
+        raise e
 
-        converged = False
-        curr_iter = 0
+    rospy.logwarn(
+        f"Levenberg-Marquardt optimization complete with final error: {optimizer.error()}"
+    )
 
-        while not converged and curr_iter < max_iter:
-            optimizer.iterate()
-            results.append(optimizer.values())
+    initial_error = graph.error(initial_vals)
+    final_error = graph.error(result)
+    rospy.logwarn(
+        f"Initial error: {initial_error:<.6f} | Final error: {final_error:<.6f}"
+    )
+    return result
 
-            currentError = newError
-            newError = optimizer.error()
+    # results = [optimizer.values()]
+    # currentError = np.inf
+    # newError = optimizer.error()
+    # rel_err_tol = params.getRelativeErrorTol()
+    # abs_err_tol = params.getAbsoluteErrorTol()
+    # err_tol = params.getErrorTol()
+    # max_iter = params.getMaxIterations()
 
-            within_rel_err_tol = (
-                abs(newError - currentError) < rel_err_tol * currentError
-            )
-            within_abs_err_tol = abs(newError - currentError) < abs_err_tol
-            within_err_tol = newError < err_tol
+    # converged = False
+    # curr_iter = 0
 
-            converged = within_rel_err_tol or within_abs_err_tol or within_err_tol
-            curr_iter += 1
+    # while not converged and curr_iter < max_iter:
+    #     optimizer.iterate()
+    #     results.append(optimizer.values())
 
-        return results
+    #     currentError = newError
+    #     newError = optimizer.error()
+
+    #     within_rel_err_tol = (
+    #         abs(newError - currentError) < rel_err_tol * currentError
+    #     )
+    #     within_abs_err_tol = abs(newError - currentError) < abs_err_tol
+    #     within_err_tol = newError < err_tol
+
+    #     converged = within_rel_err_tol or within_abs_err_tol or within_err_tol
+    #     curr_iter += 1
+
+    # return results
 
 
 class GtsamEstimator(Estimator):
@@ -325,9 +322,8 @@ class GtsamEstimator(Estimator):
 
         # Initialize GTSAM-specific variables here
         self.factor_graph = NonlinearFactorGraph()
-        self.initial_values = Values()
         self.odom_factor_type = odom_factor_type
-        self.gtsam_result = Values()
+        self.gtsam_estimate = Values()
 
     def _specific_add_range(self, range_measurement: RangeMeasurement) -> None:
         pose_symbol = get_gtsam_symbol_from_key(range_measurement.key1)
@@ -383,7 +379,10 @@ class GtsamEstimator(Estimator):
             pose: The pose to be added as a prior.
         """
         sym = get_gtsam_symbol_from_key(pose.key)
-        assert pose.marginal_covariance is not None, "Pose marginal covariance must be set before adding a prior."
+        rospy.loginfo(f"Adding pose prior for key: {pose.key}")
+        assert (
+            pose.marginal_covariance is not None
+        ), "Pose marginal covariance must be set before adding a prior."
         if isinstance(pose, Pose2D):
             pose_init = get_pose2_from_matrix(pose.transformation_matrix)
             noise_model = noiseModel.Diagonal.Sigmas(
@@ -418,7 +417,19 @@ class GtsamEstimator(Estimator):
         else:
             raise ValueError(f"Unknown pose type: {type(pose)}")
 
-        self.initial_values.insert(sym, pose_init)
+        self.gtsam_estimate.insert(sym, pose_init)
+
+        # if the pose is also index 0, we add a prior to fix the gauge freedom
+        if pose.key.index == 0:
+            rospy.logwarn(
+                f"Adding prior to pose {pose.key} to fix gauge freedom (index 0)"
+            )
+            try:
+                if pose.marginal_covariance is None:
+                    pose.marginal_covariance = np.eye(3 if isinstance(pose, Pose2D) else 6) * 1e-6
+                self.add_pose_prior(pose)
+            except Exception as e:
+                rospy.logerr(f"Failed to add prior to pose {pose.key}: {e}")
 
     def _specific_initialize_point(self, point: Union[Point2D, Point3D]) -> None:
         """
@@ -428,9 +439,37 @@ class GtsamEstimator(Estimator):
             key: The key for which to initialize the point.
             point: The initial point to set for the key.
         """
-        assert isinstance(point, (Point2D, Point3D)), "Point must be of type Point2D or Point3D"
+        assert isinstance(
+            point, (Point2D, Point3D)
+        ), "Point must be of type Point2D or Point3D"
         sym = get_gtsam_symbol_from_key(point.key)
-        self.initial_values.insert(sym, np.array(point.position))
+        self.gtsam_estimate.insert(sym, np.array(point.position))
+
+        #### TEMPORARY CODE -- ADD PRIORS ####
+        rospy.logwarn(
+            f"Adding prior to point {point.key} during initialization (temporary code)"
+        )
+        try:
+            if point.marginal_covariance is None:
+                point.marginal_covariance = np.eye(2 if isinstance(point, Point2D) else 3)
+            if isinstance(point, Point2D):
+                point_init = np.array(point.position)
+                noise_model = noiseModel.Diagonal.Sigmas(
+                    np.sqrt(point.marginal_covariance.diagonal())
+                )
+                prior_factor = PriorFactorPoint2(sym, point_init, noise_model)
+            elif isinstance(point, Point3D):
+                point_init = np.array(point.position)
+                noise_model = noiseModel.Diagonal.Sigmas(
+                    np.sqrt(point.marginal_covariance.diagonal())
+                )
+                prior_factor = PriorFactorPoint3(sym, point_init, noise_model)
+            else:
+                raise ValueError(f"Unknown point type: {type(point)}")
+
+            self.factor_graph.push_back(prior_factor)
+        except Exception as e:
+            rospy.logerr(f"Failed to add prior to point {point.key}: {e}")
 
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:
         """We will add a poor man's depth measurement by placing a prior
@@ -479,7 +518,7 @@ class GtsamEstimator(Estimator):
         """
         pose_symbol = get_gtsam_symbol_from_key(key)
         if self.dimension == 2:
-            pose_result2d = self.gtsam_result.atPose2(pose_symbol)  # type:ignore
+            pose_result2d = self.gtsam_estimate.atPose2(pose_symbol)  # type:ignore
             pose2d = Pose2D(
                 key=key,
                 position=(pose_result2d.x(), pose_result2d.y()),
@@ -489,7 +528,7 @@ class GtsamEstimator(Estimator):
             )
             return pose2d
         elif self.dimension == 3:
-            pose_result3d = self.gtsam_result.atPose3(pose_symbol)  # type:ignore
+            pose_result3d = self.gtsam_estimate.atPose3(pose_symbol)  # type:ignore
             pose3d = Pose3D(
                 key=key,
                 position=tuple(pose_result3d.translation()),
@@ -501,7 +540,6 @@ class GtsamEstimator(Estimator):
         else:
             raise ValueError(f"Unknown dimension: {self.dimension}")
 
-
     def get_point_from_estimator(self, key: Key) -> Union[Point2D, Point3D]:
         """
         Get the current point estimate from the GTSAM estimator.
@@ -512,12 +550,77 @@ class GtsamEstimator(Estimator):
         Returns:
             The point estimate corresponding to the given key.
         """
-        raise NotImplementedError("GTSAM get_point not implemented.")
+        point_symbol = get_gtsam_symbol_from_key(key)
+        point_result = self.gtsam_estimate.atPoint2(point_symbol) if self.dimension == 2 else self.gtsam_estimate.atPoint3(point_symbol)  # type: ignore
+
+        if self.dimension == 2:
+            point2d = Point2D(
+                key=key, position=(float(point_result[0]), float(point_result[1]))
+            )
+            return point2d
+        elif self.dimension == 3:
+            point3d = Point3D(
+                key=key,
+                position=(
+                    float(point_result[0]),
+                    float(point_result[1]),
+                    float(point_result[2]),
+                ),
+            )
+            return point3d
+        else:
+            raise ValueError(f"Unknown dimension: {self.dimension}")
 
     def update(self):
-        self.gtsam_result = solve_with_levenberg_marquardt(
-            self.factor_graph, self.initial_values, return_all_iterates=False
+        """
+        Update the estimator by running optimization and syncing results to current_estimate.
+        """
+        rospy.loginfo("Running GTSAM optimization...")
+        # Run GTSAM optimization
+        result = solve_with_levenberg_marquardt(
+            self.factor_graph, self.gtsam_estimate, return_all_iterates=False
         )
+
+        # Ensure we have a single Values object, not a list
+        assert isinstance(result, Values), "Expected Values object from optimization"
+        self.gtsam_estimate = result
+
+        # Update current_estimate with optimized values
+        # Get all keys from the GTSAM result
+        result_gtsam_keys = self.gtsam_estimate.keys()
+        gtsam_symbols = [Symbol(k) for k in result_gtsam_keys]
+        result_keys = [
+            Key(f"{chr(Symbol(k).chr())}{Symbol(k).index()}") for k in result_gtsam_keys
+        ]
+        rospy.loginfo(f"Updating current estimates for keys: {result_keys}")
+
+        #### TEST CODE ####
+        import copy
+        current_estimate_copy = copy.deepcopy(self.current_estimate)
+        #### END TEST CODE ####
+
+        for key, symbol in zip(result_keys, gtsam_symbols):
+
+            # Convert GTSAM symbol back to our Key type
+            key_str = f"{chr(symbol.chr())}{symbol.index()}"
+            key = Key(key=key_str)
+            rospy.logdebug(f"Updating estimate for key: {key}")
+
+            # Check if it's a pose or point and update accordingly
+            if key.is_landmark:
+                # It's a point/landmark
+                point = self.get_point_from_estimator(key)
+                self.current_estimate.update_variable(point)
+                rospy.logdebug(f"Updated point for key {key}: {point}")
+            else:
+                # It's a pose
+                pose = self.get_pose_from_estimator(key)
+                self.current_estimate.update_variable(pose)
+                rospy.logdebug(f"Updated pose for key {key}: {pose}")
+
+        #### TEST CODE ####
+        # self.print_difference_between_estimates(current_estimate_copy)
+        #### END TEST CODE ####
 
 
 if __name__ == "__main__":
