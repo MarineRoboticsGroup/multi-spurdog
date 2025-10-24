@@ -1,3 +1,63 @@
+"""
+DEPRECATED: This module is deprecated. Import from submodules instead.
+
+For example:
+    from estimator.types.key import Key
+    from estimator.types.measurements import RangeMeasurement
+    from estimator.utils.transformations import get_quat_from_rotation_matrix
+
+This file now serves as a compatibility shim and will be removed in a future version.
+"""
+import warnings
+
+warnings.warn(
+    "estimator_helpers is deprecated. Import from estimator.types.* or estimator.utils.* instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Re-export from new structure for backward compatibility
+from .types.key import Key, KeyPair
+from .types.enums import EstimatorMode
+from .types.covariance import RelPoseCovar3, RelPoseCovar6, get_diag_relpose_covar
+from .types.measurements import (
+    RangeMeasurement,
+    OdometryMeasurement,
+    OdometryMeasurement2D,
+    OdometryMeasurement3D,
+    DepthMeasurement,
+)
+from .types.variables import Pose2D, Pose3D, Point2D, Point3D
+from .utils.validation import (
+    bound_validator,
+    tuple_length_validator,
+    quaternion_validator,
+    _check_square,
+    _check_symmetric,
+    _check_transformation_matrix,
+    _check_rotation_matrix,
+    _check_valid_key,
+)
+from .utils.transformations import (
+    get_theta_from_transformation_matrix,
+    get_theta_from_rotation_matrix,
+    get_rotation_matrix_from_transformation_matrix,
+    get_translation_from_transformation_matrix,
+    get_rotation_matrix_from_theta,
+    get_rotation_matrix_from_quat,
+    get_quat_from_rotation_matrix,
+    get_quat_from_theta,
+)
+from .utils.conversions import convert_odom3_to_odom2, project_range_to_2d
+from .utils.precision import (
+    get_measurement_precisions_from_info_matrix,
+    get_measurement_precisions_from_covariance_matrix,
+    get_measurement_precisions_from_covariances,
+    get_info_matrix_from_measurement_precisions,
+    get_covariance_matrix_from_measurement_precisions,
+)
+
+# Keep original imports for internal use by this shim
 from enum import Enum
 from abc import ABC, abstractmethod
 from attrs import define, field, validators

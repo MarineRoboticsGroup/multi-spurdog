@@ -46,28 +46,26 @@ from .custom_factors.PoseToPointFactor import (
 )
 
 from .estimator import Estimator
-from .estimator_helpers import (
-    Key,
-    KeyPair,
+from .types.key import Key, KeyPair
+from .types.measurements import (
     RangeMeasurement,
     OdometryMeasurement,
     OdometryMeasurement2D,
     OdometryMeasurement3D,
     DepthMeasurement,
-    EstimatorMode,
-    RelPoseCovar6,
-    Pose3D,
-    Pose2D,
-    Point2D,
-    Point3D,
-    _check_transformation_matrix,
+)
+from .types.enums import EstimatorMode
+from .types.covariance import RelPoseCovar6
+from .types.variables import Pose3D, Pose2D, Point2D, Point3D
+from .utils.validation import _check_transformation_matrix
+from .utils.transformations import (
     get_theta_from_transformation_matrix,
     get_quat_from_rotation_matrix,
     get_theta_from_rotation_matrix,
     get_translation_from_transformation_matrix,
-    get_measurement_precisions_from_covariance_matrix,
-    get_diag_relpose_covar,
 )
+from .utils.precision import get_measurement_precisions_from_covariance_matrix
+from .types.covariance import get_diag_relpose_covar
 
 from typing import Union, List
 
@@ -445,31 +443,6 @@ class GtsamEstimator(Estimator):
         sym = get_gtsam_symbol_from_key(point.key)
         self.gtsam_estimate.insert(sym, np.array(point.position))
 
-        #### TEMPORARY CODE -- ADD PRIORS ####
-        rospy.logwarn(
-            f"Adding prior to point {point.key} during initialization (temporary code)"
-        )
-        try:
-            if point.marginal_covariance is None:
-                point.marginal_covariance = np.eye(2 if isinstance(point, Point2D) else 3)
-            if isinstance(point, Point2D):
-                point_init = np.array(point.position)
-                noise_model = noiseModel.Diagonal.Sigmas(
-                    np.sqrt(point.marginal_covariance.diagonal())
-                )
-                prior_factor = PriorFactorPoint2(sym, point_init, noise_model)
-            elif isinstance(point, Point3D):
-                point_init = np.array(point.position)
-                noise_model = noiseModel.Diagonal.Sigmas(
-                    np.sqrt(point.marginal_covariance.diagonal())
-                )
-                prior_factor = PriorFactorPoint3(sym, point_init, noise_model)
-            else:
-                raise ValueError(f"Unknown point type: {type(point)}")
-
-            self.factor_graph.push_back(prior_factor)
-        except Exception as e:
-            rospy.logerr(f"Failed to add prior to point {point.key}: {e}")
 
     def add_depth(self, depth_measurement: DepthMeasurement) -> None:
         """We will add a poor man's depth measurement by placing a prior
@@ -488,13 +461,11 @@ class GtsamEstimator(Estimator):
 
         # how many dimensions do we need to fill for a psuedo depth measurement?
         fill_dim = self.dimension - 1
+        precisions = [other_translation_precision] * fill_dim + [depth_precision]
 
         # make the noise model for the translation prior
-        noise_model = noiseModel.Diagonal.Sigmas(
-            np.array(
-                [other_translation_precision] * fill_dim
-                + [depth_precision]  # high precision for z translation
-            )
+        noise_model = noiseModel.Diagonal.Precisions(
+            np.array(precisions) # type: ignore
         )
         fake_translation = np.array(
             [0.0] * fill_dim + [depth]  # fake translation in the z direction

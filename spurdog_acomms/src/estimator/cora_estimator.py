@@ -1,30 +1,28 @@
 from typing import Union, List, Optional, Set
 
 from .estimator import Estimator
-from .estimator_helpers import (
-    Key,
-    KeyPair,
+from .types.key import Key, KeyPair
+from .types.measurements import (
     RangeMeasurement,
     OdometryMeasurement,
     OdometryMeasurement2D,
     OdometryMeasurement3D,
     DepthMeasurement,
-    EstimatorMode,
-    RelPoseCovar6,
-    Pose3D,
-    Pose2D,
-    Point2D,
-    Point3D,
-    _check_transformation_matrix,
+)
+from .types.enums import EstimatorMode
+from .types.covariance import RelPoseCovar6
+from .types.variables import Pose3D, Pose2D, Point2D, Point3D
+from .utils.validation import _check_transformation_matrix
+from .utils.transformations import (
     get_theta_from_transformation_matrix,
     get_quat_from_rotation_matrix,
     get_rotation_matrix_from_quat,
     get_rotation_matrix_from_theta,
     get_theta_from_rotation_matrix,
     get_translation_from_transformation_matrix,
-    get_measurement_precisions_from_covariance_matrix,
-    get_diag_relpose_covar,
 )
+from .utils.precision import get_measurement_precisions_from_covariance_matrix
+from .types.covariance import get_diag_relpose_covar
 
 import cora
 import numpy as np
