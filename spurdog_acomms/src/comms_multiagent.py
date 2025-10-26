@@ -347,7 +347,7 @@ class CycleManager:
             pose_factor_msg.key2 = pose_keys[0]
             pose_factor_msg.pose = prior
             self.pose_factor_pub.publish(pose_factor_msg)
-            rospy.loginfo("[%s] Published Prior Factor: %s" % (rospy.Time.now(), key1))
+            rospy.loginfo("[%s] Published Prior Factor: %s" % (rospy.Time.now(), pose_keys[0]))
         else:  # Basic message mode
             pass
 
