@@ -460,35 +460,11 @@ class CycleManager:
         """
         # Get timestamp from header
         message_timestamp = msg.header.stamp.to_sec()
-        range_timestamp = rospy.Time(msg.cst.toa.secs, msg.cst.toa.nsecs).to_sec(),
+        range_timestamp = rospy.Time(msg.cst.toa.secs, msg.cst.toa.nsecs).to_sec()
         src = msg.dest #NOTE: inverted due to ping reply
         dest = msg.src
         owtt = msg.owtt
         measured_range = owtt * self.sound_speed if owtt is not None else None
-        #tat = msg.tat
-        #snr_in = msg.snr_in
-        #snr_out = msg.snr_out
-        # tx_level = msg.tx_level
-        # mfd_peak = msg.cst.mfd_peak
-        # mfd_pow = msg.cst.mfd_pow
-        # mfd_ratio = msg.cst.mfd_ratio
-        # mfd_spl = msg.cst.mfd_spl
-        # agn = msg.cst.agn
-        # shift_ainp = msg.cst.shift_ainp
-        # shift_ain = msg.cst.shift_ain
-        # shift_aout = msg.cst.shift_aout
-        # shift_mfd = msg.cst.shift_mfd
-        # shift_p2b = msg.cst.shift_p2b
-        # rate = msg.cst.rate_num
-        # psk_error = msg.cst.psk_error
-        # packet_type = msg.cst.packet_type
-        # num_frames = msg.cst.num_frames
-        # bad_frames = msg.cst.bad_frames_num
-        # snr_rss = msg.cst.snr_rss
-        #stddev_noise = msg.cst.noise
-        # mse_error = msg.cst.mse
-        # dqf = msg.cst.dqf
-        #dop = msg.cst.dop
         # Update the cycle status
         self.cycle_status["pings_successful"] += 1
         self.cycle_status["last_range_interval"] = rospy.Duration.from_sec(
@@ -503,36 +479,6 @@ class CycleManager:
             self.cycle_status["min_range"] = np.round(measured_range,4)
         else:
             pass
-        # Add it to the existing XST-based data
-        # for entry in self.range_data:
-        #     # If the entry has been filled, ignore
-        #     if entry[1] is not None:
-        #         continue
-        #     # If the entry matches the src and dest, fill it
-        #     elif entry[3] == src and entry[4] == dest:
-        #         entry[1] = range_timestamp
-        #         entry[2] = message_timestamp
-        #         entry[5] = owtt
-        #         entry[6] = measured_range
-        #         entry[7] = dop
-        #         entry[8] = stddev_noise
-        #         entry[9] = snr_in
-        #         entry[10] = snr_out
-        #     else:
-        #         # Make a new entry if no match is found
-        #         self.range_data.append([
-        #             None,  # xst_timestamp
-        #             range_timestamp,  # range_timestamp
-        #             message_timestamp,  # cst_timestamp
-        #             src,  # src
-        #             dest,  # dest
-        #             owtt,  # owtt
-        #             measured_range,  # measured_range
-        #             dop,  # dop(m/s)
-        #             stddev_noise,  # stddev_noise
-        #             snr_in,  # snr_in
-        #             snr_out  # snr_out
-        #         ])
         # Create a ReceivedSignalStats message
         received_signal_stats = ReceivedSignalStats()
         received_signal_stats.header.stamp = rospy.Time.now()
