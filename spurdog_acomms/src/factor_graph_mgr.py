@@ -15,6 +15,11 @@ from spurdog_acomms_utils.setup_utils import(
     configure_modem_addresses,
     configure_cycle_targets
 )
+from spurdog_acomms_utils.param_utils import get_namespace_param
+from spurdog_acomms_utils.landmark_utils import (
+    get_landmark_pos,
+    validate_landmarks,
+)
 from spurdog_acomms_utils.codec_utils import (
     decode_init_prior_data_from_int,
     decode_partial_graph_pose_from_int,
@@ -31,8 +36,19 @@ class GraphManager:
         self.local_address = int(rospy.get_param("modem_address", 0))
         self.num_agents = int(rospy.get_param("num_agents", 1))
         self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
-        self.landmarks = {"L0":[-71.7845,-39.6078,1.5],
-                          "L1":[65.0832,25.6598,1.5]}  # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        # Load landmark positions from ROS params when available; keep defaults otherwise
+        # Previous literal preserved for reference:
+        # self.landmarks = {"L0":[-71.7845,-39.6078,1.5], "L1":[65.0832,25.6598,1.5]}
+        self.landmarks = get_namespace_param("landmarks", {
+            "L0": [-71.7845, -39.6078, 1.5],
+            "L1": [65.0832, 25.6598, 1.5]
+        }, warn_if_missing=True)  # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        # Validate the landmarks mapping early so incorrect formats fail loudly
+        try:
+            validate_landmarks(self.landmarks)
+        except Exception as e:
+            rospy.logerr("[factor_graph_mgr] Invalid /landmarks param: %s" % e)
+            rospy.signal_shutdown("Invalid landmarks param")
         self.sigma_range = float(rospy.get_param("sigma_range", 1))
         # Variables for addressing
         self.modem_addresses = {}
@@ -67,9 +83,14 @@ class GraphManager:
         self.cycle_target_mapping = configure_cycle_targets(self.modem_addresses)
         # Generate the landmark priors
         for i in range(self.num_landmarks):
+            pos = get_landmark_pos(self.landmarks, "L%d" % i)
+            if pos is None:
+                rospy.logerr("[factor_graph_mgr] Missing position for landmark L%d" % i)
+                rospy.signal_shutdown("Missing landmark position")
+                return
             self.inbound_init_priors["L%d" % i] = {
                 "key": "L%d" % i,
-                "position": np.array(self.landmarks["L%d" % i]),
+                "position": np.array(pos),
                 "sigmas": np.array([1.7, 1.7, 0.1])
             }
         # Initialize the second entry of all the agent modem addreses to be 0 (the pose index)
@@ -240,7 +261,7 @@ class GraphManager:
         """
         # Generate the landmark priors
         for i in range(self.num_landmarks):
-            position = self.landmarks["L%d" % i]
+            position = get_landmark_pos(self.landmarks, "L%d" % i)
             self.inbound_init_priors["L%d" % i] = {
                 "key": "L%d" % i,
                 "initial_position": np.array(position),

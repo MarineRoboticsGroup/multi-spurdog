@@ -23,6 +23,7 @@ from spurdog_acomms_utils.setup_utils import(
     configure_modem_addresses,
     configure_cycle_targets
 )
+from spurdog_acomms_utils.param_utils import get_namespace_param
 from spurdog_acomms_utils.codec_utils import (
     encode_init_prior_data_as_int,
     encode_partial_graph_pose_as_int,
@@ -50,7 +51,42 @@ class CycleManager:
         self.local_address = int(rospy.get_param("modem_address", 0))
         self.num_agents = int(rospy.get_param("num_agents", 1))
         self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
-        self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]} # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        # Load landmark positions (and optionally src) from ROS params when available.
+        # Keeps legacy defaults if param is not set.
+        # Previous hard-coded literal preserved for reference:
+        # self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]}
+        self.landmarks = get_namespace_param("landmarks", {
+            "L0": [-74.5193539608157, -38.9298973079931, 1.5],
+            "L1": [66.5150726324041, 25.969767675496275, 1.5]
+        }, warn_if_missing=True)  # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        # Validate landmarks mapping and fail loudly if it's malformed
+        try:
+            from spurdog_acomms_utils.landmark_utils import validate_landmarks
+            validate_landmarks(self.landmarks)
+        except Exception as e:
+            rospy.logfatal("[%s] Invalid /landmarks parameter: %s" % (rospy.Time.now(), e))
+            rospy.signal_shutdown(f"Invalid /landmarks parameter: {e}")
+            raise
+        # Startup logging: summarize resolved params for runtime diagnostics
+        try:
+            lm_summary = {}
+            for k, v in self.landmarks.items():
+                if isinstance(v, dict):
+                    lm_summary[k] = {"src": v.get("src", None), "pos": v.get("pos", v)}
+                elif isinstance(v, (list, tuple)):
+                    if len(v) >= 3:
+                        lm_summary[k] = {"src": None, "pos": v}
+                    elif len(v) == 2:
+                        lm_summary[k] = {"src": v[0], "pos": v[1]}
+                    else:
+                        lm_summary[k] = {"raw": v}
+                else:
+                    lm_summary[k] = {"raw": v}
+            rospy.loginfo("[%s] Resolved params: local_address=%s num_agents=%s num_landmarks=%s landmarks=%s" % (
+                rospy.Time.now(), self.local_address, self.num_agents, self.num_landmarks, lm_summary))
+        except Exception as _e:
+            rospy.loginfo("[%s] Resolved params: local_address=%s num_agents=%s num_landmarks=%s (landmarks summary failed: %s)" % (
+                rospy.Time.now(), self.local_address, self.num_agents, self.num_landmarks, _e))
         self.sound_speed = float(rospy.get_param("sound_speed", 1486))
         # Variables for addressing
         self.modem_addresses = {}

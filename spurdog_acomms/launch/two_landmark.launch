@@ -5,8 +5,21 @@
 -->
 
 <launch>
-  <!-- Argument: starting SRC for first modem -->
+  <!-- Argument: starting SRC for first modem (legacy, preserved for reference) -->
   <arg name="landmark_L0_src" default="1" />
+
+  <!-- Canonical global landmarks param (load from basic_modem_config.yaml).
+       This ensures `/landmarks` is present for all nodes. Legacy per-key
+       params (landmarks/L0/src, etc.) are commented below for history.
+  -->
+  <rosparam param="landmarks" file="$(find spurdog_acomms)/launch/basic_modem_config.yaml" command="load" />
+
+  <!-- legacy per-key params (kept for reference):
+  <param name="landmarks/L0/src" value="$(arg landmark_L0_src)" />
+  <param name="landmarks/L1/src" value="$(eval int(arg('landmark_L0_src')) + 1)" />
+  <param name="landmarks/L0/pos" value="[-74.5193539608157, -38.9298973079931, 1.5]" />
+  <param name="landmarks/L1/pos" value="[66.5150726324041, 25.969767675496275, 1.5]" />
+  -->
 
   <!-- Deckbox L0 (assumes ttyUSB0) -->
   <include file="$(find spurdog_acomms)/launch/modem.launch">

@@ -51,10 +51,17 @@ class CycleManager:
         self.local_address = int(rospy.get_param(full_ns + "modem_address", 1))
         self.num_agents = int(rospy.get_param(full_ns + "num_agents", 2))
         self.num_landmarks = int(rospy.get_param(full_ns + "num_landmarks", 2))
-        self.landmarks = {
-            "L0": rospy.get_param(full_ns + "landmarks/L0"),
-            "L1": rospy.get_param(full_ns + "landmarks/L1")
-        }
+        # Load landmarks from params if present (namespace-aware). Fall back to
+        # reasonable defaults otherwise.
+        # Previous per-key param reads / literals preserved for reference:
+        # self.landmarks = {
+        #     "L0": rospy.get_param(full_ns + "landmarks/L0"),
+        #     "L1": rospy.get_param(full_ns + "landmarks/L1")
+        # }
+        self.landmarks = rospy.get_param(full_ns + "landmarks", {
+            "L0": [-74.5193539608157, -38.9298973079931, 1.5],
+            "L1": [66.5150726324041, 25.969767675496275, 1.5]
+        })
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}

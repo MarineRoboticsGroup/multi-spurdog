@@ -19,21 +19,44 @@ def configure_modem_addresses(num_agents, num_landmarks, local_address):
     else:
         for i in range(num_agents):
             letter = chr(ord('A') + i)
+            # For agents, value[0] is the numeric src and optional value[1] is an index used by the pose lookup
             if i == local_address:
                 modem_addresses[letter] = [i, 0]
             else:
                 modem_addresses[letter] = [i]
+
+        # Original landmark addressing (commented out so we keep the old behaviour visible):
+        # for j in range(num_landmarks):
+        #     address = j + i + 1
+        #     modem_addresses["L%d" % j] = [address,0]
+
+        # New behaviour: assign fixed source addresses so L0->8, L1->9 for every run as requested.
+        # If there are more than 2 landmarks, assign subsequent addresses starting at 10.
         for j in range(num_landmarks):
-            address = j + i + 1
-            modem_addresses["L%d" % j] = [address,0]
+            if j == 0:
+                modem_addresses["L0"] = [8, 0]
+            elif j == 1:
+                modem_addresses["L1"] = [9, 0]
+            else:
+                address = 10 + (j - 2)
+                modem_addresses[f"L{j}"] = [address, 0]
     return modem_addresses
 
 def get_config_from_modem_addresses(modem_addresses):
     # Exmaine the modem addresses to get the num_agents, num_landmarks, and the local address
     num_landmarks = sum(1 for key in modem_addresses if key.startswith("L"))
     num_agents = len(modem_addresses) - num_landmarks
-    local_address = [key for key, value in modem_addresses.items() if len(value) == 2][0]
-    return num_agents, num_landmarks, local_address
+    # Original implementation returned the key name of the local entry (e.g. 'A0'):
+    # local_address = [key for key, value in modem_addresses.items() if len(value) == 2][0]
+    # return num_agents, num_landmarks, local_address
+
+    # New behaviour: return the numeric local address (int) used elsewhere in the code.
+    # Find the agent entry (key starting with 'A') that contains the local index (len(value) == 2)
+    local_addr_entry = next((value[0] for key, value in modem_addresses.items() if key.startswith("A") and len(value) == 2), None)
+    if local_addr_entry is None:
+        # Fallback: if no explicit local agent is found, choose 0
+        local_addr_entry = 0
+    return num_agents, num_landmarks, local_addr_entry
 
 def configure_single_agent_cycle(modem_addresses, num_landmarks, local_address):
     """Configure the cycle targets for a single agent.

@@ -25,6 +25,7 @@ from spurdog_acomms_utils.setup_utils import(
     configure_modem_addresses,
     configure_cycle_targets
 )
+from spurdog_acomms_utils.param_utils import get_namespace_param
 from spurdog_acomms_utils.nmea_utils import (
     parse_nmea_sentence,
     parse_nmea_cacmd,
@@ -39,6 +40,11 @@ from spurdog_acomms_utils.codec_utils import (
     encode_range_event_as_int,
     decode_pwc_from_int,
     decode_range_event_from_int
+)
+from spurdog_acomms_utils.landmark_utils import (
+    get_landmark_pos,
+    get_landmark_src,
+    validate_landmarks,
 )
 
 class CycleManager:
@@ -57,10 +63,45 @@ class CycleManager:
         self.local_address = int(rospy.get_param(full_ns + "modem_address", 0))
         self.num_agents = int(rospy.get_param(full_ns + "num_agents", 2))
         self.num_landmarks = int(rospy.get_param(full_ns + "num_landmarks", 2))
-        self.landmarks = {
-            "L0": rospy.get_param(full_ns + "landmarks/L0"),
-            "L1": rospy.get_param(full_ns + "landmarks/L1")
-        }
+        # Load landmark definitions from ROS params (preferred). Fall back to
+        # previous hard-coded coordinates for backwards compatibility.
+        # Previous literal assignment preserved for reference:
+        # self.landmarks = {
+        #     "L0": [-74.5193539608157, -38.9298973079931, 1.5],
+        #     "L1": [66.5150726324041, 25.969767675496275, 1.5]
+        # }
+        self.landmarks = get_namespace_param("landmarks", {
+            "L0": [-74.5193539608157, -38.9298973079931, 1.5],
+            "L1": [66.5150726324041, 25.969767675496275, 1.5]
+        }, warn_if_missing=True)
+        # Validate the landmarks mapping and fail loudly if malformed
+        try:
+            validate_landmarks(self.landmarks)
+        except Exception as e:
+            rospy.logfatal("[%s] Invalid /landmarks parameter: %s" % (rospy.Time.now(), e))
+            # Fail loudly: shutdown the node to avoid subtle runtime errors
+            rospy.signal_shutdown(f"Invalid /landmarks parameter: {e}")
+            raise
+        # Startup logging: summarize resolved params for runtime diagnostics
+        try:
+            lm_summary = {}
+            for k, v in self.landmarks.items():
+                if isinstance(v, dict):
+                    lm_summary[k] = {"src": v.get("src", None), "pos": v.get("pos", v)}
+                elif isinstance(v, (list, tuple)):
+                    if len(v) >= 3:
+                        lm_summary[k] = {"src": None, "pos": v}
+                    elif len(v) == 2:
+                        lm_summary[k] = {"src": v[0], "pos": v[1]}
+                    else:
+                        lm_summary[k] = {"raw": v}
+                else:
+                    lm_summary[k] = {"raw": v}
+            rospy.loginfo("[%s] Resolved params: local_address=%s num_agents=%s num_landmarks=%s landmarks=%s" % (
+                rospy.Time.now(), self.local_address, self.num_agents, self.num_landmarks, lm_summary))
+        except Exception as _e:
+            rospy.loginfo("[%s] Resolved params: local_address=%s num_agents=%s num_landmarks=%s (landmarks summary failed: %s)" % (
+                rospy.Time.now(), self.local_address, self.num_agents, self.num_landmarks, _e))
         self.modem_addresses = {}
         self.address_to_name = {}
         self.cycle_target_mapping = {}
@@ -414,7 +455,10 @@ class CycleManager:
                 range_factor_msg.meas_range = decoded_range_event[2]  # This is the measured range
                 range_factor_msg.range_sigma = decoded_range_event[3]  # This is the sigma range
                 range_factor_msg.depth1 = decoded_range_event[4]  # Depth of the sender
-                range_factor_msg.depth2 = self.landmarks[remote_name][2]  # Depth of the landmark
+                # Use compatibility helper: the param may be a list [x,y,z]
+                # or a dict {src: N, pos: [x,y,z]}
+                pos = get_landmark_pos(self.landmarks, remote_name)
+                range_factor_msg.depth2 = pos[2] if pos and len(pos) > 2 else 0.0
                 rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
                     rospy.Time.now(), pose_keys[i+1], remote_name, decoded_range_event[2]))
                 self.range_factor_pub.publish(range_factor_msg)
@@ -602,7 +646,8 @@ class CycleManager:
                     range_factor_msg.meas_range = measured_range
                     range_factor_msg.range_sigma = self.range_sigma
                     range_factor_msg.depth1 = self.depth
-                    range_factor_msg.depth2 = self.landmarks[self.address_to_name[dest]][2]
+                    pos = get_landmark_pos(self.landmarks, self.address_to_name[dest])
+                    range_factor_msg.depth2 = pos[2] if pos and len(pos) > 2 else 0.0
                     self.range_factor_pub.publish(range_factor_msg)
                     rospy.loginfo("[%s] Published Range Factor: %s -> %s, measured_range=%.2f" % (
                         timestamp_sec, symbol, self.address_to_name[dest], measured_range))

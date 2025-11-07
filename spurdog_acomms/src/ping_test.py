@@ -8,6 +8,10 @@ from ros_acomms_msgs.srv import(
     PingModem, PingModemResponse, PingModemRequest
 )
 
+from spurdog_acomms_utils.param_utils import get_namespace_param
+from spurdog_acomms_utils.landmark_utils import get_landmark_pos, validate_landmarks
+
+
 class PingTest:
     """
     This node is for running basic static ping tests between modems.
@@ -22,7 +26,12 @@ class PingTest:
     def __init__(self):
         # Initialize the node
         rospy.init_node('ping_test_manager', anonymous=True)
-        self.landmarks = rospy.get_param("~landmarks", {})
+        # Use the param helper to fetch landmarks (works when run in different namespaces)
+        self.landmarks = get_namespace_param("landmarks", {}, warn_if_missing=True)
+        try:
+            validate_landmarks(self.landmarks)
+        except Exception:
+            rospy.logwarn("[ping_test] landmarks param missing or malformed; continuing with empty set")
         self.sound_speed = rospy.get_param("~sound_speed", 1500) # m/s
         self.ping_timeout = rospy.get_param("~ping_timeout", 5) # seconds
         self.pings_to_attempt = rospy.get_param("~pings_to_attempt", 100)
@@ -55,16 +64,20 @@ class PingTest:
         if len(self.landmarks) < 2:
             rospy.logwarn("[%s] Not enough landmarks to calculate range." % rospy.Time.now())
             return None
-        # Get the first two landmarks
+        # Get the first two landmarks (use safe accessor)
         landmark_keys = list(self.landmarks.keys())
         if len(landmark_keys) < 2:
             rospy.logwarn("[%s] Not enough landmarks to calculate range." % rospy.Time.now())
             return None
-        landmark1 = self.landmarks[landmark_keys[0]]
-        landmark2 = self.landmarks[landmark_keys[1]]
+        k1, k2 = landmark_keys[0], landmark_keys[1]
+        l1 = get_landmark_pos(self.landmarks, k1)
+        l2 = get_landmark_pos(self.landmarks, k2)
+        if l1 is None or l2 is None:
+            rospy.logwarn("[%s] Landmark positions missing for %s or %s" % (rospy.Time.now(), k1, k2))
+            return None
         # Calculate the Euclidean distance between the two landmarks
-        self.expected_range = np.linalg.norm(np.array(landmark1) - np.array(landmark2))
-        rospy.loginfo("[%s] Expected Range between %s and %s: %.4f meters" % (rospy.Time.now(), landmark_keys[0], landmark_keys[1], expected_range))
+        self.expected_range = np.linalg.norm(np.array(l1) - np.array(l2))
+        rospy.loginfo("[%s] Expected Range between %s and %s: %.4f meters" % (rospy.Time.now(), k1, k2, self.expected_range))
         return
 
     def run_ping_test(self):

@@ -16,6 +16,13 @@
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
 
+    <!-- Canonical global landmarks param (centralized). This makes tests and nodes
+         that call `rospy.get_param('landmarks')` robust to namespace ordering. -->
+    <rosparam param="landmarks">
+        L0: [-74.5193539608157, -38.9298973079931, -1.83]
+        L1: [66.5150726324041, 25.969767675496275, -1.83]
+    </rosparam>
+
     <!-- Start the agent node -->
     <group ns="$(arg agent_name)">
 
@@ -36,10 +43,12 @@
             <param name="ping_timeout" value="5" />
             <param name="pings_to_attempt" value="100" />
             <param name="sound_speed" value="1500" />
+            <!-- legacy per-node landmarks (now centralized at top-level):
             <rosparam param="landmarks">
                 L0: [-74.5193539608157, -38.9298973079931, -1.83]
                 L1: [66.5150726324041, 25.969767675496275, -1.83]
             </rosparam>
+            -->
         </node>
 
         <!-- Optionally launch the rosbag recording node -->

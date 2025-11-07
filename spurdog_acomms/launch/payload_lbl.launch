@@ -17,6 +17,13 @@
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT" value="[${severity}] [${time}] [${node}]: ${message}"/>
 
+    <!-- Canonical global landmarks param (centralized). Legacy per-agent definitions are
+         commented below inside the agent group for reference. -->
+    <rosparam param="landmarks">
+        L0: [-74.5193539608157, -38.9298973079931, -1.83]
+        L1: [66.5150726324041, 25.969767675496275, -1.83]
+    </rosparam>
+
     <!-- Start the agent node -->
     <group ns="$(arg agent_name)">
 
@@ -25,10 +32,12 @@
         <param name="modem_address" value="$(arg source_addr)" />
         <param name="num_agents" value="$(arg num_agents)" />
         <param name="num_landmarks" value="2" />
+        <!-- legacy per-agent landmarks (now centralized at top-level):
         <rosparam param="landmarks">
             L0: [-74.5193539608157, -38.9298973079931, -1.83]
             L1: [66.5150726324041, 25.969767675496275, -1.83]
         </rosparam>
+        -->
 
         <!-- Modem group -->
         <group ns="modem">

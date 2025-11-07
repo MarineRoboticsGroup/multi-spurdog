@@ -34,7 +34,7 @@
                 </rosparam>
             </node>
         </group>
-        <node name="rosbag" pkg="rosbag" type="record"
+        <!-- <node name="rosbag" pkg="rosbag" type="record"
             args='-a -o /home/morrisjp/bags/June/12June/modem_L1.bag'
-            output="screen" />
+            output="screen" /> -->
 </launch>

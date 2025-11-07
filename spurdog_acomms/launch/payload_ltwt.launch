@@ -20,6 +20,11 @@
     <!-- Set the ROSCONSOLE_FORMAT -->
     <env name="ROSCONSOLE_FORMAT0" value="[${severity}] [${time}] [${node}]: ${message}"/>
 
+    <!-- Canonical global landmarks param (centralized). Load from YAML so all
+        nodes find the same `/landmarks` mapping. Legacy per-agent param is
+        left commented inside the agent group. -->
+    <rosparam param="landmarks" file="$(find spurdog_acomms)/launch/basic_modem_config.yaml" command="load" />
+
     <!-- Start the agent node -->
     <group ns="$(arg agent_name)">
 
@@ -28,8 +33,10 @@
         <param name="modem_address" value="$(arg source_addr)" />
         <!-- <param name="source_addr" value="0" /> -->
         <param name="num_agents" value="$(arg num_agents)" />
-        <param name="num_landmarks" value="2" />
-        <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" />
+    <param name="num_landmarks" value="2" />
+    <!-- legacy per-agent landmarks (now loaded globally above):
+    <param name="landmarks" value="{L0:[-71.7845,-39.6078,1.5], L1:[65.0832,25.6598,1.5]}" />
+    -->
         <!-- <param name="num_slots" value="$(eval 2 * num_agents)" /> -->
         <param name="sigma_range" value="1" />
         <param name="sound_speed" value="1500" />

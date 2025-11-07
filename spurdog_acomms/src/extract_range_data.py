@@ -21,6 +21,7 @@ from spurdog_acomms_utils.nmea_utils import (
     parse_nmea_catxf,
     # parse_nmea_catxp,
 )
+from spurdog_acomms_utils.param_utils import get_namespace_param
 
 class CycleManager:
     """This is a node to run the comms cycle for the vehicle.
@@ -28,7 +29,13 @@ class CycleManager:
     It is untested on ping + data cycles, but should work with minimal changes."""
     def __init__(self):
         rospy.init_node('comms_cycle_manager', anonymous=True)
-        self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]} # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        # Prefer landmarks via ROS params; fall back to legacy literals for safety
+        # Previous hard-coded literal preserved for reference:
+        # self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]}
+        self.landmarks = get_namespace_param("landmarks", {
+            "L0": [-74.5193539608157, -38.9298973079931, 1.5],
+            "L1": [66.5150726324041, 25.969767675496275, 1.5]
+        }, warn_if_missing=True)
         self.sound_speed = float(rospy.get_param("sound_speed", 1486))
         self.ping_method = None
         self.range_data = []

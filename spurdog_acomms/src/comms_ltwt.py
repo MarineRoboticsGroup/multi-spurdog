@@ -23,6 +23,7 @@ from spurdog_acomms_utils.setup_utils import(
     configure_modem_addresses,
     configure_cycle_targets
 )
+from spurdog_acomms_utils.param_utils import get_namespace_param
 from spurdog_acomms_utils.nmea_utils import (
     parse_nmea_sentence,
     parse_nmea_cacmd,
@@ -43,7 +44,13 @@ class CycleManager:
         self.local_address = int(rospy.get_param("modem_address", 0))
         self.num_agents = int(rospy.get_param("num_agents", 1))
         self.num_landmarks = int(rospy.get_param("num_landmarks", 2))
-        self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]} # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
+        # Prefer landmark definitions supplied via ROS params; fallback to defaults.
+        # Previous hard-coded literal preserved for reference:
+        # self.landmarks = {"L0":[-74.5193539608157,-38.9298973079931,1.5], "L1":[66.5150726324041,25.969767675496275,1.5]}
+        self.landmarks = get_namespace_param("landmarks", {
+            "L0": [-74.5193539608157, -38.9298973079931, 1.5],
+            "L1": [66.5150726324041, 25.969767675496275, 1.5]
+        }, warn_if_missing=True)  # Assumes a dictionary of landmark positions {L1:[x,y,z], L2:[x,y,z], ...}
         self.sound_speed = float(rospy.get_param("sound_speed", 1486))
         # Variables for addressing
         self.modem_addresses = {}

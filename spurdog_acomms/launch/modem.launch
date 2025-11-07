@@ -5,15 +5,40 @@
 -->
 
 <launch>
-  <arg name="source_addr" default="1" />
+  <arg name="source_addr" default="0" />
   <arg name="serial_port" default="/dev/ttyUSB0" />
   <arg name="namespace" default="landmark" />
   <arg name="record_bag" default="false" doc="Set true to record rosbag" />
   <arg name="bag_dir" default="$(env HOME)/bags" doc="Bag output directory" />
 
+  <!-- Canonical global landmarks param (centralized). We also keep the
+       legacy group-local landmarks load below (commented) to preserve the
+       previous behaviour for users who ran modem.launch to program modems.
+  -->
+  <rosparam param="landmarks">
+    L0: [-74.5193539608157, -38.9298973079931, -1.83]
+    L1: [66.5150726324041, 25.969767675496275, -1.83]
+  </rosparam>
+
   <group ns="$(arg namespace)">
-    <!-- Load the basic modem configuration parameters -->
+    <!-- Load the basic modem configuration parameters (modem_config, defaults, etc.) -->
     <rosparam file="$(find spurdog_acomms)/launch/basic_modem_config.yaml" command="load" />
+
+    <!--
+      Explicitly ensure the `landmarks` mapping from the YAML is available in
+      this namespace. Some launch patterns previously set `landmarks` at a
+      different namespace (or at the agent level) which could cause namespace
+      resolution issues for nodes that call `rospy.get_param('landmarks')`.
+
+      We keep the original generic file load above (to preserve modem_config
+      and other keys) and also explicitly load just the `landmarks` subtree
+      into the current namespace to make the mapping reliably available to
+      nodes launched inside this group.
+    -->
+    <!-- Explicitly load landmarks into the modem namespace (legacy).
+      Commented because we now set a canonical global `landmarks` above.
+    <rosparam param="landmarks" file="$(find spurdog_acomms)/launch/basic_modem_config.yaml" command="load" />
+    -->
 
     <!-- Override the default serial port and source address -->
     <param name="modem_serial_port" value="$(arg serial_port)" />
