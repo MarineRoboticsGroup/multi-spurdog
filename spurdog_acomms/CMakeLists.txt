@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.5.0)
 project(spurdog_acomms)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
@@ -76,6 +76,7 @@ add_message_files(
   #BetweenFactor.msg
   #RangeFactor.msg
   ReceivedSignalStats.msg
+  LandmarkStats.msg
 )
 
 ## Generate services in the 'srv' folder
