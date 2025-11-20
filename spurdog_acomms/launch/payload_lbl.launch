@@ -67,6 +67,12 @@
             <param name="gyro_bias_z" value="0.0"/>
             <param name="velocity_source" value="dvl"/>
         </node>
+        
+        <!-- Landmark performance tracking -->
+        <node name="landmark_stats_tracker" pkg="spurdog_acomms" type="landmark_stats_tracker.py" output="screen">
+            <param name="responsiveness_threshold_sec" value="10.0" />
+            <param name="publish_rate_hz" value="1.0" />
+        </node>
 
 
         <!-- Launch the MOOS interface bridge -->
