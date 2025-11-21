@@ -8,6 +8,7 @@ import rospy
 from collections import defaultdict, deque
 from ros_acomms_msgs.msg import PingReply
 from spurdog_acomms.msg import LandmarkStats
+from std_msgs.msg import String
 from spurdog_acomms_utils.param_utils import get_namespace_param
 
 
@@ -39,10 +40,11 @@ class LandmarkStatsTracker:
             'last_owtt': 0.0,
             'last_range': 0.0,
             'last_success_time': None,
+            'was_unresponsive': False,  # Track state to avoid repeated warnings
         })
         
         # Parameters
-        self.responsiveness_threshold = rospy.get_param("~responsiveness_threshold_sec", 30.0)
+        self.responsiveness_threshold = rospy.get_param("~responsiveness_threshold_sec", 60.0)
         self.publish_rate = rospy.get_param("~publish_rate_hz", 1.0)
         self.sound_speed = rospy.get_param("~sound_speed", 1500.0)  # m/s
         
@@ -61,6 +63,9 @@ class LandmarkStatsTracker:
         
         # Also publish aggregate stats
         self.stats_pub = rospy.Publisher("landmark_stats/all", LandmarkStats, queue_size=10)
+        
+        # LED command publisher for warnings
+        self.led_pub = rospy.Publisher("led_command", String, queue_size=10)
         
         rospy.loginfo("Landmark stats tracker initialized")
     
@@ -133,12 +138,35 @@ class LandmarkStatsTracker:
                 time_since = (now - stat['last_success_time']).to_sec()
                 msg.time_since_last_reply = rospy.Duration(time_since)
                 msg.is_responsive = (time_since < self.responsiveness_threshold)
+                
+                # Check if landmark became unresponsive
+                if not msg.is_responsive and not stat['was_unresponsive']:
+                    self.send_unresponsive_warning(name, time_since)
+                    stat['was_unresponsive'] = True
+                    rospy.logwarn(f"Landmark {name} is UNRESPONSIVE (no reply for {time_since:.1f}s)")
+                # Reset warning state when responsive again
+                elif msg.is_responsive and stat['was_unresponsive']:
+                    stat['was_unresponsive'] = False
+                    rospy.loginfo(f"Landmark {name} is responsive again")
             else:
                 msg.is_responsive = False
             
             # Publish
             self.landmark_pubs[src].publish(msg)
             self.stats_pub.publish(msg)  # Also publish to aggregate topic
+    
+    def send_unresponsive_warning(self, landmark_name, time_since):
+        """Send LED warning when landmark becomes unresponsive."""
+        # Flash red 3 times over 5 seconds: each flash is ~1.67s
+        # Pattern format: [R.G.B.A]:duration
+        # 3 flashes in 5 seconds = pattern repeats, 1 cycle total
+        led_cmd = 'priority=3,pattern=([255.0.0.0]:1.67),cycles=3'
+        
+        led_msg = String()
+        led_msg.data = led_cmd
+        self.led_pub.publish(led_msg)
+        
+        rospy.logwarn(f"Sent LED warning for unresponsive landmark {landmark_name} (no reply for {time_since:.1f}s)")
     
     def run(self):
         """Main loop."""
