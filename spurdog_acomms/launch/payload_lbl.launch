@@ -47,7 +47,7 @@
                     BW0: 5000
                     XST: 1
                     TAT: 50
-                    pwramp.txlevel: 0
+                    pwramp.txlevel: 3
                     psk.packet.mod_hdr_version: 1
                 </rosparam>
             </node>
@@ -57,7 +57,7 @@
         <node name="comms_lbl" pkg="spurdog_acomms" type="comms_lbl.py" output="screen">
             <param name="sound_speed" value="1501" />
             <param name="sigma_range" value="1" />
-            <param name="ping_timeout" value="4" />
+            <param name="ping_timeout" value="8" />
         </node>
         <node name="odometry" pkg="spurdog_acomms" type="odometry" output="screen">
             <!-- <param name="gyro_noise_sigma" value="0.001"/>
