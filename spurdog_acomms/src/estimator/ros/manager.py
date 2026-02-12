@@ -48,6 +48,11 @@ class ROSEstimatorManager:
         self.agent_name = agent_name
         self.dimension = dimension
         
+        # LOCAL FRAME TRANSFORMATION - Morrison's methodology requires local frame optimization
+        # Store reference frame (first pose in world coordinates) for transformation
+        self.world_frame_reference = None  # Dict with 'position' and 'rotation' (scipy Rotation object)
+        self.use_local_frame = True  # Set to False to disable transformation (for easy rollback)
+        
         # Track integrated_state for pose initialization
         self.integrated_state_count = 0
         self.first_integrated_state: Optional[PoseWithCovarianceStamped] = None
@@ -114,6 +119,9 @@ class ROSEstimatorManager:
         
         Morrison Fix #5: Initialize poses from integrated_state to handle disconnected odometry chains.
         Morrison Fix #6: Create between-factors from consecutive integrated_state messages.
+        Morrison LOCAL FRAME: Transform world coordinates to local frame for optimization.
+        
+        Pipeline: World Frame Input → Local Frame Optimization → World Frame Output
         """
         # Filter out post-surface data if timestamp provided
         if self.surface_timestamp and msg.header.stamp.to_sec() >= self.surface_timestamp:
@@ -123,36 +131,55 @@ class ROSEstimatorManager:
         key = Key(f"A{self.integrated_state_count}")
         self.integrated_state_count += 1
         
-        # Extract pose from message
-        position = np.array([
+        # Extract pose from message (WORLD FRAME)
+        position_world = np.array([
             msg.pose.pose.position.x,
             msg.pose.pose.position.y,
             msg.pose.pose.position.z,
         ])
         
-        orientation = np.array([
+        orientation_world = np.array([
             msg.pose.pose.orientation.x,
             msg.pose.pose.orientation.y,
             msg.pose.pose.orientation.z,
             msg.pose.pose.orientation.w,
         ])
         
-        # Store first integrated state and use it as local frame origin
+        # Store first integrated state as reference frame
         if self.first_integrated_state is None:
             self.first_integrated_state = msg
-            # Store transformation from world to local frame
-            self.world_to_local_position = position.copy()
-            self.world_to_local_rotation = R.from_quat(orientation)
+            # Store world frame reference for transformation
+            self.world_frame_reference = {
+                'position': position_world.copy(),
+                'rotation': R.from_quat(orientation_world),
+                'rotation_inv': R.from_quat(orientation_world).inv()
+            }
             rospy.loginfo(f"[Morrison Fix #5] Stored first integrated_state for key {key}")
-            rospy.loginfo(f"[Morrison LOCAL FRAME] Origin at world position: {position}")
-            rospy.loginfo(f"[Morrison LOCAL FRAME] Initial orientation (quat): {orientation}")
+            rospy.loginfo(f"[Morrison LOCAL FRAME] World frame reference at position: {position_world}")
+            rospy.loginfo(f"[Morrison LOCAL FRAME] World frame reference orientation (quat): {orientation_world}")
+            rospy.loginfo(f"[Morrison LOCAL FRAME] Transformation enabled: {self.use_local_frame}")
         
-        # Transform pose from world frame to local optimization frame
+        # Transform pose from WORLD FRAME to LOCAL FRAME for optimization
         # Morrison: "It generates relative poses (relative to the landmarks)"
-        # This means first pose at (0,0,0) with identity rotation
-        position_local = self.world_to_local_rotation.inv().apply(position - self.world_to_local_position)
-        orientation_local_R = self.world_to_local_rotation.inv() * R.from_quat(orientation)
-        orientation_local = orientation_local_R.as_quat()
+        # Local frame: first pose at (0,0,0) with identity rotation
+        if self.use_local_frame and self.world_frame_reference is not None:
+            # Apply transformation: local = R0_inv @ (world - p0)
+            position_local = self.world_frame_reference['rotation_inv'].apply(
+                position_world - self.world_frame_reference['position']
+            )
+            orientation_local_R = self.world_frame_reference['rotation_inv'] * R.from_quat(orientation_world)
+            orientation_local = orientation_local_R.as_quat()
+            
+            # Log first pose transformation for verification
+            if key.index == 0:
+                rospy.loginfo(f"[Morrison LOCAL FRAME] First pose transformed:")
+                rospy.loginfo(f"  World: pos={position_world}, quat={orientation_world}")
+                rospy.loginfo(f"  Local: pos={position_local}, quat={orientation_local}")
+        else:
+            # No transformation - use world frame directly (for rollback/comparison)
+            position_local = position_world
+            orientation_local = orientation_world
+            orientation_local_R = R.from_quat(orientation_world)
         
         # Create pose in LOCAL optimization frame
         if self.dimension == 3:
@@ -285,3 +312,16 @@ class ROSEstimatorManager:
         if not success:
             rospy.logdebug("No new data received, skipping update.")
         return success
+    
+    def get_world_frame_reference(self):
+        """
+        Get the world frame reference for local→world transformation.
+        
+        Returns:
+            Dict with 'position', 'rotation', 'rotation_inv' or None if not initialized
+        """
+        return self.world_frame_reference
+    
+    def is_using_local_frame(self) -> bool:
+        """Check if local frame transformation is enabled."""
+        return self.use_local_frame

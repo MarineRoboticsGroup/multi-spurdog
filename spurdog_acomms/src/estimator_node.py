@@ -65,7 +65,12 @@ def main() -> None:
         # Always publish ALL poses currently in the estimate
         num_poses = len(manager.estimator.current_estimate.pose_map)
         if num_poses > 0:
-            publish_all_pose_estimates(manager.estimator, pose_pub)
+            publish_all_pose_estimates(
+                manager.estimator, 
+                pose_pub,
+                world_frame_reference=manager.get_world_frame_reference(),
+                use_local_frame=manager.is_using_local_frame()
+            )
         else:
             rospy.logwarn_throttle(5.0, f"No poses in current_estimate to publish")
 
@@ -108,9 +113,14 @@ def main() -> None:
         manager.update(force=True)
         num_poses = len(manager.estimator.current_estimate.pose_map)
         rospy.loginfo(f"Final optimization complete: {num_poses} poses in current_estimate")
-        # Publish final optimized poses
+        # Publish final optimized poses (transform from local to world frame)
         if num_poses > 0:
-            publish_all_pose_estimates(manager.estimator, pose_pub)
+            publish_all_pose_estimates(
+                manager.estimator, 
+                pose_pub,
+                world_frame_reference=manager.get_world_frame_reference(),
+                use_local_frame=manager.is_using_local_frame()
+            )
             rospy.loginfo(f"Published final {num_poses} optimized poses")
 
     rospy.on_shutdown(shutdown_hook)
