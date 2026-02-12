@@ -88,7 +88,11 @@ def get_rotation_matrix_from_quat(quat: np.ndarray) -> np.ndarray:
     rot = scipy.spatial.transform.Rotation.from_quat(quat)
     assert isinstance(rot, scipy.spatial.transform.Rotation)
 
-    rot_mat = rot.as_matrix()
+    # Compatibility: scipy < 1.4 uses as_dcm(), >= 1.4 uses as_matrix()
+    if hasattr(rot, 'as_matrix'):
+        rot_mat = rot.as_matrix()
+    else:
+        rot_mat = rot.as_dcm()
     assert isinstance(rot_mat, np.ndarray)
     assert rot_mat.shape == (3, 3)
 
@@ -115,7 +119,12 @@ def get_quat_from_rotation_matrix(mat: np.ndarray) -> np.ndarray:
     else:
         rot_matrix = mat
 
-    rot = scipy.spatial.transform.Rotation.from_matrix(rot_matrix)
+    # scipy < 1.4 uses from_dcm, >= 1.4 uses from_matrix
+    try:
+        rot = scipy.spatial.transform.Rotation.from_matrix(rot_matrix)
+    except AttributeError:
+        rot = scipy.spatial.transform.Rotation.from_dcm(rot_matrix)
+    
     assert isinstance(rot, scipy.spatial.transform.Rotation)
     quat = rot.as_quat()
     assert isinstance(quat, np.ndarray)

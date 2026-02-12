@@ -10,6 +10,7 @@ import rospy
 from estimator.ros import (
     ROSEstimatorManager,
     publish_pose_msgs,
+    publish_all_pose_estimates,
     create_node_and_label_markers,
     create_edge_marker,
     create_range_edge_marker,
@@ -58,11 +59,15 @@ def main() -> None:
 
     def timer_cb(event) -> None:
         """Timer callback for periodic updates and publishing."""
-        # Update estimator
+        # Run update if new data is available
         manager.update()
 
-        # Publish pose messages
-        publish_pose_msgs(manager.estimator, manager.most_recent_pose_keys, pose_pub)
+        # Always publish ALL poses currently in the estimate
+        num_poses = len(manager.estimator.current_estimate.pose_map)
+        if num_poses > 0:
+            publish_all_pose_estimates(manager.estimator, pose_pub)
+        else:
+            rospy.logwarn_throttle(5.0, f"No poses in current_estimate to publish")
 
         # Create and publish RViz visualization markers
         all_vars = manager.get_all_estimated_variables()
@@ -96,6 +101,19 @@ def main() -> None:
     # Set up timer for periodic updates
     rate = rospy.get_param("~rate", 0.1)
     rospy.Timer(rospy.Duration(1.0 / float(rate)), timer_cb)
+
+    def shutdown_hook():
+        """Run final optimization before shutdown to ensure all poses are optimized."""
+        rospy.loginfo("Shutting down estimator - running final optimization...")
+        manager.update(force=True)
+        num_poses = len(manager.estimator.current_estimate.pose_map)
+        rospy.loginfo(f"Final optimization complete: {num_poses} poses in current_estimate")
+        # Publish final optimized poses
+        if num_poses > 0:
+            publish_all_pose_estimates(manager.estimator, pose_pub)
+            rospy.loginfo(f"Published final {num_poses} optimized poses")
+
+    rospy.on_shutdown(shutdown_hook)
 
     rospy.loginfo("Estimator node started")
     rospy.spin()

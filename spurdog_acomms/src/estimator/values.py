@@ -65,17 +65,18 @@ class EstimatorValues:
         Args:
             variable: The variable to update (Pose2D, Pose3D, Point2D, or Point3D).
         """
+        import rospy
         key = variable.key
         if key.is_landmark:
             assert isinstance(variable, (Point2D, Point3D)), "Expected a Point2D or Point3D for landmark key."
             val_before = self.point_map.get(key, None)
             self.point_map[key] = variable
+            rospy.loginfo(f"[VALUES] Updated landmark {key}, point_map now has {len(self.point_map)} landmarks")
         else:
             assert isinstance(variable, (Pose2D, Pose3D)), "Expected a Pose2D or Pose3D for pose key."
             val_before = self.pose_map.get(key, None)
             self.pose_map[key] = variable
-
-        # print(f"Updated variable for key {key}. Previous value: {val_before}, New value: {variable}")
+            rospy.loginfo(f"[VALUES] Updated pose {key}, pose_map now has {len(self.pose_map)} poses")
 
     @property
     def all_variable_map(self) -> Dict[Key, Union[Pose2D, Pose3D, Point2D, Point3D]]:

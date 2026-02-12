@@ -89,15 +89,18 @@ class EstimatorManager:
         """
         return set(self.most_recent_pose_keys.keys())
 
-    def update(self) -> bool:
+    def update(self, force: bool = False) -> bool:
         """
         Update the estimator with the current measurements.
+        
+        Args:
+            force: If True, run optimization even if no new data received
         
         Returns:
             True if update was successful, False if no new data or update failed
         """
         with self._lock:
-            if not self.has_received_data:
+            if not force and not self.has_received_data:
                 return False
 
             try:

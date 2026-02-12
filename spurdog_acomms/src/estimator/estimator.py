@@ -182,7 +182,7 @@ class Estimator(ABC):
             )
             raise
 
-        # 6) Build expected pose2 and initialize
+        # 6) Build expected pose2 and initialize (if not already initialized)
         try:
             if self.dimension == 2:
                 try:
@@ -198,7 +198,8 @@ class Estimator(ABC):
                     orientation=theta,
                 )
                 try:
-                    self.initialize_pose(expected_pose2)
+                    if not self.current_estimate.key_exists(key2):
+                        self.initialize_pose(expected_pose2)
                 except Exception as e:
                     rospy.logerr(
                         f"[add_odometry:init_pose2_2d] Failed to initialize pose2 for key {key2}: {e}"
@@ -218,7 +219,8 @@ class Estimator(ABC):
                     orientation=quat,
                 )
                 try:
-                    self.initialize_pose(expected_pose2)
+                    if not self.current_estimate.key_exists(key2):
+                        self.initialize_pose(expected_pose2)
                 except Exception as e:
                     rospy.logerr(
                         f"[add_odometry:init_pose2_3d] Failed to initialize pose2 for key {key2}: {e}"
@@ -259,6 +261,7 @@ class Estimator(ABC):
         ), "Pose must be of type Pose2D or Pose3D"
         self.current_estimate.update_variable(pose)
         self._specific_initialize_pose(pose)
+        rospy.logdebug(f"[estimator] Initialized pose for key {pose.key}, current_estimate now has {len(self.current_estimate.pose_map)} poses")
         rospy.loginfo(f"[estimator] Initialized pose for key {pose.key}")
 
         if pose.key in self.delayed_range_inits:
