@@ -100,12 +100,16 @@ class Estimator(ABC):
     def add_odometry(self, odom_measurement: OdometryMeasurement) -> None:
         """
         Add an odometry measurement to the estimator. If key1 is not initialized and is a start pose,
-        it is initialized at the origin. Computes the expected pose for key2 and initializes it if needed.
+        it is initialized at the origin AS A PLACEHOLDER. Morrison Fix #5 will update it with
+        actual world coordinates from integrated_state. Computes the expected pose for key2 
+        and initializes it if needed.
         Args:
             odometry_measurement: The odometry measurement to be added.
         """
         key1, key2 = odom_measurement.key1, odom_measurement.key2
 
+        # 1) Temporary first-pose initialization at origin (Morrison Fix #5 will update later)
+        # This allows odometry factors to be added before integrated_state arrives
         def _handle_first_pose_initialization():
             not_initialized = key1 not in self.current_estimate.pose_map
             is_start_pose = key1.index == 0
@@ -121,8 +125,8 @@ class Estimator(ABC):
                 else:
                     raise ValueError(f"Unknown dimension: {self.dimension}")
                 self.initialize_pose(init_pose)
+                rospy.loginfo(f"[add_odometry] Temporary initialization of first pose {key1} at origin (will be updated by integrated_state)")
 
-        # 1) First-pose initialization
         try:
             _handle_first_pose_initialization()
         except Exception as e:

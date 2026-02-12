@@ -48,10 +48,13 @@ class ROSEstimatorManager:
         self.agent_name = agent_name
         self.dimension = dimension
         
-        # LOCAL FRAME TRANSFORMATION - Morrison's methodology requires local frame optimization
-        # Store reference frame (first pose in world coordinates) for transformation
+        # LOCAL FRAME TRANSFORMATION - DISABLED per Morrison's thesis
+        # Morrison's actual CORA implementation uses RANDOM INITIALIZATION in WORLD FRAME
+        # No coordinate transformations needed - let both estimators work directly in world frame
         self.world_frame_reference = None  # Dict with 'position' and 'rotation' (scipy Rotation object)
-        self.use_local_frame = True  # Set to False to disable transformation (for easy rollback)
+        # DISABLED: Morrison's thesis shows CORA uses random init, not local frame transforms
+        from estimator.types import EstimatorMode
+        self.use_local_frame = False  # Disabled for both GTSAM and CORA - Morrison uses world frame
         
         # Track integrated_state for pose initialization
         self.integrated_state_count = 0
@@ -200,13 +203,18 @@ class ROSEstimatorManager:
                 marginal_covariance=np.eye(3) * 1e-6,
             )
         
-        # Initialize the pose in the estimator (only if not already initialized)
+        # Initialize or UPDATE the pose in the estimator
+        # Morrison Fix #5: integrated_state provides authoritative world coordinates
+        # Update is needed because odometry may have temporarily initialized pose 0 at origin
         with self.manager._lock:
             if not self.manager.estimator.current_estimate.key_exists(key):
                 self.manager.estimator.initialize_pose(pose)
                 self.manager.most_recent_pose_keys[key.char] = key
+                rospy.logdebug(f"Initialized pose {key} from integrated_state")
             else:
-                rospy.logdebug(f"Pose {key} already initialized, skipping")
+                # Update existing pose with authoritative integrated_state data
+                self.manager.estimator.current_estimate.update_variable(key, pose)
+                rospy.logdebug(f"Updated pose {key} from integrated_state (overwriting temporary initialization)")
         
             # Morrison Fix #6: Create between-factor from consecutive integrated_state messages
             # Only create if BOTH poses exist (prevents race condition)

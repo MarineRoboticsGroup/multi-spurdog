@@ -132,6 +132,13 @@ def publish_all_pose_estimates(
                 world_frame_reference['position']
             )
             
+            # Debug logging for first few poses
+            if key.index <= 2:
+                rospy.loginfo(f"[PUBLISH DEBUG {key}] Local→World transformation:")
+                rospy.loginfo(f"  Local (optimized): {position_local}")
+                rospy.loginfo(f"  World (published): {position_world}")
+                rospy.loginfo(f"  p0 (reference): {world_frame_reference['position']}")
+            
             # Transform orientation
             if isinstance(pose.orientation, float):
                 # 2D pose: orientation is yaw angle
