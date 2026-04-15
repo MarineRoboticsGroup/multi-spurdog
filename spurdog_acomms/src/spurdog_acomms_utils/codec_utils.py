@@ -1,7 +1,7 @@
 import numpy as np
 import rospy
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseWithCovariance
-from spurdog_acomms.msg import BetweenFactor, RangeFactor
+#from spurdog_acomms.msg import BetweenFactor, RangeFactor
 from ros_acomms_msgs.msg import PingReply
 # fill out codec scale factors
 CODEC_SCALE_FACTORS = {
@@ -86,9 +86,10 @@ def encode_pwcs_as_int(pwcs:PoseWithCovarianceStamped, type):
         codec_scale_factors = CODEC_SCALE_FACTORS["prior_factor"]
     else:
         rospy.logerr("[%s] Invalid type for encoding PoseWithCovarianceStamped!" % rospy.Time.now())
-        return BetweenFactor()
+        #return BetweenFactor()
+        return []
     # Intialize the output message
-    between_factor = BetweenFactor()
+    #between_factor = BetweenFactor()
     # Extract the appropriate covariance sigmas
     sigma_x = np.sqrt(pwcs.pose.covariance[0])  # x
     sigma_y = np.sqrt(pwcs.pose.covariance[7])  # y
@@ -172,7 +173,8 @@ def encode_range_event_as_int(remote_address:int, remote_index:int=None, measure
             sigma_range = sigma_range
     else:
         rospy.logerr("[%s] No index or measured range provided!" % rospy.Time.now())
-        return RangeFactor()
+        #return RangeFactor()
+        return []
     if depth is None or depth < 0.1:
         depth = 0.1
     elif depth > 12.5:
