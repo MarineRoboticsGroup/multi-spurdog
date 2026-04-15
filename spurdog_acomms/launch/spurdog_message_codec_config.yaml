@@ -16,7 +16,7 @@
       default_dest: 0
       queue_order: lifo
       queue_maxsize: 1
-      is_active: true
+      is_active: false  # Deprecated - message type moved to attic
       allow fragmentation: false
       priority: 40
       fields:
@@ -48,7 +48,7 @@
       default_dest: 0
       queue_order: lifo
       queue_maxsize: 1
-      is_active: true
+      is_active: false  # Deprecated - message type moved to attic
       allow fragmentation: false
       priority: 40
       fields:
