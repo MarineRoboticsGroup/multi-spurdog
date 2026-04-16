@@ -1,0 +1,3 @@
+string key1
+string key2
+geometry_msgs/PoseWithCovariance pose

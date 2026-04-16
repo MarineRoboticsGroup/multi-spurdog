@@ -61,12 +61,12 @@ catkin_python_setup()
 add_message_files(
   FILES
   Bar30SoundSpeed.msg
-  #PoseWithAssoc.msg
-  #RangeWithAssoc.msg
-  #InitPrior.msg
-  #PartialGraph.msg
-  #CycleGraph.msg
-  #CommsCycleStatus.msg
+  PoseWithAssoc.msg
+  RangeWithAssoc.msg
+  InitPrior.msg
+  PartialGraph.msg
+  CycleGraph.msg
+  CommsCycleStatus.msg
   AcommsCycleStatus.msg
   PoseFactorStamped.msg
   RangeFactorStamped.msg
